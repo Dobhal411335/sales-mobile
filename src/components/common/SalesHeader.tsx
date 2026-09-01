@@ -7,6 +7,10 @@ import {
 } from 'react-native';
 import type {NativeStackHeaderProps} from '@react-navigation/native-stack';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {
+  NotificationBell,
+  type NotificationNavigator,
+} from '../notifications/NotificationBell';
 import {colors} from '../../constants/colors';
 import {config} from '../../constants/config';
 import {useAuth} from '../../hooks/useAuth';
@@ -32,7 +36,6 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
   }, []);
 
   const activeRoute = route.name as SalesRouteName;
-  const notificationCount = activeRoute === 'Floor' ? 3 : 0;
 
   return (
     <>
@@ -75,23 +78,9 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
           <View style={styles.right}>
             <Text style={styles.dateTime}>{formatHeaderDateTime(now)}</Text>
 
-            <Pressable
-              style={({pressed}) => [
-                styles.iconButton,
-                pressed && styles.iconButtonPressed,
-              ]}
-              onPress={() => navigation.navigate('Notifications')}
-              accessibilityRole="button"
-              accessibilityLabel="Notifications">
-              <Text style={styles.iconGlyph}>🔔</Text>
-              {notificationCount > 0 ? (
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>
-                    {notificationCount}
-                  </Text>
-                </View>
-              ) : null}
-            </Pressable>
+            <NotificationBell
+              navigation={navigation as NotificationNavigator}
+            />
 
             <Pressable
               style={({pressed}) => [
@@ -207,40 +196,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textSecondary,
     marginRight: 4,
-  },
-  iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.surface,
-    position: 'relative',
-  },
-  iconButtonPressed: {
-    backgroundColor: colors.cream,
-  },
-  iconGlyph: {
-    fontSize: 18,
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  notificationBadgeText: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: colors.surface,
   },
   profileButton: {
     flexDirection: 'row',

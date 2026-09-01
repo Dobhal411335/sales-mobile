@@ -39,9 +39,9 @@ export type SalesStackParamList = {
     taxBreakdown?: TaxBreakdownLine[];
   };
   Orders: undefined;
-  OrderDetails: undefined;
+  OrderDetails: {sessionId?: string} | undefined;
   Reports: undefined;
   Notifications: undefined;
-  PrintJobs: undefined;
+  PrintJobs: {jobId?: string} | undefined;
   DayClose: undefined;
 };

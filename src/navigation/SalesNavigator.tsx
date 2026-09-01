@@ -3,6 +3,7 @@ import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import type {NativeStackHeaderProps} from '@react-navigation/native-stack';
 import {colors} from '../constants/colors';
 import {SalesHeader} from '../components/common/SalesHeader';
+import {useNotificationRealtime, usePrintJobRealtime} from '../socket/socket';
 import {CreateOrderScreen} from '../screens/sales/create-order/CreateOrderScreen';
 import {DayCloseScreen} from '../screens/sales/day-close/DayCloseScreen';
 import {FloorScreen} from '../screens/sales/floor/FloorScreen';
@@ -23,6 +24,9 @@ const screenOptions = {
 };
 
 export function SalesNavigator() {
+  useNotificationRealtime();
+  usePrintJobRealtime();
+
   return (
     <Stack.Navigator initialRouteName="Floor" screenOptions={screenOptions}>
       <Stack.Screen name="Floor" component={FloorScreen} />

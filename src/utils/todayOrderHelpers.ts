@@ -147,7 +147,7 @@ export function getOrderTypeBadgeColors(variant: string) {
   }
 }
 
-export function canWaiveOrder(order: TodayOrder): boolean {
+export function canPayTodayOrder(order: TodayOrder): boolean {
   const isOnline = order?.source === 'ONLINE';
   const orderStatusUpper = String(order?.status || '').toUpperCase();
   return (
@@ -155,6 +155,10 @@ export function canWaiveOrder(order: TodayOrder): boolean {
     !isOrderPaid(order) &&
     ['PENDING', 'CONFIRMED'].includes(orderStatusUpper)
   );
+}
+
+export function canWaiveOrder(order: TodayOrder): boolean {
+  return canPayTodayOrder(order);
 }
 
 export function getEmptyFilterMessage(filter: string): string {

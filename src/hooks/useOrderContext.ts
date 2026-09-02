@@ -1,83 +1,30 @@
-import {useMemo} from 'react';
-import type {OrderContext} from '../types/cart';
-import type {OrderType} from '../navigation/types';
-import {getMockSessionContext} from '../mocks/menuMockData';
-import {formatTableLocation} from '../utils/partyName';
+import {useOrderStore} from '../store/orderStore';
+import {buildOrderHeaderTitle} from '../utils/orderContextMapper';
 
-const ORDER_TYPE_LABELS: Record<OrderType, string> = {
-  table: 'Table Order',
-  walking: 'Walking Order',
-  staff: 'Staff Order',
-  online: 'Online Order',
-};
+export function useOrderContextDisplay(orderNumber?: string | null) {
+  const orderContext = useOrderStore((state) => state.orderContext);
 
-interface UseOrderContextParams {
-  orderType?: OrderType;
-  tableId?: string;
-  sessionId?: string;
-}
-
-export function useOrderContext({
-  orderType,
-  tableId,
-  sessionId,
-}: UseOrderContextParams): OrderContext {
-  return useMemo(() => {
-    const titleLabel = orderType
-      ? ORDER_TYPE_LABELS[orderType]
-      : 'Create Order';
-
-    if (orderType === 'walking') {
-      return {
-        orderType,
-        sessionId,
-        titleLabel,
-        partyLabel: 'Walk-in Customer',
-      };
-    }
-
-    if (orderType === 'staff') {
-      return {
-        orderType,
-        sessionId,
-        titleLabel,
-        partyLabel: 'Staff Order',
-      };
-    }
-
-    if (orderType === 'online') {
-      return {
-        orderType,
-        sessionId,
-        titleLabel,
-        partyLabel: 'Online Order',
-      };
-    }
-
-    const session = getMockSessionContext(tableId);
-    if (session) {
-      const tableLabel = formatTableLocation(
-        session.tableNumber,
-        session.floorName,
-      );
-      return {
-        orderType: orderType ?? 'table',
-        tableId,
-        sessionId,
-        tableNumber: session.tableNumber,
-        floorName: session.floorName,
-        guestCount: session.guestCount,
-        titleLabel: 'Table Order',
-        partyLabel: tableLabel,
-      };
-    }
-
+  if (!orderContext) {
     return {
-      orderType,
-      tableId,
-      sessionId,
-      titleLabel,
+      titleLabel: 'Create Order',
       partyLabel: 'Create Order',
+      headerTitle: orderNumber ? `Order #${orderNumber}` : 'Create Order',
+      guestCount: undefined,
+      tableNumber: undefined,
+      floorName: undefined,
+      floorId: undefined,
     };
-  }, [orderType, tableId, sessionId]);
+  }
+
+  return {
+    titleLabel: orderContext.titleLabel,
+    partyLabel: orderContext.partyLabel,
+    headerTitle: buildOrderHeaderTitle(orderContext, orderNumber),
+    guestCount: orderContext.guestCount,
+    tableNumber: orderContext.tableNumber,
+    floorName: orderContext.floorName,
+    floorId: orderContext.floorId,
+    source: orderContext.source,
+    mobileOrderType: orderContext.mobileOrderType,
+  };
 }

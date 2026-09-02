@@ -12,6 +12,7 @@ import {
   shouldShowTable,
 } from '../../utils/orderDisplay';
 import {
+  canPayTodayOrder,
   canWaiveOrder,
   getOrderGrandTotal,
   getOrderTypeBadgeColors,
@@ -50,7 +51,7 @@ export function OrderDetailPanel({
 }: OrderDetailPanelProps) {
   const placerName = getPlacerName(order);
   const orderStatusUpper = String(order.status || '').toUpperCase();
-  const showPayNow = canWaiveOrder(order);
+  const showPayNow = canPayTodayOrder(order);
   const showWaive = canWaiveOrder(order);
   const statusColors = getStatusColors(order.status);
   const typeVariant = getOrderTypeBadgeVariant(order);

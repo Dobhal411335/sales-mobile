@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   LayoutChangeEvent,
   StyleSheet,
+  Text,
   View,
 } from 'react-native';
 import {colors} from '../../constants/colors';
@@ -11,7 +12,7 @@ import {computeContentBounds, computeFitScale} from '../../utils/floorLayout';
 import {
   findSessionForTable,
   getTableCardSize,
-  resolveTableDisplayStatus,
+  getTableDisplayState,
 } from '../../utils/tableStatus';
 import {TableCard} from './TableCard';
 
@@ -23,6 +24,8 @@ interface FloorCanvasProps {
   currentUserId: string | null;
   selectedTableId: string | null;
   loading: boolean;
+  refreshing: boolean;
+  hasFloors: boolean;
   onTablePress: (table: FloorTable, session: TableSession | null) => void;
 }
 
@@ -80,6 +83,8 @@ export function FloorCanvas({
   currentUserId,
   selectedTableId,
   loading,
+  refreshing,
+  hasFloors,
   onTablePress,
 }: FloorCanvasProps) {
   const [viewport, setViewport] = useState({width: 0, height: 0});
@@ -114,6 +119,15 @@ export function FloorCanvas({
       {loading && tables.length === 0 ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.loadingText}>Loading floor...</Text>
+        </View>
+      ) : !hasFloors ? (
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyText}>No areas available.</Text>
+        </View>
+      ) : tables.length === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Text style={styles.emptyText}>No tables in this area.</Text>
         </View>
       ) : (
         <View style={styles.centerWrap}>
@@ -136,7 +150,11 @@ export function FloorCanvas({
 
               {tables.map((table) => {
                 const session = findSessionForTable(sessions, table.id);
-                const status = resolveTableDisplayStatus(session, currentUserId);
+                const displayState = getTableDisplayState(
+                  table,
+                  session,
+                  currentUserId,
+                );
                 const cardSize = getTableCardSize(table);
                 const left =
                   (table.x || 0) -
@@ -162,7 +180,7 @@ export function FloorCanvas({
                     <TableCard
                       table={table}
                       session={session}
-                      status={status}
+                      status={displayState.status}
                       currentUserId={currentUserId}
                       selected={selectedTableId === table.id}
                       onPress={() => onTablePress(table, session)}
@@ -175,9 +193,10 @@ export function FloorCanvas({
         </View>
       )}
 
-      {loading && tables.length > 0 ? (
+      {refreshing && tables.length > 0 ? (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.refreshingText}>Refreshing...</Text>
         </View>
       ) : null}
     </View>
@@ -242,11 +261,35 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  emptyWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(255,255,255,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+  },
+  refreshingText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
 });

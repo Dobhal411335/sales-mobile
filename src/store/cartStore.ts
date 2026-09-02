@@ -55,7 +55,26 @@ interface CartState extends PartyFields {
     persistedTotals: CartTotals;
     serverName?: string;
     partyName?: string;
+    items?: CartLineItem[];
   }) => void;
+  hydrateFromOrder: (input: {
+    items: CartLineItem[];
+    orderNumber: string;
+    orderId: string;
+    orderStatus: OrderStatus;
+    orderNote?: string;
+    partyName?: string;
+    guestName?: string;
+    guestPhone?: string;
+    guestCountryCode?: string;
+    guestEmail?: string;
+    hasSentKot: boolean;
+    kotCartFingerprint: string | null;
+    persistedTotals: CartTotals;
+    appliedDiscount: AppliedDiscount | null;
+    serverName?: string;
+  }) => void;
+  syncItemsFromServer: (items: CartLineItem[], persistedTotals: CartTotals) => void;
   markOrderPaid: (snapshot: PaidOrderSnapshot) => void;
   getTotals: () => CartTotals;
   canPay: () => boolean;
@@ -156,9 +175,11 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   applyKotResult: (result) => {
     const state = get();
+    const items = result.items ?? state.items;
     set({
+      items,
       hasSentKot: true,
-      kotCartFingerprint: getCartFingerprint(state.items),
+      kotCartFingerprint: getCartFingerprint(items),
       orderNumber: result.orderNumber,
       activeOrderId: result.orderId,
       orderStatus: 'PENDING',
@@ -167,6 +188,39 @@ export const useCartStore = create<CartState>((set, get) => ({
       ticketType: result.ticketType,
       serverName: result.serverName ?? state.serverName,
       partyName: result.partyName ?? state.partyName,
+    });
+  },
+
+  hydrateFromOrder: (input) => {
+    set({
+      items: input.items,
+      orderNote: input.orderNote ?? '',
+      guestName: input.guestName ?? input.partyName ?? '',
+      partyName: input.partyName ?? input.guestName ?? '',
+      guestPhone: input.guestPhone ?? '',
+      guestCountryCode: input.guestCountryCode ?? '+1',
+      guestEmail: input.guestEmail ?? '',
+      activeOrderId: input.orderId,
+      orderNumber: input.orderNumber,
+      orderStatus: input.orderStatus,
+      hasSentKot: input.hasSentKot,
+      kotCartFingerprint: input.kotCartFingerprint,
+      persistedTotals: input.persistedTotals,
+      appliedDiscount: input.appliedDiscount,
+      serverName: input.serverName ?? null,
+      kotPayload: [],
+      isSubmitting: false,
+    });
+  },
+
+  syncItemsFromServer: (items, persistedTotals) => {
+    const fingerprint = getCartFingerprint(items);
+    set({
+      items,
+      persistedTotals,
+      hasSentKot: true,
+      kotCartFingerprint: fingerprint,
+      orderStatus: 'PENDING',
     });
   },
 
@@ -207,7 +261,14 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   canSendKot: () => {
     const state = get();
-    return state.items.length > 0 && !state.isSubmitting && !state.hasSentKot;
+    if (state.isSubmitting || state.items.length === 0) {
+      return false;
+    }
+    if (!state.hasSentKot) {
+      return true;
+    }
+    const fingerprint = getCartFingerprint(state.items);
+    return state.kotCartFingerprint !== fingerprint;
   },
 }));
 

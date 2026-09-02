@@ -53,6 +53,10 @@ export interface MenuProduct {
     taxNames?: string[];
   };
   inStock?: boolean;
+  isOffer?: boolean;
+  inclusions?: string[];
+  choices?: string[];
+  drinks?: string[];
 }
 
 export interface MenuOffer {

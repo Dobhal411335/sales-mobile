@@ -1,20 +1,10 @@
-import {config} from '../constants/config';
-import {
-  getMockDayCloseBlockers,
-  type MockDayCloseScenario,
-} from '../mocks/dayCloseMockData';
 import type {
   DayCloseBlockers,
   DayCloseResultResponse,
   DayCloseValidationResponse,
 } from '../types/dayClose';
+import {getApiNotConfiguredMessage, isApiConfigured} from '../utils/apiGuard';
 import {api} from './api';
-
-const useLiveApi = Boolean(config.API_BASE_URL);
-
-function mockDelay(ms = 500): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function mapApiError(status?: number, fallback?: string): string {
   if (status === 403) {
@@ -37,17 +27,12 @@ function normalizeBlockers(raw?: DayCloseBlockers | null): DayCloseBlockers {
 }
 
 export function isDayCloseApiConfigured(): boolean {
-  return useLiveApi;
+  return isApiConfigured();
 }
 
 export async function validateDayClose(): Promise<DayCloseValidationResponse> {
-  if (!useLiveApi) {
-    await mockDelay();
-    return {
-      success: true,
-      message: 'Mock validation',
-      data: getMockDayCloseBlockers(),
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -78,13 +63,8 @@ export async function validateDayClose(): Promise<DayCloseValidationResponse> {
 }
 
 export async function closeRestaurant(): Promise<DayCloseResultResponse> {
-  if (!useLiveApi) {
-    await mockDelay(800);
-    return {
-      success: false,
-      message:
-        'Restaurant close requires a connected backend. Set API_BASE_URL to continue.',
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -142,11 +122,4 @@ export async function closeRestaurant(): Promise<DayCloseResultResponse> {
       ),
     };
   }
-}
-
-/** Dev-only helper to preview the ready state without a backend. */
-export function getMockScenarioBlockers(
-  scenario: MockDayCloseScenario,
-): DayCloseBlockers {
-  return getMockDayCloseBlockers(scenario);
 }

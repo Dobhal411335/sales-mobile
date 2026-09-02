@@ -9,7 +9,8 @@ import {
   View,
 } from 'react-native';
 import {colors} from '../../constants/colors';
-import {MOCK_EMPLOYEES, type MockEmployee} from '../../mocks/employeeMockData';
+import {useStaffEmployees} from '../../hooks/useStaffEmployees';
+import type {SalesEmployee} from '../../services/employeeService';
 
 interface StaffPartyFormProps {
   selectedStaffId: string;
@@ -24,10 +25,9 @@ export function StaffPartyForm({
   onStaffChange,
   onReasonChange,
 }: StaffPartyFormProps) {
+  const {employees, loading} = useStaffEmployees();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const selectedEmployee = MOCK_EMPLOYEES.find(
-    (emp) => emp.id === selectedStaffId,
-  );
+  const selectedEmployee = employees.find((emp) => emp.id === selectedStaffId);
 
   return (
     <View style={styles.container}>
@@ -42,9 +42,11 @@ export function StaffPartyForm({
             style={
               selectedEmployee ? styles.selectValue : styles.selectPlaceholder
             }>
-            {selectedEmployee
-              ? `${selectedEmployee.name}${selectedEmployee.role ? ` · ${selectedEmployee.role}` : ''}`
-              : 'Choose staff member...'}
+            {loading
+              ? 'Loading employees...'
+              : selectedEmployee
+                ? `${selectedEmployee.name}${selectedEmployee.role ? ` · ${selectedEmployee.role}` : ''}`
+                : 'Choose staff member...'}
           </Text>
           <Text style={styles.selectCaret}>▾</Text>
         </Pressable>
@@ -91,7 +93,7 @@ export function StaffPartyForm({
           <View style={styles.pickerSheet}>
             <Text style={styles.pickerTitle}>Select Employee</Text>
             <ScrollView style={styles.pickerList}>
-              {MOCK_EMPLOYEES.map((emp: MockEmployee) => (
+              {employees.map((emp: SalesEmployee) => (
                 <Pressable
                   key={emp.id}
                   style={styles.pickerItem}
@@ -114,11 +116,6 @@ export function StaffPartyForm({
       </Modal>
     </View>
   );
-}
-
-export function getStaffPartyName(staffId: string): string {
-  const employee = MOCK_EMPLOYEES.find((emp) => emp.id === staffId);
-  return employee?.name ?? 'Staff';
 }
 
 const styles = StyleSheet.create({

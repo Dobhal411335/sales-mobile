@@ -1,4 +1,3 @@
-import type {OrderType} from '../navigation/types';
 import type {ProductType, TaxRate} from './product';
 
 export interface ChoiceSelection {
@@ -45,15 +44,3 @@ export interface AppliedDiscount {
 }
 
 export type OrderStatus = 'DRAFT' | 'PENDING' | 'PAID' | string;
-
-export interface OrderContext {
-  orderType?: OrderType;
-  tableId?: string;
-  sessionId?: string;
-  tableNumber?: string;
-  floorName?: string;
-  guestCount?: number;
-  orderNumber?: string;
-  partyLabel: string;
-  titleLabel: string;
-}

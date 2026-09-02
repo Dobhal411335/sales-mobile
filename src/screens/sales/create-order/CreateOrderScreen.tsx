@@ -1,8 +1,14 @@
-import React, {useCallback, useMemo, useState} from 'react';
-import {Alert, Pressable, StyleSheet, Text, View} from 'react-native';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {useFocusEffect} from '@react-navigation/native';
 import {Cart} from '../../../components/cart/Cart';
 import {TabletModal} from '../../../components/common/TabletModal';
 import {CategoryList} from '../../../components/menu/CategoryList';
@@ -12,19 +18,26 @@ import {
   PartyNameForm,
   validatePartyNameForm,
 } from '../../../components/orders/PartyNameForm';
-import {
-  getStaffPartyName,
-  StaffPartyForm,
-} from '../../../components/orders/StaffPartyForm';
+import {StaffPartyForm} from '../../../components/orders/StaffPartyForm';
 import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
+import {PrintJobStatusStrip} from '../../../components/printing/PrintJobStatusStrip';
 import {colors} from '../../../constants/colors';
 import {useMenuData} from '../../../hooks/useMenuData';
-import {useOrderContext} from '../../../hooks/useOrderContext';
+import {useOrderContextDisplay} from '../../../hooks/useOrderContext';
+import {
+  useOrderRealtime,
+  useOrderStoreSelectors,
+} from '../../../hooks/useOrderRealtime';
+import {useOrderSession} from '../../../hooks/useOrderSession';
+import {
+  getStaffEmployeeName,
+  useStaffEmployees,
+} from '../../../hooks/useStaffEmployees';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {printerService} from '../../../printer/printerService';
 import {
   buildSubmitPayloadFromCart,
-  submitOrderMock,
+  submitOrder,
   toReceiptOrder,
 } from '../../../services/orderService';
 import {useCartStore} from '../../../store/cartStore';
@@ -39,16 +52,38 @@ type Props = NativeStackScreenProps<SalesStackParamList, 'CreateOrder'>;
 
 export function CreateOrderScreen({navigation, route}: Props) {
   const {orderType, tableId, sessionId} = route.params ?? {};
-  const orderContext = useOrderContext({orderType, tableId, sessionId});
-  const setOrderContext = useOrderStore((state) => state.setOrderContext);
+
+  const {refetchOrder, persistDirectOrderId} = useOrderSession({
+    orderType,
+    tableId,
+    sessionId,
+  });
+
+  const {
+    loading: sessionLoading,
+    error: sessionError,
+    dirty,
+    remoteUpdatePending,
+    orderContext,
+  } = useOrderStoreSelectors();
+
+  const setDirty = useOrderStore((state) => state.setDirty);
+  const setSaving = useOrderStore((state) => state.setSaving);
+  const setRemoteUpdatePending = useOrderStore(
+    (state) => state.setRemoteUpdatePending,
+  );
+
+  const {employees} = useStaffEmployees();
+
+  useOrderRealtime(orderContext?.floorId, refetchOrder);
 
   const {
     categories,
     activeCategory,
     filteredProducts,
     globalTaxes,
-    loading,
-    error,
+    loading: menuLoading,
+    error: menuError,
     setActiveCategory,
   } = useMenuData();
 
@@ -92,27 +127,55 @@ export function CreateOrderScreen({navigation, route}: Props) {
   const [kotReceiptOrder, setKotReceiptOrder] = useState<ReceiptOrder | null>(
     null,
   );
+  const [ticketPrintJobId, setTicketPrintJobId] = useState<string | null>(null);
+  const [kotPrintMessage, setKotPrintMessage] = useState<string | null>(null);
 
-  useFocusEffect(
-    useCallback(() => {
-      setOrderContext(orderContext);
-      return () => {
-        setOrderContext(null);
-      };
-    }, [orderContext, setOrderContext]),
-  );
+  const display = useOrderContextDisplay(orderNumber);
+
+  const markDirty = useCallback(() => {
+    if (!dirty) {
+      setDirty(true);
+    }
+  }, [dirty, setDirty]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (event) => {
+      if (!useOrderStore.getState().dirty) {
+        return;
+      }
+
+      event.preventDefault();
+      Alert.alert(
+        'Discard changes?',
+        'You have unsaved cart changes. Leave without saving?',
+        [
+          {text: 'Stay', style: 'cancel'},
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: () => {
+              useOrderStore.getState().setDirty(false);
+              navigation.dispatch(event.data.action);
+            },
+          },
+        ],
+      );
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const isWalkIn = orderType === 'walking';
   const isStaffOrder = orderType === 'staff';
 
   const tableLabel = useMemo(
     () =>
-      orderContext.tableNumber && orderContext.floorName
-        ? `Table ${orderContext.tableNumber} · ${orderContext.floorName}`
-        : orderContext.tableNumber
-          ? `Table ${orderContext.tableNumber}`
+      display.tableNumber && display.floorName
+        ? `Table ${display.tableNumber} · ${display.floorName}`
+        : display.tableNumber
+          ? `Table ${display.tableNumber}`
           : '',
-    [orderContext.tableNumber, orderContext.floorName],
+    [display.tableNumber, display.floorName],
   );
 
   const handleProductPress = useCallback(
@@ -122,9 +185,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
         setModifierOpen(true);
         return;
       }
+      markDirty();
       addItems([buildSimpleCartLine(product, globalTaxes)]);
     },
-    [addItems, globalTaxes],
+    [addItems, globalTaxes, markDirty],
   );
 
   const handleSendKot = useCallback(() => {
@@ -139,12 +203,16 @@ export function CreateOrderScreen({navigation, route}: Props) {
   }, [canSendKot, isStaffOrder]);
 
   const submitKotOrder = useCallback(
-    async (resolvedPartyName: string, extras: {
-      staffForId?: string;
-      staffOrderReason?: string;
-      source?: string;
-    } = {}) => {
+    async (
+      resolvedPartyName: string,
+      extras: {
+        staffForId?: string;
+        staffOrderReason?: string;
+        source?: string;
+      } = {},
+    ) => {
       setIsSubmitting(true);
+      setSaving(true);
       try {
         const payload = buildSubmitPayloadFromCart(
           items,
@@ -154,22 +222,22 @@ export function CreateOrderScreen({navigation, route}: Props) {
           {
             sessionId: sessionId ?? null,
             orderId: activeOrderId ?? undefined,
-            tableNo: orderContext.tableNumber,
-            floorName: orderContext.floorName,
+            tableNo: orderContext?.tableNumber,
+            floorName: orderContext?.floorName,
             guestName: resolvedPartyName,
             partyName: resolvedPartyName,
             contactNumber: guestPhone.trim() || null,
             guestCountryCode: guestPhone.trim() ? guestCountryCode : null,
             guestEmail: guestEmail.trim() || null,
-            guestCount: orderContext.guestCount ?? null,
+            guestCount: orderContext?.guestCount ?? null,
             orderType,
-            source: extras.source,
+            source: extras.source ?? orderContext?.source,
             staffForId: extras.staffForId,
             staffOrderReason: extras.staffOrderReason ?? null,
           },
         );
 
-        const result = await submitOrderMock(payload);
+        const result = await submitOrder(payload);
         if (!result.success || !result.data) {
           Alert.alert('Unable to send order', result.message ?? 'Try again.');
           return;
@@ -185,6 +253,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
           orderId: result.data._id,
           kotPayload: result.data.kotPayload,
           ticketType: result.data.ticketType,
+          items: result.data.items,
           persistedTotals: {
             subtotal: result.data.subTotal,
             taxTotal: result.data.taxTotal,
@@ -195,14 +264,27 @@ export function CreateOrderScreen({navigation, route}: Props) {
           partyName: resolvedPartyName,
         });
 
+        if (result.data._id && (orderType === 'walking' || orderType === 'staff')) {
+          await persistDirectOrderId(result.data._id);
+        }
+
+        setDirty(false);
+        setRemoteUpdatePending(false);
+
         if (receiptOrder && result.data.kotPayload.length > 0) {
+          setTicketPrintJobId(result.data.printJobId ?? null);
+          setKotPrintMessage(null);
           setKotReceiptOrder(receiptOrder);
           setKotPreviewOpen(true);
         }
       } catch {
-        Alert.alert('Unable to send order', 'Check your connection and try again.');
+        Alert.alert(
+          'Unable to send order',
+          'Check your connection and try again.',
+        );
       } finally {
         setIsSubmitting(false);
+        setSaving(false);
         setPartyModalOpen(false);
         setStaffModalOpen(false);
       }
@@ -216,14 +298,19 @@ export function CreateOrderScreen({navigation, route}: Props) {
       guestEmail,
       guestPhone,
       items,
-      orderContext.floorName,
-      orderContext.guestCount,
-      orderContext.tableNumber,
+      orderContext?.floorName,
+      orderContext?.guestCount,
+      orderContext?.source,
+      orderContext?.tableNumber,
       orderNote,
       orderType,
+      persistDirectOrderId,
       sessionId,
+      setDirty,
       setIsSubmitting,
       setPartyFields,
+      setRemoteUpdatePending,
+      setSaving,
     ],
   );
 
@@ -238,10 +325,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
       isWalkIn,
       orderType,
       tableLabel,
-      guestCount: orderContext.guestCount,
+      guestCount: orderContext?.guestCount,
     });
 
-    const source = isWalkIn ? 'WALK_IN' : undefined;
+    const source = isWalkIn ? 'WALK_IN' : orderContext?.source;
     submitKotOrder(resolved, {source});
   }, [
     guestEmail,
@@ -250,7 +337,8 @@ export function CreateOrderScreen({navigation, route}: Props) {
     isWalkIn,
     orderType,
     tableLabel,
-    orderContext.guestCount,
+    orderContext?.guestCount,
+    orderContext?.source,
     submitKotOrder,
   ]);
 
@@ -259,38 +347,40 @@ export function CreateOrderScreen({navigation, route}: Props) {
       Alert.alert('Select employee', 'Please select a staff member.');
       return;
     }
-    const resolved = getStaffPartyName(staffForId);
+    const resolved = getStaffEmployeeName(employees, staffForId);
     submitKotOrder(resolved, {
       staffForId,
       staffOrderReason: staffOrderReason.trim() || undefined,
       source: 'STAFF',
     });
-  }, [staffForId, staffOrderReason, submitKotOrder]);
+  }, [employees, staffForId, staffOrderReason, submitKotOrder]);
 
   const handlePayNow = useCallback(() => {
     const totals = getTotals();
     navigation.navigate('Payment', {
       sessionId,
       orderId: activeOrderId ?? undefined,
+      orderNumber: orderNumber ?? undefined,
       orderType,
       tableId,
       subtotal: totals.subtotal,
       taxTotal: totals.taxTotal,
       total: totals.total,
       partyName: partyName || guestName,
-      guestCount: orderContext.guestCount,
-      tableNumber: orderContext.tableNumber,
-      floorName: orderContext.floorName,
+      guestCount: orderContext?.guestCount,
+      tableNumber: orderContext?.tableNumber,
+      floorName: orderContext?.floorName,
     });
   }, [
     activeOrderId,
     getTotals,
     guestName,
     navigation,
-    orderContext.floorName,
-    orderContext.guestCount,
-    orderContext.tableNumber,
+    orderContext?.floorName,
+    orderContext?.guestCount,
+    orderContext?.tableNumber,
     orderType,
+    orderNumber,
     partyName,
     sessionId,
     tableId,
@@ -300,37 +390,73 @@ export function CreateOrderScreen({navigation, route}: Props) {
     if (!kotReceiptOrder) {
       return;
     }
-    await printerService.printKOT({
-      order: kotReceiptOrder,
-      kotItems: kotPayload,
-      ticketType,
-      serverName: serverName ?? undefined,
-      guestCount: orderContext.guestCount,
-      specialNote: orderNote,
-    });
+    const result = await printerService.printKOT(
+      {
+        order: kotReceiptOrder,
+        kotItems: kotPayload,
+        ticketType,
+        serverName: serverName ?? undefined,
+        guestCount: orderContext?.guestCount,
+        specialNote: orderNote,
+      },
+      ticketPrintJobId,
+    );
+    setKotPrintMessage(result.message ?? null);
   }, [
     kotReceiptOrder,
     kotPayload,
     ticketType,
     serverName,
-    orderContext.guestCount,
+    orderContext?.guestCount,
     orderNote,
+    ticketPrintJobId,
   ]);
+
+  const handleViewPrintJob = useCallback(
+    (jobId: string) => {
+      setKotPreviewOpen(false);
+      navigation.navigate('PrintJobs', {jobId});
+    },
+    [navigation],
+  );
+
+  const handleRefreshRemote = useCallback(() => {
+    setRemoteUpdatePending(false);
+    refetchOrder();
+  }, [refetchOrder, setRemoteUpdatePending]);
 
   const totals = getTotals();
   const kotMode = ticketType === 'BAR_RECEIPT' ? 'bar' : 'kot';
   const kotModalTitle =
-    ticketType === 'BAR_RECEIPT'
-      ? 'Bar Receipt'
-      : 'Kitchen Order Ticket (KOT)';
+    ticketType === 'BAR_RECEIPT' ? 'Bar Receipt' : 'Kitchen Order Ticket (KOT)';
+
+  const showSessionLoader = sessionLoading && items.length === 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
+      {remoteUpdatePending ? (
+        <Pressable
+          style={styles.remoteBanner}
+          onPress={handleRefreshRemote}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh order">
+          <Text style={styles.remoteBannerText}>
+            Order updated on another device. Tap to refresh.
+          </Text>
+        </Pressable>
+      ) : null}
+
+      {sessionError ? (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>{sessionError}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.layout}>
         <View style={styles.menuPane}>
           <View style={styles.contextHeader}>
-            <Text style={styles.screenTitle}>Create Order</Text>
-            <Text style={styles.contextSubtitle}>{orderContext.partyLabel}</Text>
+            <Text style={styles.screenTitle}>{display.headerTitle}</Text>
+            <Text style={styles.contextSubtitle}>{display.partyLabel}</Text>
           </View>
 
           <CategoryList
@@ -339,12 +465,19 @@ export function CreateOrderScreen({navigation, route}: Props) {
             onSelectCategory={setActiveCategory}
           />
 
-          <ProductGrid
-            products={filteredProducts}
-            loading={loading}
-            error={error}
-            onProductPress={handleProductPress}
-          />
+          {showSessionLoader ? (
+            <View style={styles.loaderPane}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.loaderText}>Loading order...</Text>
+            </View>
+          ) : (
+            <ProductGrid
+              products={filteredProducts}
+              loading={menuLoading}
+              error={menuError}
+              onProductPress={handleProductPress}
+            />
+          )}
         </View>
 
         <View style={styles.cartPane}>
@@ -356,21 +489,32 @@ export function CreateOrderScreen({navigation, route}: Props) {
             canSendKot={canSendKot()}
             canPay={canPay()}
             hasSentKot={hasSentKot}
-            onChangeNote={setOrderNote}
+            onChangeNote={(note) => {
+              markDirty();
+              setOrderNote(note);
+            }}
             onIncrease={(cartId) => {
               const item = items.find((line) => line.cartId === cartId);
               if (item) {
+                markDirty();
                 updateQty(cartId, item.qty + 1);
               }
             }}
             onDecrease={(cartId) => {
               const item = items.find((line) => line.cartId === cartId);
               if (item) {
+                markDirty();
                 updateQty(cartId, item.qty - 1);
               }
             }}
-            onRemove={removeItem}
-            onClearAll={clearCart}
+            onRemove={(cartId) => {
+              markDirty();
+              removeItem(cartId);
+            }}
+            onClearAll={() => {
+              markDirty();
+              clearCart();
+            }}
             onSendKot={handleSendKot}
             onPayNow={handlePayNow}
           />
@@ -385,7 +529,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
           setModifierOpen(false);
           setModifierProduct(null);
         }}
-        onAdd={(lines) => addItems(lines)}
+        onAdd={(lines) => {
+          markDirty();
+          addItems(lines);
+        }}
       />
 
       <TabletModal
@@ -411,15 +558,25 @@ export function CreateOrderScreen({navigation, route}: Props) {
           guestPhone={guestPhone}
           guestCountryCode={guestCountryCode}
           guestEmail={guestEmail}
-          onChangeGuestName={(value) => setPartyFields({guestName: value})}
-          onChangeGuestPhone={(value) => setPartyFields({guestPhone: value})}
-          onChangeGuestCountryCode={(value) =>
-            setPartyFields({guestCountryCode: value})
-          }
-          onChangeGuestEmail={(value) => setPartyFields({guestEmail: value})}
-          tableNumber={orderContext.tableNumber}
-          floorName={orderContext.floorName}
-          guestCount={orderContext.guestCount}
+          onChangeGuestName={(value) => {
+            markDirty();
+            setPartyFields({guestName: value});
+          }}
+          onChangeGuestPhone={(value) => {
+            markDirty();
+            setPartyFields({guestPhone: value});
+          }}
+          onChangeGuestCountryCode={(value) => {
+            markDirty();
+            setPartyFields({guestCountryCode: value});
+          }}
+          onChangeGuestEmail={(value) => {
+            markDirty();
+            setPartyFields({guestEmail: value});
+          }}
+          tableNumber={orderContext?.tableNumber}
+          floorName={orderContext?.floorName}
+          guestCount={orderContext?.guestCount}
           isWalkIn={isWalkIn}
           orderType={orderType}
         />
@@ -446,10 +603,14 @@ export function CreateOrderScreen({navigation, route}: Props) {
         <StaffPartyForm
           selectedStaffId={staffForId}
           staffOrderReason={staffOrderReason}
-          onStaffChange={(id) => setPartyFields({staffForId: id})}
-          onReasonChange={(reason) =>
-            setPartyFields({staffOrderReason: reason})
-          }
+          onStaffChange={(id) => {
+            markDirty();
+            setPartyFields({staffForId: id});
+          }}
+          onReasonChange={(reason) => {
+            markDirty();
+            setPartyFields({staffOrderReason: reason});
+          }}
         />
       </TabletModal>
 
@@ -467,14 +628,14 @@ export function CreateOrderScreen({navigation, route}: Props) {
                     order={kotReceiptOrder}
                     kotItems={kotPayload}
                     serverName={serverName ?? undefined}
-                    guestCount={orderContext.guestCount}
+                    guestCount={orderContext?.guestCount}
                     specialNote={orderNote}
                   />
                 ),
                 right: (
                   <View style={styles.kotActions}>
                     <Text style={styles.kotActionsTitle}>KOT ACTIONS</Text>
-                    {orderContext.tableNumber ? (
+                    {orderContext?.tableNumber ? (
                       <Text style={styles.kotMeta}>
                         Table {orderContext.tableNumber}
                       </Text>
@@ -489,12 +650,30 @@ export function CreateOrderScreen({navigation, route}: Props) {
                       <Text style={styles.kotMeta}>Party: {partyName}</Text>
                     ) : null}
 
+                    <PrintJobStatusStrip
+                      printJobId={ticketPrintJobId}
+                      label={
+                        ticketType === 'BAR_RECEIPT'
+                          ? 'Bar ticket print job'
+                          : 'KOT print job'
+                      }
+                      onViewJob={handleViewPrintJob}
+                    />
+
+                    {kotPrintMessage ? (
+                      <Text style={styles.kotPrintMessage}>{kotPrintMessage}</Text>
+                    ) : null}
+
                     <Pressable
                       style={styles.kotActionButton}
                       onPress={handlePrintKot}
                       accessibilityRole="button"
                       accessibilityLabel="Print KOT">
-                      <Text style={styles.kotActionPrimaryText}>Print KOT</Text>
+                      <Text style={styles.kotActionPrimaryText}>
+                        {ticketType === 'BAR_RECEIPT'
+                          ? 'Queue Bar Ticket'
+                          : 'Queue KOT Print'}
+                      </Text>
                     </Pressable>
 
                     <Pressable
@@ -551,6 +730,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textSecondary,
   },
+  loaderPane: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 24,
+  },
+  loaderText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  remoteBanner: {
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FCD34D',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  remoteBannerText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#92400E',
+    textAlign: 'center',
+  },
+  errorBanner: {
+    backgroundColor: '#FEE2E2',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FECACA',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  errorText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#991B1B',
+    textAlign: 'center',
+  },
   kotActions: {
     gap: 12,
   },
@@ -565,6 +782,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: colors.text,
+  },
+  kotPrintMessage: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   kotActionButton: {
     minHeight: 52,

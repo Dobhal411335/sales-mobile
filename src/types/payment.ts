@@ -1,5 +1,5 @@
-import type {AppliedDiscount} from './cart';
-import type {PaidOrderSnapshot} from './receipt';
+import type {AppliedDiscount, CartLineItem} from './cart';
+import type {PaidOrderSnapshot, ReceiptOrder, TaxBreakdownLine} from './receipt';
 
 export type PaymentMethodKey = 'Card' | 'Cash' | 'GiftCard';
 
@@ -40,31 +40,74 @@ export interface ServiceTaxConfig {
 
 export interface PaymentRequestPayload {
   orderId: string;
+  amount: number;
+  method: string;
   sessionId?: string;
-  paymentMethod: string;
+  tipAmount?: number;
+  tipMethod?: string | null;
   cardType?: CardTypeName;
+  giftCardCode?: string;
+  giftCardUsedAmount?: number;
+  splitAmount?: number;
+  discountTotal?: number;
+  discountCode?: string | null;
+  guestName?: string;
+  partyName?: string;
+  guestCount?: number | null;
   cashAmount?: number;
   cardAmount?: number;
-  giftcardCode?: string;
-  giftcardUsedAmount?: number;
-  tipAmount?: number;
-  tipMethod?: string;
-  discountCode?: string;
+  applyServiceCharge?: boolean;
   serviceChargeTotal?: number;
-  serviceChargeName?: string;
-  guestName?: string;
+  serviceChargeName?: string | null;
+}
+
+export interface PaymentApiOrder extends ReceiptOrder {
+  _id?: string;
+  printJobId?: string | null;
+  processedByName?: string;
+  paymentStatus?: string;
+  status?: string;
+  invoiceNumber?: string;
+  giftcardCode?: string | null;
+  giftcardUsedAmount?: number;
+  paidAt?: string;
+  cardType?: string;
+  staffFor?: string;
 }
 
 export interface PaymentProcessResult {
   success: boolean;
   message?: string;
   order?: PaidOrderSnapshot;
+  printJobId?: string | null;
+  alreadyPaid?: boolean;
 }
 
 export interface AppliedPaymentDiscount {
   code: string;
   type: 'percent' | 'fixed' | 'dollar';
   value: number;
+}
+
+export interface PaymentCalculationInput {
+  items: CartLineItem[];
+  subTotal: number;
+  taxTotal: number;
+  appliedDiscount?: AppliedPaymentDiscount | null;
+  includeServiceCharge?: boolean;
+  giftCardUsedAmount?: number;
+  serviceTax?: ServiceTaxConfig | null;
+}
+
+export interface PaymentCalculationResult {
+  subTotal: number;
+  taxTotal: number;
+  discountTotal: number;
+  serviceChargeTotal: number;
+  serviceChargeName?: string;
+  giftCardUsed: number;
+  totalDue: number;
+  taxBreakdown: TaxBreakdownLine[];
 }
 
 export function toAppliedDiscount(

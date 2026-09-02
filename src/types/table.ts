@@ -10,6 +10,12 @@ export type TableDisplayStatus =
   | 'COMBINED'
   | 'BOOKED';
 
+export type ConnectionStatus =
+  | 'connected'
+  | 'connecting'
+  | 'disconnected'
+  | 'reconnecting';
+
 export interface Floor {
   id: string;
   name: string;

@@ -37,8 +37,9 @@ export type SalesStackParamList = {
     orderType?: OrderType;
     tableId?: string;
     taxBreakdown?: TaxBreakdownLine[];
+    printJobId?: string | null;
   };
-  Orders: undefined;
+  Orders: {filter?: 'ONLINE' | 'ALL'} | undefined;
   OrderDetails: {sessionId?: string} | undefined;
   Reports: undefined;
   Notifications: undefined;

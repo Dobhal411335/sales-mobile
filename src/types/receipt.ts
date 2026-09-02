@@ -57,6 +57,7 @@ export interface PaidOrderSnapshot extends ReceiptOrder {
   paidAt: string;
   invoiceNumber?: string;
   cardType?: string;
+  taxBreakdown?: TaxBreakdownLine[];
 }
 
 export interface KotPrintPayload {

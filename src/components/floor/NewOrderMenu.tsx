@@ -3,7 +3,6 @@ import {ActionSheet} from '../common/ActionSheet';
 import type {OrderType} from '../../navigation/types';
 
 const ORDER_TYPE_OPTIONS: {label: string; value: OrderType}[] = [
-  {label: 'Table Order', value: 'table'},
   {label: 'Walking Order', value: 'walking'},
   {label: 'Staff Order', value: 'staff'},
   {label: 'Online Order', value: 'online'},

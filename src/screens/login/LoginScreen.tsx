@@ -1,8 +1,9 @@
-import React, {useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   ActivityIndicator,
   Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -21,18 +22,91 @@ import {useAuth} from '../../hooks/useAuth';
 export function LoginScreen() {
   const {width, height} = useWindowDimensions();
   const isLandscape = width > height;
-  const {login, isLoading, error, clearError} = useAuth();
+  const {
+    login,
+    activateAndLogin,
+    isLoading,
+    error,
+    clearError,
+    deviceRegistered,
+    refreshDeviceStatus,
+    rememberEmployeeId,
+    loadRememberedEmployeeId,
+  } = useAuth();
 
-  const [username, setUsername] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
+  const [passcode, setPasscode] = useState('');
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const [focusedField, setFocusedField] = useState<'username' | 'password' | null>(
-    null,
+  const [passcodeVisible, setPasscodeVisible] = useState(false);
+  const [rememberDevice, setRememberDevice] = useState(false);
+  const [focusedField, setFocusedField] = useState<
+    'employeeId' | 'password' | 'passcode' | null
+  >(null);
+  const [showActivationModal, setShowActivationModal] = useState(false);
+  const [activationCode, setActivationCode] = useState('');
+  const [pendingCredentials, setPendingCredentials] = useState<{
+    employeeId: string;
+    password: string;
+  } | null>(null);
+
+  useEffect(() => {
+    void refreshDeviceStatus();
+    void loadRememberedEmployeeId().then((savedId) => {
+      if (savedId) {
+        setEmployeeId(savedId);
+        setRememberDevice(true);
+      }
+    });
+  }, [loadRememberedEmployeeId, refreshDeviceStatus]);
+
+  const finishRememberDevice = useCallback(
+    async (id: string) => {
+      if (rememberDevice && id.trim()) {
+        await rememberEmployeeId(id.trim());
+      } else if (!rememberDevice) {
+        await rememberEmployeeId(null);
+      }
+    },
+    [rememberDevice, rememberEmployeeId],
   );
 
   const handleSignIn = async () => {
     Keyboard.dismiss();
-    await login({username, password});
+    const usingPasscode = deviceRegistered && passcode.trim().length > 0;
+
+    const result = usingPasscode
+      ? await login({passcode}, {usePasscode: true})
+      : await login({employeeId, password});
+
+    if (result.success) {
+      await finishRememberDevice(employeeId);
+      return;
+    }
+
+    if ('needsActivation' in result && result.needsActivation) {
+      setPendingCredentials({employeeId: employeeId.trim(), password});
+      setShowActivationModal(true);
+    }
+  };
+
+  const handleActivationSubmit = async () => {
+    if (!pendingCredentials) {
+      return;
+    }
+
+    const result = await activateAndLogin({
+      employeeId: pendingCredentials.employeeId,
+      password: pendingCredentials.password,
+      activationCode,
+    });
+
+    if (result.success) {
+      setShowActivationModal(false);
+      setActivationCode('');
+      setPendingCredentials(null);
+      await finishRememberDevice(pendingCredentials.employeeId);
+    }
   };
 
   const brandPanel = (
@@ -53,36 +127,35 @@ export function LoginScreen() {
       <Text style={styles.formHint}>Sign in to start your shift</Text>
 
       <View style={styles.field}>
-        <Text style={styles.label}>Username / Email</Text>
+        <Text style={styles.label}>Employee ID</Text>
         <TextInput
           style={[
             styles.input,
-            focusedField === 'username' && styles.inputFocused,
+            focusedField === 'employeeId' && styles.inputFocused,
           ]}
-          value={username}
+          value={employeeId}
           onChangeText={(value) => {
             if (error) {
               clearError();
             }
-            setUsername(value);
+            setEmployeeId(value);
           }}
-          onFocus={() => setFocusedField('username')}
+          onFocus={() => setFocusedField('employeeId')}
           onBlur={() => setFocusedField(null)}
-          placeholder="Enter username or email"
+          placeholder="e.g. EMP-001"
           placeholderTextColor={colors.textSecondary}
-          autoCapitalize="none"
+          autoCapitalize="characters"
           autoCorrect={false}
-          keyboardType="email-address"
           textContentType="username"
           autoComplete="username"
           returnKeyType="next"
           editable={!isLoading}
-          accessibilityLabel="Username or email"
+          accessibilityLabel="Employee ID"
         />
       </View>
 
       <PasswordInput
-        label="Password"
+        label="PIN / Password"
         value={password}
         onChangeText={(value) => {
           if (error) {
@@ -99,6 +172,48 @@ export function LoginScreen() {
         editable={!isLoading}
         onSubmitEditing={handleSignIn}
       />
+
+      <Pressable
+        style={styles.rememberRow}
+        onPress={() => setRememberDevice((prev) => !prev)}
+        disabled={isLoading}
+        accessibilityRole="checkbox"
+        accessibilityState={{checked: rememberDevice}}>
+        <View style={[styles.checkbox, rememberDevice && styles.checkboxChecked]}>
+          {rememberDevice ? <Text style={styles.checkmark}>✓</Text> : null}
+        </View>
+        <Text style={styles.rememberLabel}>Remember me on this terminal</Text>
+      </Pressable>
+
+      {deviceRegistered ? (
+        <>
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <PasswordInput
+            label="Passcode"
+            value={passcode}
+            onChangeText={(value) => {
+              if (error) {
+                clearError();
+              }
+              setPasscode(value);
+            }}
+            onFocus={() => setFocusedField('passcode')}
+            onBlur={() => setFocusedField(null)}
+            isFocused={focusedField === 'passcode'}
+            visible={passcodeVisible}
+            onToggleVisibility={() => setPasscodeVisible((prev) => !prev)}
+            placeholder="Enter passcode"
+            editable={!isLoading}
+            keyboardType="number-pad"
+            onSubmitEditing={handleSignIn}
+          />
+        </>
+      ) : null}
 
       {error ? (
         <Text style={styles.errorText} accessibilityLiveRegion="polite">
@@ -120,13 +235,9 @@ export function LoginScreen() {
         {isLoading ? (
           <ActivityIndicator color={colors.surface} />
         ) : (
-          <Text style={styles.signInButtonText}>Sign In</Text>
+          <Text style={styles.signInButtonText}>Clock In</Text>
         )}
       </Pressable>
-
-      <Text style={styles.mockNote}>
-        Temporary mock login — not connected to the real backend.
-      </Text>
     </View>
   );
 
@@ -152,6 +263,57 @@ export function LoginScreen() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={showActivationModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!isLoading) {
+            setShowActivationModal(false);
+          }
+        }}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Activate POS Device</Text>
+            <Text style={styles.modalDescription}>
+              This device has not yet been registered. Enter the activation code
+              provided by your administrator.
+            </Text>
+
+            <Text style={styles.label}>Activation Code</Text>
+            <TextInput
+              style={[styles.input, styles.activationInput]}
+              value={activationCode}
+              onChangeText={setActivationCode}
+              placeholder="EMP-XXXX-XXXX"
+              placeholderTextColor={colors.textSecondary}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              editable={!isLoading}
+            />
+
+            <View style={styles.modalActions}>
+              <Pressable
+                style={styles.modalSecondaryButton}
+                onPress={() => setShowActivationModal(false)}
+                disabled={isLoading}>
+                <Text style={styles.modalSecondaryText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.modalPrimaryButton, isLoading && styles.signInButtonDisabled]}
+                onPress={handleActivationSubmit}
+                disabled={isLoading}>
+                {isLoading ? (
+                  <ActivityIndicator color={colors.surface} />
+                ) : (
+                  <Text style={styles.modalPrimaryText}>Activate Device</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -259,6 +421,54 @@ const styles = StyleSheet.create({
   inputFocused: {
     borderColor: colors.primary,
   },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 8,
+    gap: 10,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  checkboxChecked: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  checkmark: {
+    color: colors.surface,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  rememberLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 12,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    letterSpacing: 1,
+  },
   errorText: {
     fontSize: 14,
     color: colors.error,
@@ -283,10 +493,65 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.surface,
   },
-  mockNote: {
-    marginTop: 16,
-    fontSize: 12,
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 8,
+  },
+  modalDescription: {
+    fontSize: 14,
+    lineHeight: 20,
     color: colors.textSecondary,
+    marginBottom: 20,
+  },
+  activationInput: {
     textAlign: 'center',
+    letterSpacing: 2,
+    fontFamily: Platform.select({ios: 'Menlo', android: 'monospace'}),
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+  },
+  modalSecondaryButton: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalSecondaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  modalPrimaryButton: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 10,
+    backgroundColor: colors.primary,
+  },
+  modalPrimaryText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.surface,
   },
 });

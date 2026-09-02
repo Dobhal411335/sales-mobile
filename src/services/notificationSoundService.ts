@@ -66,11 +66,21 @@ export function isSoundPlaybackAvailable(): boolean {
   return loadSoundModule() !== null;
 }
 
+const SOUND_TYPES = new Set([
+  'NEW_ORDER',
+  'PAYMENT_COMPLETED',
+  'KOT_READY',
+  'PRINT_FAILED',
+  'PAYMENT_FAILED',
+  'ORDER_CANCELLED',
+  'EMPLOYEE_LOGIN',
+]);
+
 function shouldPlayForNotification(notification: Notification): boolean {
   return (
     notification.playSound === true ||
     notification.priority === 'high' ||
-    notification.type === 'EMPLOYEE_LOGIN'
+    SOUND_TYPES.has(notification.type)
   );
 }
 

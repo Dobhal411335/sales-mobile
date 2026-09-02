@@ -1,4 +1,3 @@
-import {config} from '../constants/config';
 import type {
   EodEmailResponse,
   EodExportKind,
@@ -6,14 +5,8 @@ import type {
   EodReportResponse,
   EodSaveResponse,
 } from '../types/eod';
+import {getApiNotConfiguredMessage, isApiConfigured} from '../utils/apiGuard';
 import {api} from './api';
-import {buildMockEodReport, MOCK_EOD_HISTORY} from './eodMockData';
-
-const useLiveApi = Boolean(config.API_BASE_URL);
-
-function mockDelay(ms = 500): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function mapApiError(status?: number): string {
   if (status === 403) {
@@ -26,25 +19,15 @@ function mapApiError(status?: number): string {
 }
 
 export function isEodApiConfigured(): boolean {
-  return useLiveApi;
+  return isApiConfigured();
 }
 
 export async function fetchEodReport(
   date: string,
   preferLive: boolean,
 ): Promise<EodReportResponse> {
-  if (!useLiveApi) {
-    await mockDelay();
-    const report = buildMockEodReport(date);
-    const isToday = date === report.meta.businessDate;
-    return {
-      success: true,
-      data: {
-        report,
-        saved: !preferLive && !isToday,
-        businessDate: date,
-      },
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -70,23 +53,8 @@ export async function saveEodReport(
   date: string,
   actualDeposit: number | null,
 ): Promise<EodSaveResponse> {
-  if (!useLiveApi) {
-    await mockDelay(700);
-    const report = buildMockEodReport(date);
-    report.meta.source = 'saved';
-    if (actualDeposit != null) {
-      report.cashDeposit.actualDeposit = actualDeposit;
-      report.cashDeposit.overShort = actualDeposit - report.cashDeposit.expectedDeposit;
-    }
-    return {
-      success: true,
-      data: {
-        id: 'mock-saved',
-        businessDate: date,
-        report,
-        reconciliation: report.reconciliation,
-      },
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -108,9 +76,8 @@ export async function saveEodReport(
 }
 
 export async function fetchEodHistory(limit = 60): Promise<EodHistoryResponse> {
-  if (!useLiveApi) {
-    await mockDelay(300);
-    return {success: true, data: {history: MOCK_EOD_HISTORY}};
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -135,11 +102,8 @@ export async function downloadEodExport(
   date: string,
   preferLive: boolean,
 ): Promise<{success: boolean; message?: string; data?: Blob; filename?: string}> {
-  if (!useLiveApi) {
-    return {
-      success: false,
-      message: 'Export requires backend connection.',
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -167,11 +131,8 @@ export async function emailEodReport(
   to: string,
   preferSaved = true,
 ): Promise<EodEmailResponse> {
-  if (!useLiveApi) {
-    return {
-      success: false,
-      message: 'Email requires backend connection.',
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {

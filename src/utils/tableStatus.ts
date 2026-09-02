@@ -1,8 +1,19 @@
+import {TABLE_STATUS_STYLES, type TableStatusStyle} from '../constants/tableStatus';
 import type {
   FloorTable,
   TableDisplayStatus,
   TableSession,
 } from '../types/table';
+
+export interface TableDisplayState {
+  status: TableDisplayStatus;
+  label: string;
+  style: TableStatusStyle;
+  employee: string | null;
+  guests: number | null;
+  sessionId: string | null;
+  orderId: string | null;
+}
 
 export function findSessionForTable(
   sessions: TableSession[],
@@ -54,6 +65,25 @@ export function resolveTableDisplayStatus(
   }
 
   return 'AVAILABLE';
+}
+
+export function getTableDisplayState(
+  _table: FloorTable,
+  session: TableSession | null,
+  currentUserId: string | null,
+): TableDisplayState {
+  const status = resolveTableDisplayStatus(session, currentUserId);
+  const style = TABLE_STATUS_STYLES[status];
+
+  return {
+    status,
+    label: style.label,
+    style,
+    employee: session ? getEmployeeFirstName(session.assignedEmployeeName) : null,
+    guests: session ? session.guestCount : null,
+    sessionId: session?.id ?? null,
+    orderId: null,
+  };
 }
 
 export function getEmployeeFirstName(name?: string | null): string | null {

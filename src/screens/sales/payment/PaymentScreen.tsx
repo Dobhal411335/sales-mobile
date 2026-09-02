@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -17,27 +17,43 @@ import {PaymentMethodSelector} from '../../../components/payment/PaymentMethodSe
 import {PaymentSummary} from '../../../components/payment/PaymentSummary';
 import {colors} from '../../../constants/colors';
 import {
-  MOCK_DISCOUNT_COUPONS,
-  MOCK_SERVICE_TAX,
-  verifyMockGiftCard,
-} from '../../../mocks/paymentMockData';
-import type {SalesStackParamList} from '../../../navigation/types';
-import {
-  applyMockDiscount,
+  applyDiscountCode,
   calculatePaymentTotals,
-  processPaymentMock,
+  fetchActiveServiceTax,
+  fetchAvailableDiscounts,
+  fetchPaymentRecoveryState,
+  isPaymentApiConfigured,
+  mapPaymentResponseToSnapshot,
+  processPayment,
+  verifyGiftCard,
 } from '../../../services/paymentService';
+import {fetchOrderById} from '../../../services/orderService';
+import {fetchTodayOrders} from '../../../services/todayOrdersService';
+import {useStaffEmployees, getStaffEmployeeName} from '../../../hooks/useStaffEmployees';
+import type {PaymentApiOrder} from '../../../types/payment';
+import type {TaxBreakdownLine} from '../../../types/receipt';
+import type {ApiOrder} from '../../../types/order';
+import {formatServiceTaxRate} from '../../../utils/serviceCharge';
+import {STAFF_DISCOUNT_CODE, buildStaffDiscountState} from '../../../utils/staffDiscount';
+import type {SalesStackParamList} from '../../../navigation/types';
 import {useCartStore} from '../../../store/cartStore';
 import type {
   AppliedPaymentDiscount,
   CardTypeName,
   PaymentMethodKey,
   PaymentUiStatus,
+  ServiceTaxConfig,
 } from '../../../types/payment';
 import {formatCurrency} from '../../../utils/currency';
+import {clearDirectOrderId, DIRECT_ORDER_STORAGE_KEYS} from '../../../utils/directOrderStorage';
+import {hydrateCartFromOrder} from '../../../utils/orderCartMapper';
 import {roundMoney} from '../../../utils/receiptFormat';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'Payment'>;
+
+function mapPaidOrderFromApi(order: ApiOrder) {
+  return mapPaymentResponseToSnapshot(order as PaymentApiOrder);
+}
 
 function buildPaymentMethodLabel(
   method: PaymentMethodKey,
@@ -88,8 +104,199 @@ export function PaymentScreen({navigation, route}: Props) {
   const cartOrderNumber = useCartStore((state) => state.orderNumber);
   const activeOrderId = useCartStore((state) => state.activeOrderId);
   const markOrderPaid = useCartStore((state) => state.markOrderPaid);
+  const hydrateFromOrder = useCartStore((state) => state.hydrateFromOrder);
+
+  const {employees} = useStaffEmployees();
 
   const displayOrderNumber = routeOrderNumber ?? cartOrderNumber ?? '0000';
+  const resolvedOrderId = orderId ?? activeOrderId ?? '';
+
+  const [serviceTax, setServiceTax] = useState<ServiceTaxConfig | null>(null);
+  const [availableDiscounts, setAvailableDiscounts] = useState<string[]>([]);
+  const [isStaffOrder, setIsStaffOrder] = useState(orderType === 'staff');
+  const [serverSubtotal, setServerSubtotal] = useState(routeSubtotal ?? 0);
+  const [serverTaxTotal, setServerTaxTotal] = useState(routeTaxTotal ?? 0);
+  const [hydrating, setHydrating] = useState(Boolean(resolvedOrderId));
+  const [hydrateError, setHydrateError] = useState('');
+
+  const navigateToReceipt = useCallback(
+    (
+      order: NonNullable<Awaited<ReturnType<typeof processPayment>>['order']>,
+      receiptPrintJobId?: string | null,
+      receiptTaxBreakdown?: TaxBreakdownLine[],
+    ) => {
+      markOrderPaid(order);
+      navigation.replace('Receipt', {
+        orderSnapshot: order,
+        sessionId,
+        orderType,
+        tableId,
+        taxBreakdown: receiptTaxBreakdown ?? order.taxBreakdown,
+        printJobId: receiptPrintJobId ?? undefined,
+      });
+    },
+    [markOrderPaid, navigation, orderType, sessionId, tableId],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateOrder = async () => {
+      if (!resolvedOrderId) {
+        setHydrating(false);
+        setHydrateError('No order found. Send KOT or select an order first.');
+        return;
+      }
+
+      setHydrating(true);
+      setHydrateError('');
+
+      try {
+        if (isPaymentApiConfigured()) {
+          const order = await fetchOrderById(resolvedOrderId);
+          if (cancelled) {
+            return;
+          }
+
+          if (!order) {
+            const recovery = await fetchPaymentRecoveryState(resolvedOrderId);
+            if (cancelled) {
+              return;
+            }
+            if (recovery.paid && recovery.order) {
+              navigateToReceipt(recovery.order, recovery.printJobId);
+              return;
+            }
+            setHydrateError('Order not found or cannot be paid.');
+            setHydrating(false);
+            return;
+          }
+
+          if (
+            String(order.paymentStatus ?? '').toUpperCase() === 'PAID' ||
+            String(order.status ?? '').toUpperCase() === 'PAID'
+          ) {
+            const paidSnapshot = mapPaidOrderFromApi(order);
+            navigateToReceipt(paidSnapshot);
+            return;
+          }
+
+          const hydrated = hydrateCartFromOrder(order);
+          hydrateFromOrder({
+            items: hydrated.items,
+            orderNumber: order.orderNumber,
+            orderId: order._id,
+            orderStatus: order.status,
+            orderNote: order.specialNote,
+            partyName: order.partyName ?? order.guestName,
+            guestName: order.guestName ?? order.partyName,
+            guestPhone: order.contactNumber ?? '',
+            guestCountryCode: order.guestCountryCode ?? '+1',
+            guestEmail: order.guestEmail ?? '',
+            hasSentKot: hydrated.hasSentKot,
+            kotCartFingerprint: hydrated.kotCartFingerprint,
+            persistedTotals: hydrated.persistedTotals,
+            appliedDiscount: hydrated.appliedDiscount,
+            serverName: order.processedByName,
+          });
+
+          setServerSubtotal(order.subTotal);
+          setServerTaxTotal(order.taxTotal);
+          setIsStaffOrder(order.source === 'STAFF');
+          if (order.source === 'STAFF' && order.staffFor) {
+            const emp = employees.find((e) => e.id === String(order.staffFor));
+            const staffDiscount = buildStaffDiscountState(
+              emp?.staffDiscount ?? 0,
+              emp?.name ?? getStaffEmployeeName(employees, String(order.staffFor)),
+            );
+            if (staffDiscount) {
+              setAppliedDiscount({
+                code: STAFF_DISCOUNT_CODE,
+                type: 'percent',
+                value: staffDiscount.value,
+              });
+            }
+          }
+        } else {
+          const today = await fetchTodayOrders();
+          if (cancelled) {
+            return;
+          }
+          const match = today.data?.find((row) => row._id === resolvedOrderId);
+          if (match?.items?.length) {
+            const cartItems = match.items.map((item, idx) => ({
+              id: `mock-${idx}`,
+              cartId: `mock-${idx}`,
+              name: item.name,
+              productCode: '',
+              category: 'ITEMS',
+              price: item.price,
+              tax: 0,
+              serviceCharge: 0,
+              qty: item.qty,
+              size: item.size,
+              modifier: item.preparationStyle,
+            }));
+            hydrateFromOrder({
+              items: cartItems,
+              orderNumber: match.orderNumber,
+              orderId: match._id,
+              orderStatus: match.status,
+              partyName: match.partyName ?? match.guestName,
+              guestName: match.guestName ?? match.partyName,
+              hasSentKot: true,
+              kotCartFingerprint: null,
+              persistedTotals: {
+                subtotal: match.subTotal ?? 0,
+                taxTotal: match.taxTotal ?? 0,
+                discountTotal: match.discountTotal ?? 0,
+                total: match.totalAmount,
+              },
+              appliedDiscount: null,
+            });
+            setServerSubtotal(match.subTotal ?? 0);
+            setServerTaxTotal(match.taxTotal ?? 0);
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setHydrateError('Unable to load order. Check your connection.');
+        }
+      } finally {
+        if (!cancelled) {
+          setHydrating(false);
+        }
+      }
+    };
+
+    hydrateOrder();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedOrderId, employees, hydrateFromOrder, navigateToReceipt]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      const tax = await fetchActiveServiceTax();
+      if (!cancelled) {
+        setServiceTax(tax);
+      }
+
+      if (isPaymentApiConfigured()) {
+        const discounts = await fetchAvailableDiscounts();
+        if (!cancelled) {
+          setAvailableDiscounts(discounts.map((d) => d.code));
+        }
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const {width} = useWindowDimensions();
   const isWide = width >= 768;
@@ -113,8 +320,8 @@ export function PaymentScreen({navigation, route}: Props) {
   const [paymentStatus, setPaymentStatus] = useState<PaymentUiStatus>('default');
   const [statusMessage, setStatusMessage] = useState('');
 
-  const baseSubtotal = routeSubtotal ?? 0;
-  const baseTaxTotal = routeTaxTotal ?? 0;
+  const baseSubtotal = serverSubtotal;
+  const baseTaxTotal = serverTaxTotal;
 
   const giftUsedPreview = useMemo(() => {
     if (giftCardBalance === null) {
@@ -136,6 +343,7 @@ export function PaymentScreen({navigation, route}: Props) {
         appliedDiscount,
         includeServiceCharge,
         giftCardUsedAmount: giftUsedPreview,
+        serviceTax,
       }),
     [
       items,
@@ -144,6 +352,7 @@ export function PaymentScreen({navigation, route}: Props) {
       appliedDiscount,
       includeServiceCharge,
       giftUsedPreview,
+      serviceTax,
     ],
   );
 
@@ -184,6 +393,9 @@ export function PaymentScreen({navigation, route}: Props) {
   const tipMethod = cashOverpay > 0 ? 'Cash' : cardOverpay > 0 ? 'Card' : null;
 
   const completeDisabled = useMemo(() => {
+    if (hydrating || hydrateError) {
+      return true;
+    }
     if (paymentStatus === 'processing') {
       return true;
     }
@@ -201,6 +413,8 @@ export function PaymentScreen({navigation, route}: Props) {
     giftUsedPreview,
     cardPayAmount,
     selectedCardType,
+    hydrating,
+    hydrateError,
   ]);
 
   const handleSelectMethod = (method: PaymentMethodKey) => {
@@ -211,20 +425,24 @@ export function PaymentScreen({navigation, route}: Props) {
     setStatusMessage('');
   };
 
-  const handleVerifyGiftCard = () => {
-    const details = verifyMockGiftCard(giftCardCode);
+  const handleVerifyGiftCard = async () => {
+    setGiftCardError('');
+    const details = await verifyGiftCard(giftCardCode);
     if (!details) {
-      setGiftCardError('Gift card not found.');
+      setGiftCardError('Gift card not found or cannot be used.');
       setGiftCardBalance(null);
       return;
     }
-    setGiftCardError('');
     setGiftCardBalance(details.balance);
     setGiftCardUseAmount(String(Math.min(details.balance, totals.totalDue)));
   };
 
-  const handleApplyDiscount = () => {
-    const discount = applyMockDiscount(discountCode, baseSubtotal);
+  const handleApplyDiscount = async () => {
+    if (isStaffOrder) {
+      Alert.alert('Staff order', 'Staff discount is applied automatically at payment.');
+      return;
+    }
+    const discount = await applyDiscountCode(discountCode);
     if (!discount) {
       Alert.alert('Invalid code', 'Discount code not found.');
       return;
@@ -261,88 +479,101 @@ export function PaymentScreen({navigation, route}: Props) {
       hasCard && (paymentMethod === 'Card' || cardPayAmount > 0),
     );
 
-    const result = await processPaymentMock(
-      {
-        orderId: orderId ?? activeOrderId ?? 'unknown',
-        sessionId,
-        paymentMethod: paymentMethodLabel,
-        cardType: selectedCardType || undefined,
-        cashAmount:
-          paymentMethod === 'Cash' || cashPayAmount > 0
-            ? cashPayAmount + lockedCashAmount
-            : 0,
-        cardAmount:
-          paymentMethod === 'Card' || cardPayAmount > 0
-            ? cardPayAmount + lockedCardAmount
-            : 0,
-        giftcardCode: giftCardBalance ? giftCardCode : undefined,
-        giftcardUsedAmount: giftUsedPreview,
-        tipAmount: autoTip,
-        tipMethod: tipMethod ?? undefined,
-        discountCode: appliedDiscount?.code,
-        serviceChargeTotal: totals.serviceChargeTotal,
-        serviceChargeName: totals.serviceChargeName,
-        guestName: partyName,
-      },
-      {
-        orderNumber: displayOrderNumber,
-        orderId: orderId ?? activeOrderId ?? 'unknown',
-        items,
-        totals: {
-          ...totals,
-          giftCardUsed: giftUsedPreview,
-        },
-        partyName,
-        tableNo: tableNumber,
-        floorName,
-        guestCount,
-        cardType: selectedCardType || undefined,
-      },
+    const serverAmount = roundMoney(
+      totals.subTotal -
+        totals.discountTotal +
+        totals.taxTotal +
+        totals.serviceChargeTotal,
     );
 
+    const payload = {
+      orderId: resolvedOrderId,
+      amount: serverAmount,
+      method: paymentMethodLabel,
+      sessionId,
+      tipAmount: autoTip,
+      tipMethod: tipMethod ?? null,
+      discountTotal: totals.discountTotal,
+      discountCode: appliedDiscount?.code ?? null,
+      guestName: partyName,
+      partyName,
+      guestCount: guestCount ?? null,
+      cashAmount:
+        paymentMethod === 'Cash' || cashPayAmount > 0
+          ? cashPayAmount + lockedCashAmount
+          : 0,
+      cardAmount:
+        paymentMethod === 'Card' || cardPayAmount > 0
+          ? cardPayAmount + lockedCardAmount
+          : 0,
+      applyServiceCharge: includeServiceCharge,
+      serviceChargeTotal: totals.serviceChargeTotal,
+      serviceChargeName: totals.serviceChargeName ?? null,
+      cardType: selectedCardType || undefined,
+      giftCardCode:
+        giftUsedPreview > 0 ? giftCardCode.trim().toUpperCase() : undefined,
+      giftCardUsedAmount: giftUsedPreview > 0 ? giftUsedPreview : undefined,
+      splitAmount:
+        giftUsedPreview > 0
+          ? roundMoney(Math.max(0, serverAmount - giftUsedPreview))
+          : undefined,
+    };
+
+    const result = await processPayment(payload, items);
+
     if (!result.success || !result.order) {
+      const recovery = await fetchPaymentRecoveryState(resolvedOrderId);
+      if (recovery.paid && recovery.order) {
+        if (orderType === 'walking') {
+          await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
+        } else if (orderType === 'staff') {
+          await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
+        }
+        navigateToReceipt(recovery.order, recovery.printJobId, recovery.order.taxBreakdown);
+        return;
+      }
+
       setPaymentStatus('failed');
       setStatusMessage(
-        result.message ?? 'Payment could not be completed. Try again.',
+        result.alreadyPaid
+          ? 'This order is already paid on the server.'
+          : result.message ?? 'Payment could not be completed. Try again.',
       );
       return;
     }
 
-    markOrderPaid(result.order);
+    if (orderType === 'walking') {
+      await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
+    } else if (orderType === 'staff') {
+      await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
+    }
+
     setPaymentStatus('success');
-    navigation.replace('Receipt', {
-      orderSnapshot: result.order,
-      sessionId,
-      orderType,
-      tableId,
-      taxBreakdown: totals.taxBreakdown,
-    });
+    navigateToReceipt(
+      result.order,
+      result.printJobId,
+      totals.taxBreakdown,
+    );
   }, [
-    activeOrderId,
     appliedDiscount,
     autoTip,
     cardPayAmount,
     cashPayAmount,
     completeDisabled,
-    giftCardBalance,
     giftCardCode,
     giftUsedPreview,
     guestCount,
+    includeServiceCharge,
     items,
     lockedCardAmount,
     lockedCashAmount,
-    markOrderPaid,
-    navigation,
-    orderId,
-    displayOrderNumber,
+    navigateToReceipt,
     orderType,
     partyName,
     paymentMethod,
+    resolvedOrderId,
     selectedCardType,
     sessionId,
-    tableId,
-    tableNumber,
-    floorName,
     tipMethod,
     totals,
   ]);
@@ -489,13 +720,17 @@ export function PaymentScreen({navigation, route}: Props) {
               </Pressable>
             </View>
             <Text style={styles.hintText}>
-              Try: {MOCK_DISCOUNT_COUPONS.map((c) => c.code).join(', ')}
+              {isPaymentApiConfigured() && availableDiscounts.length > 0
+                ? `Available: ${availableDiscounts.slice(0, 5).join(', ')}`
+                : !isPaymentApiConfigured()
+                  ? 'Offline discount codes available in dev mode.'
+                  : ''}
             </Text>
           </>
         )}
       </View>
 
-      {MOCK_SERVICE_TAX.active ? (
+      {serviceTax ? (
         <Pressable
           style={styles.serviceChargeRow}
           onPress={() => setIncludeServiceCharge((prev) => !prev)}
@@ -511,7 +746,7 @@ export function PaymentScreen({navigation, route}: Props) {
             ) : null}
           </View>
           <Text style={styles.serviceChargeText}>
-            Add {MOCK_SERVICE_TAX.name} ({MOCK_SERVICE_TAX.value}%)
+            Add {serviceTax.name} ({formatServiceTaxRate(serviceTax)})
           </Text>
         </Pressable>
       ) : null}
@@ -546,6 +781,17 @@ export function PaymentScreen({navigation, route}: Props) {
       </View>
 
       <View style={[styles.body, isWide && styles.bodyWide]}>
+        {hydrating ? (
+          <View style={styles.hydrateLoading}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.hydrateText}>Loading order...</Text>
+          </View>
+        ) : hydrateError ? (
+          <View style={styles.hydrateLoading}>
+            <Text style={styles.hydrateError}>{hydrateError}</Text>
+          </View>
+        ) : (
+          <>
         <View style={[styles.summaryPane, isWide && styles.summaryPaneWide]}>
           <PaymentSummary
             orderNumber={displayOrderNumber}
@@ -568,6 +814,8 @@ export function PaymentScreen({navigation, route}: Props) {
         <View style={[styles.controlsPane, isWide && styles.controlsPaneWide]}>
           {paymentControls}
         </View>
+          </>
+        )}
       </View>
 
       <View style={styles.footer}>
@@ -635,6 +883,24 @@ const styles = StyleSheet.create({
   },
   bodyWide: {
     flexDirection: 'row',
+  },
+  hydrateLoading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 24,
+  },
+  hydrateText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  hydrateError: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.error,
+    textAlign: 'center',
   },
   summaryPane: {
     flex: 1,

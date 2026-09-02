@@ -1,10 +1,3 @@
-import {config} from '../constants/config';
-import {
-  getMockPrintJobDetail,
-  getMockPrintJobs,
-  getMockPrinters,
-  updateMockPrintJob,
-} from '../mocks/printJobMockData';
 import type {
   PrintJob,
   PrintJobActionResponse,
@@ -15,13 +8,8 @@ import type {
   PrintJobsListResponse,
 } from '../types/printJob';
 import {filterToApiStatus} from '../types/printJob';
+import {getApiNotConfiguredMessage, isApiConfigured} from '../utils/apiGuard';
 import {api} from './api';
-
-const useLiveApi = Boolean(config.API_BASE_URL);
-
-function mockDelay(ms = 400): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 function mapApiError(status?: number, fallback = 'Unable to load print jobs.'): string {
   if (status === 403) {
@@ -41,23 +29,19 @@ function normalizePrintJob(raw: PrintJob): PrintJob {
 }
 
 export function isPrintJobApiConfigured(): boolean {
-  return useLiveApi;
+  return isApiConfigured();
 }
 
 export async function fetchPrintJobs(params: {
   filter?: PrintJobFilter;
   limit?: number;
 }): Promise<PrintJobsListResponse> {
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
+  }
+
   const filter = params.filter ?? 'ALL';
   const limit = params.limit ?? 50;
-
-  if (!useLiveApi) {
-    await mockDelay();
-    return {
-      success: true,
-      data: getMockPrintJobs(filter).map(normalizePrintJob),
-    };
-  }
 
   try {
     const qs = new URLSearchParams();
@@ -87,19 +71,8 @@ export async function fetchPrintJobs(params: {
 }
 
 export async function fetchPrintJob(id: string): Promise<PrintJobDetailResponse> {
-  if (!useLiveApi) {
-    await mockDelay();
-    const data = getMockPrintJobDetail(id);
-    if (!data) {
-      return {success: false, message: 'Print job not found.'};
-    }
-    return {
-      success: true,
-      data: {
-        ...data,
-        job: normalizePrintJob(data.job),
-      },
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -129,22 +102,8 @@ export async function fetchPrintJob(id: string): Promise<PrintJobDetailResponse>
 }
 
 export async function retryPrintJob(id: string): Promise<PrintJobActionResponse> {
-  if (!useLiveApi) {
-    await mockDelay(600);
-    const updated = updateMockPrintJob(id, {
-      status: 'QUEUED',
-      errorMessage: null,
-      attemptCount: (getMockPrintJobDetail(id)?.job.attemptCount ?? 0),
-    });
-    if (!updated) {
-      return {success: false, message: 'Print job not found.'};
-    }
-    updateMockPrintJob(id, {status: 'PRINTED', attemptCount: (updated.attemptCount ?? 0) + 1});
-    return {
-      success: true,
-      message: 'Retry started (mock adapter)',
-      data: {job: getMockPrintJobDetail(id)?.job},
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -171,21 +130,8 @@ export async function retryPrintJob(id: string): Promise<PrintJobActionResponse>
 export async function markPrintJobPrinted(
   id: string,
 ): Promise<PrintJobActionResponse> {
-  if (!useLiveApi) {
-    await mockDelay(300);
-    const updated = updateMockPrintJob(id, {
-      status: 'PRINTED',
-      errorMessage: null,
-      attemptCount: Math.max(getMockPrintJobDetail(id)?.job.attemptCount ?? 0, 1),
-    });
-    if (!updated) {
-      return {success: false, message: 'Print job not found.'};
-    }
-    return {
-      success: true,
-      message: 'Marked printed',
-      data: {job: updated},
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -213,49 +159,8 @@ export async function printTest(
   id: string,
   simulateFailure = false,
 ): Promise<PrintJobTestResponse> {
-  if (!useLiveApi) {
-    await mockDelay(800);
-    const detail = getMockPrintJobDetail(id);
-    if (!detail) {
-      return {success: false, message: 'Print job not found.'};
-    }
-    if (simulateFailure) {
-      updateMockPrintJob(id, {
-        status: 'FAILED',
-        errorMessage: 'Simulated print failure (MockPrinterAdapter)',
-        attemptCount: (detail.job.attemptCount ?? 0) + 1,
-      });
-      return {
-        success: true,
-        message: 'Print test failed (simulated)',
-        data: {
-          job: getMockPrintJobDetail(id)!.job,
-          result: {
-            success: false,
-            error: 'Simulated print failure (MockPrinterAdapter)',
-            adapter: 'MockPrinterAdapter',
-          },
-        },
-      };
-    }
-    updateMockPrintJob(id, {
-      status: 'PRINTED',
-      errorMessage: null,
-      attemptCount: (detail.job.attemptCount ?? 0) + 1,
-    });
-    return {
-      success: true,
-      message: 'Print test completed (simulated)',
-      data: {
-        job: getMockPrintJobDetail(id)!.job,
-        result: {
-          success: true,
-          adapter: 'MockPrinterAdapter',
-          simulated: true,
-        },
-        note: 'Mock print finished — no physical printer was contacted.',
-      },
-    };
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {
@@ -287,9 +192,8 @@ export async function printTest(
 }
 
 export async function fetchPrinters(): Promise<PrintersListResponse> {
-  if (!useLiveApi) {
-    await mockDelay(200);
-    return {success: true, data: getMockPrinters()};
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
   }
 
   try {

@@ -3,9 +3,27 @@ import type {
   PrintJob,
   PrintJobDetailData,
   PrintJobEmployee,
+  PrintJobStatus,
   PrinterTarget,
   PrintType,
 } from '../types/printJob';
+
+export function getPrintJobStatusLabel(status: PrintJobStatus): string {
+  switch (status) {
+    case 'QUEUED':
+      return 'Queued';
+    case 'PRINTING':
+      return 'Printing';
+    case 'PRINTED':
+      return 'Printed';
+    case 'FAILED':
+      return 'Failed';
+    case 'CANCELLED':
+      return 'Cancelled';
+    default:
+      return status;
+  }
+}
 
 export function orderLabel(job: PrintJob): string {
   const fromMeta = job.metadata?.orderNumber;

@@ -1,37 +1,158 @@
 import {useEffect} from 'react';
+import {AppState, type AppStateStatus} from 'react-native';
 import {io, type Socket} from 'socket.io-client';
 import {config} from '../constants/config';
+import {initNotificationSound} from '../services/notificationSoundService';
 import {useAuthStore} from '../store/authStore';
 import {useNotificationStore} from '../store/notificationStore';
 import {usePrintJobStore} from '../store/printJobStore';
 import type {Notification} from '../types/notification';
 import type {PrintJobEventPayload} from '../types/printJob';
-import {initNotificationSound} from '../services/notificationSoundService';
+import {buildCookieHeader} from '../utils/secureStorage';
 
 let socketInstance: Socket | null = null;
-let listenerCount = 0;
+let coreListenersAttached = false;
+let hadDisconnect = false;
 
-function getSocket(): Socket | null {
+async function createSocket(): Promise<Socket | null> {
   if (!config.API_BASE_URL) {
     return null;
   }
-  if (!socketInstance) {
-    socketInstance = io(config.API_BASE_URL, {
-      transports: ['websocket', 'polling'],
-      autoConnect: false,
-    });
+
+  const cookie = await buildCookieHeader();
+  return io(config.API_BASE_URL, {
+    transports: ['websocket', 'polling'],
+    autoConnect: false,
+    reconnectionAttempts: 5,
+    reconnectionDelay: 1000,
+    extraHeaders: cookie ? {Cookie: cookie} : undefined,
+  });
+}
+
+function refetchAfterReconnect(): void {
+  void useNotificationStore.getState().fetchList({silent: true});
+  void usePrintJobStore.getState().fetchList({silent: true});
+}
+
+function onSocketConnect(): void {
+  socketClient.isConnected = true;
+  if (hadDisconnect) {
+    refetchAfterReconnect();
   }
-  return socketInstance;
+  hadDisconnect = false;
+}
+
+function onSocketDisconnect(): void {
+  socketClient.isConnected = false;
+  hadDisconnect = true;
+}
+
+function onNotificationCreated(payload: Notification & {recipientId?: string}): void {
+  const userId = useAuthStore.getState().user?.id;
+  if (
+    payload.recipientScope === 'USER' &&
+    payload.recipientId &&
+    userId &&
+    String(payload.recipientId) !== String(userId)
+  ) {
+    return;
+  }
+  useNotificationStore.getState().handleIncoming(payload, {playSound: true});
+}
+
+function onNotificationRead(payload: {id?: string; userId?: string}): void {
+  const userId = useAuthStore.getState().user?.id;
+  if (userId && payload?.userId && String(payload.userId) !== String(userId)) {
+    return;
+  }
+  const id = String(payload?.id || '');
+  if (id) {
+    useNotificationStore.getState().handleReadEvent(id);
+  }
+}
+
+function onNotificationReadAll(payload: {userId?: string}): void {
+  const userId = useAuthStore.getState().user?.id;
+  if (userId && payload?.userId && String(payload.userId) !== String(userId)) {
+    return;
+  }
+  useNotificationStore.getState().handleReadAllEvent();
+}
+
+function onForceLogout(payload: {reason?: string}): void {
+  if (payload?.reason === 'RESTAURANT_CLOSED') {
+    void useAuthStore.getState().logout();
+  }
+}
+
+function onNewPrintJob(): void {
+  usePrintJobStore.getState().handleNewJob();
+}
+
+function onPrintJobUpdated(payload: PrintJobEventPayload): void {
+  usePrintJobStore.getState().patchJobFromEvent(payload);
+}
+
+function attachCoreSocketListeners(socket: Socket): void {
+  if (coreListenersAttached) {
+    return;
+  }
+
+  socket.on('connect', onSocketConnect);
+  socket.on('disconnect', onSocketDisconnect);
+  socket.on('notification.created', onNotificationCreated);
+  socket.on('notification.read', onNotificationRead);
+  socket.on('notification.read_all', onNotificationReadAll);
+  socket.on('auth:force-logout', onForceLogout);
+  socket.on('NEW_PRINT_JOB', onNewPrintJob);
+  socket.on('PRINT_JOB_UPDATED', onPrintJobUpdated);
+  coreListenersAttached = true;
+
+  if (socket.connected) {
+    onSocketConnect();
+  }
+}
+
+function detachCoreSocketListeners(socket: Socket): void {
+  if (!coreListenersAttached) {
+    return;
+  }
+
+  socket.off('connect', onSocketConnect);
+  socket.off('disconnect', onSocketDisconnect);
+  socket.off('notification.created', onNotificationCreated);
+  socket.off('notification.read', onNotificationRead);
+  socket.off('notification.read_all', onNotificationReadAll);
+  socket.off('auth:force-logout', onForceLogout);
+  socket.off('NEW_PRINT_JOB', onNewPrintJob);
+  socket.off('PRINT_JOB_UPDATED', onPrintJobUpdated);
+  coreListenersAttached = false;
 }
 
 export const socketClient = {
   isConnected: false,
-  connect: (): void => {
-    const socket = getSocket();
-    if (!socket || socket.connected) {
+  connect: async (): Promise<void> => {
+    if (!config.API_BASE_URL) {
       return;
     }
-    socket.connect();
+
+    const cookie = await buildCookieHeader();
+    if (!socketInstance) {
+      socketInstance = await createSocket();
+    } else if (cookie) {
+      socketInstance.io.opts.extraHeaders = {Cookie: cookie};
+    }
+
+    const socket = socketInstance;
+    if (!socket) {
+      return;
+    }
+
+    attachCoreSocketListeners(socket);
+
+    if (!socket.connected) {
+      socket.connect();
+    }
   },
   disconnect: (): void => {
     if (socketInstance?.connected) {
@@ -39,15 +160,55 @@ export const socketClient = {
     }
     socketClient.isConnected = false;
   },
-  getInstance: (): Socket | null => getSocket(),
+  getInstance: (): Socket | null => socketInstance,
+  reset: (): void => {
+    if (socketInstance) {
+      detachCoreSocketListeners(socketInstance);
+      socketInstance.disconnect();
+      socketInstance = null;
+    }
+    socketClient.isConnected = false;
+    hadDisconnect = false;
+  },
 };
 
-export function useNotificationRealtime(): void {
+/** Connect/disconnect socket with auth session; refetch on app foreground. */
+export function useSocketLifecycle(): void {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const userId = useAuthStore((s) => s.user?.id);
-  const handleIncoming = useNotificationStore((s) => s.handleIncoming);
-  const handleReadEvent = useNotificationStore((s) => s.handleReadEvent);
-  const handleReadAllEvent = useNotificationStore((s) => s.handleReadAllEvent);
+
+  useEffect(() => {
+    if (!isAuthenticated || !config.API_BASE_URL) {
+      socketClient.reset();
+      return;
+    }
+
+    void socketClient.connect();
+
+    return () => {
+      socketClient.reset();
+    };
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !config.API_BASE_URL) {
+      return;
+    }
+
+    const onAppStateChange = (state: AppStateStatus) => {
+      if (state === 'active') {
+        void useNotificationStore.getState().fetchList({silent: true});
+        void usePrintJobStore.getState().fetchList({silent: true});
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', onAppStateChange);
+    return () => subscription.remove();
+  }, [isAuthenticated]);
+}
+
+/** Initialize notification sound prefs and fetch initial notification list. */
+export function useNotificationBootstrap(): void {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const initialize = useNotificationStore((s) => s.initialize);
 
   useEffect(() => {
@@ -56,131 +217,4 @@ export function useNotificationRealtime(): void {
       void initialize();
     }
   }, [initialize, isAuthenticated]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !config.API_BASE_URL) {
-      return;
-    }
-
-    const socket = getSocket();
-    if (!socket) {
-      return;
-    }
-
-    listenerCount += 1;
-    socketClient.connect();
-
-    const onConnect = () => {
-      socketClient.isConnected = true;
-    };
-
-    const onDisconnect = () => {
-      socketClient.isConnected = false;
-    };
-
-    const onCreated = (payload: Notification & {recipientId?: string}) => {
-      if (
-        payload.recipientScope === 'USER' &&
-        payload.recipientId &&
-        userId &&
-        String(payload.recipientId) !== String(userId)
-      ) {
-        return;
-      }
-      handleIncoming(payload, {playSound: true});
-    };
-
-    const onRead = (payload: {id?: string; userId?: string}) => {
-      if (userId && payload?.userId && String(payload.userId) !== String(userId)) {
-        return;
-      }
-      const id = String(payload?.id || '');
-      if (id) {
-        handleReadEvent(id);
-      }
-    };
-
-    const onReadAll = (payload: {userId?: string}) => {
-      if (userId && payload?.userId && String(payload.userId) !== String(userId)) {
-        return;
-      }
-      handleReadAllEvent();
-    };
-
-    const onForceLogout = (payload: {reason?: string}) => {
-      if (payload?.reason === 'RESTAURANT_CLOSED') {
-        useAuthStore.getState().logout();
-      }
-    };
-
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('notification.created', onCreated);
-    socket.on('notification.read', onRead);
-    socket.on('notification.read_all', onReadAll);
-    socket.on('auth:force-logout', onForceLogout);
-
-    if (socket.connected) {
-      onConnect();
-    }
-
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('notification.created', onCreated);
-      socket.off('notification.read', onRead);
-      socket.off('notification.read_all', onReadAll);
-      socket.off('auth:force-logout', onForceLogout);
-      listenerCount = Math.max(0, listenerCount - 1);
-      if (listenerCount === 0) {
-        socketClient.disconnect();
-      }
-    };
-  }, [
-    handleIncoming,
-    handleReadAllEvent,
-    handleReadEvent,
-    isAuthenticated,
-    userId,
-  ]);
-}
-
-export function usePrintJobRealtime(): void {
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  const patchJobFromEvent = usePrintJobStore((s) => s.patchJobFromEvent);
-  const handleNewJob = usePrintJobStore((s) => s.handleNewJob);
-
-  useEffect(() => {
-    if (!isAuthenticated || !config.API_BASE_URL) {
-      return;
-    }
-
-    const socket = getSocket();
-    if (!socket) {
-      return;
-    }
-
-    listenerCount += 1;
-    socketClient.connect();
-
-    const onNewPrintJob = () => {
-      handleNewJob();
-    };
-
-    const onPrintJobUpdated = (payload: PrintJobEventPayload) => {
-      patchJobFromEvent(payload);
-    };
-
-    socket.on('NEW_PRINT_JOB', onNewPrintJob);
-    socket.on('PRINT_JOB_UPDATED', onPrintJobUpdated);
-
-    return () => {
-      socket.off('NEW_PRINT_JOB', onNewPrintJob);
-      socket.off('PRINT_JOB_UPDATED', onPrintJobUpdated);
-      listenerCount = Math.max(0, listenerCount - 1);
-      if (listenerCount === 0) {
-        socketClient.disconnect();
-      }
-    };
-  }, [handleNewJob, isAuthenticated, patchJobFromEvent]);
 }

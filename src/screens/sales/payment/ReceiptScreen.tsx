@@ -1,5 +1,7 @@
 import React, {useCallback, useState} from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Text,
@@ -9,23 +11,30 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {ConfirmDialog} from '../../../components/common/ConfirmDialog';
+import {PrintJobStatusStrip} from '../../../components/printing/PrintJobStatusStrip';
 import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
 import {colors} from '../../../constants/colors';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {printerService} from '../../../printer/printerService';
+import {releaseTableSession} from '../../../services/sessionService';
+import {isPaymentApiConfigured} from '../../../services/paymentService';
 import {useCartStore} from '../../../store/cartStore';
 import {formatCurrency} from '../../../utils/currency';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'Receipt'>;
 
 export function ReceiptScreen({navigation, route}: Props) {
-  const {orderSnapshot, sessionId, orderType, taxBreakdown} = route.params;
+  const {orderSnapshot, sessionId, orderType, taxBreakdown, printJobId} =
+    route.params;
   const resetOrderState = useCartStore((state) => state.resetOrderState);
   const {width} = useWindowDimensions();
   const isWide = width >= 768;
 
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+  const [printMessage, setPrintMessage] = useState<string | null>(null);
 
+  const effectiveTaxBreakdown = taxBreakdown ?? orderSnapshot.taxBreakdown;
   const isTableSession = orderType === 'table' && Boolean(sessionId);
   const grandTotal =
     Number(orderSnapshot.totalAmount ?? 0) +
@@ -45,17 +54,43 @@ export function ReceiptScreen({navigation, route}: Props) {
   };
 
   const handlePrintBill = async () => {
-    await printerService.printBill({
-      order: orderSnapshot,
-      taxBreakdown,
-      guestCount: orderSnapshot.guestCount,
-      restaurantName: 'TASTY BITES',
-    });
+    const result = await printerService.printBill(
+      {
+        order: orderSnapshot,
+        taxBreakdown: effectiveTaxBreakdown,
+        guestCount: orderSnapshot.guestCount,
+        restaurantName: 'TASTY BITES',
+      },
+      printJobId,
+    );
+    setPrintMessage(result.message ?? null);
+    if (!result.success) {
+      Alert.alert('Receipt print', result.message ?? 'Unable to queue receipt.');
+    }
   };
 
-  const handleReleaseConfirm = () => {
+  const handleReleaseConfirm = async () => {
     setReleaseDialogOpen(false);
+    if (sessionId && isPaymentApiConfigured()) {
+      setReleasing(true);
+      try {
+        await releaseTableSession(sessionId);
+      } catch (error) {
+        Alert.alert(
+          'Release failed',
+          error instanceof Error
+            ? error.message
+            : 'Could not release table. You can release from the floor.',
+        );
+      } finally {
+        setReleasing(false);
+      }
+    }
     goToFloor();
+  };
+
+  const handleViewPrintJob = (jobId: string) => {
+    navigation.navigate('PrintJobs', {jobId});
   };
 
   return (
@@ -76,7 +111,7 @@ export function ReceiptScreen({navigation, route}: Props) {
           <ReceiptPreview
             mode="customer"
             order={orderSnapshot}
-            taxBreakdown={taxBreakdown}
+            taxBreakdown={effectiveTaxBreakdown}
             guestCount={orderSnapshot.guestCount}
             restaurantName="TASTY BITES"
           />
@@ -95,6 +130,16 @@ export function ReceiptScreen({navigation, route}: Props) {
             <Text style={styles.totalValue}>{formatCurrency(grandTotal)}</Text>
           </View>
 
+          <PrintJobStatusStrip
+            printJobId={printJobId}
+            label="Receipt print job"
+            onViewJob={handleViewPrintJob}
+          />
+
+          {printMessage ? (
+            <Text style={styles.printMessage}>{printMessage}</Text>
+          ) : null}
+
           <Pressable
             style={styles.primaryAction}
             onPress={handlePrintBill}
@@ -108,7 +153,11 @@ export function ReceiptScreen({navigation, route}: Props) {
             onPress={handleDone}
             accessibilityRole="button"
             accessibilityLabel="Done">
-            <Text style={styles.secondaryActionText}>Done</Text>
+            {releasing ? (
+              <ActivityIndicator color={colors.textSecondary} />
+            ) : (
+              <Text style={styles.secondaryActionText}>Done</Text>
+            )}
           </Pressable>
         </View>
       </View>
@@ -116,9 +165,7 @@ export function ReceiptScreen({navigation, route}: Props) {
       <ConfirmDialog
         visible={releaseDialogOpen}
         title="Release Table?"
-        message={
-          'Payment is complete. Do you want to release this table now?'
-        }
+        message={'Payment is complete. Do you want to release this table now?'}
         confirmLabel="Yes, Release"
         cancelLabel="No, Go to Floor"
         onConfirm={handleReleaseConfirm}
@@ -213,7 +260,7 @@ const styles = StyleSheet.create({
   },
   totalBlock: {
     marginTop: 16,
-    marginBottom: 20,
+    marginBottom: 12,
     gap: 4,
   },
   totalLabel: {
@@ -226,6 +273,11 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '900',
     color: colors.primary,
+  },
+  printMessage: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   primaryAction: {
     minHeight: 52,

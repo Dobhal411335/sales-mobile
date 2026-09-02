@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -8,13 +8,22 @@ import {
   View,
 } from 'react-native';
 import {colors} from '../../constants/colors';
-import type {FloorTable} from '../../types/table';
+import type {FloorTable, TableSession} from '../../types/table';
 import {startTableSession} from '../../services/tableService';
+import {
+  buildCombineGroups,
+  sumSeatsForTables,
+  toggleLinkedTableIds,
+} from '../../utils/floorCombineTables';
+import {CombineTablePicker} from './CombineTablePicker';
 
 interface StartSessionModalProps {
   visible: boolean;
   table: FloorTable | null;
   floorName?: string | null;
+  tables: FloorTable[];
+  sessions: TableSession[];
+  currentUserId: string | null;
   onClose: () => void;
   onSessionStarted: (sessionId: string, tableId: string) => void;
 }
@@ -23,20 +32,58 @@ export function StartSessionModal({
   visible,
   table,
   floorName,
+  tables,
+  sessions,
+  currentUserId,
   onClose,
   onSessionStarted,
 }: StartSessionModalProps) {
   const [guestCount, setGuestCount] = useState(2);
+  const [selectedLinkedTableIds, setSelectedLinkedTableIds] = useState<string[]>(
+    [],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (visible && table) {
       setGuestCount(table.seats || 2);
+      setSelectedLinkedTableIds([]);
       setError(null);
       setLoading(false);
     }
   }, [visible, table]);
+
+  const combineGroups = useMemo(() => {
+    if (!table) {
+      return {available: [], mine: []};
+    }
+    return buildCombineGroups(
+      tables,
+      sessions,
+      table.id,
+      currentUserId,
+      null,
+    );
+  }, [table, tables, sessions, currentUserId]);
+
+  const combinedSeatTotal = useMemo(() => {
+    if (!table) {
+      return 0;
+    }
+    return sumSeatsForTables(tables, [table.id, ...selectedLinkedTableIds]);
+  }, [table, tables, selectedLinkedTableIds]);
+
+  const partyLargerThanSeats = guestCount > combinedSeatTotal;
+
+  const handleToggleLinked = (tableId: string, siblingIds: string[]) => {
+    if (!table) {
+      return;
+    }
+    setSelectedLinkedTableIds((prev) =>
+      toggleLinkedTableIds(prev, tableId, siblingIds, table.id),
+    );
+  };
 
   const handleConfirm = async () => {
     if (!table) {
@@ -49,6 +96,7 @@ export function StartSessionModal({
       const result = await startTableSession({
         tableId: table.id,
         guestCount,
+        linkedTableIds: selectedLinkedTableIds,
       });
       onSessionStarted(result.sessionId, table.id);
       onClose();
@@ -100,6 +148,25 @@ export function StartSessionModal({
             </Pressable>
           </View>
 
+          <Text style={styles.sectionLabel}>Combine tables</Text>
+          <Text style={styles.sectionHint}>
+            Optional. Select extra empty tables or your booked tables for this one
+            party.
+          </Text>
+          <CombineTablePicker
+            groups={combineGroups}
+            sessions={sessions}
+            primaryTableId={table.id}
+            selectedLinkedTableIds={selectedLinkedTableIds}
+            onToggle={handleToggleLinked}
+          />
+
+          <Text style={styles.summaryText}>
+            {guestCount} guest{guestCount === 1 ? '' : 's'} · {combinedSeatTotal}{' '}
+            combined seats
+            {partyLargerThanSeats ? ' · party is larger than seats' : ''}
+          </Text>
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <View style={styles.actions}>
@@ -125,7 +192,7 @@ export function StartSessionModal({
               {loading ? (
                 <ActivityIndicator color={colors.surface} size="small" />
               ) : (
-                <Text style={styles.confirmText}>Start Session</Text>
+                <Text style={styles.confirmText}>Seat Guests</Text>
               )}
             </Pressable>
           </View>
@@ -173,6 +240,23 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     textAlign: 'center',
   },
+  sectionLabel: {
+    marginTop: 20,
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    textAlign: 'center',
+  },
+  sectionHint: {
+    marginTop: 4,
+    marginBottom: 8,
+    fontSize: 12,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -182,8 +266,8 @@ const styles = StyleSheet.create({
   stepperButton: {
     width: 48,
     height: 48,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 24,
+    borderWidth: 2,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
@@ -195,10 +279,17 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   guestCount: {
-    fontSize: 32,
-    fontWeight: '800',
+    fontSize: 36,
+    fontWeight: '900',
     color: colors.text,
     minWidth: 48,
+    textAlign: 'center',
+  },
+  summaryText: {
+    marginTop: 16,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.textSecondary,
     textAlign: 'center',
   },
   error: {
@@ -231,7 +322,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 48,
     borderRadius: 12,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.text,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -2,18 +2,21 @@ import React, {useState} from 'react';
 import {Pressable, StyleSheet, Text} from 'react-native';
 import {colors} from '../../constants/colors';
 import type {Floor} from '../../types/table';
+import {ChevronDownIcon} from '../common/Icons';
 import {Popover} from '../common/Popover';
 
 interface FloorSelectorProps {
   floors: Floor[];
   selectedFloorId: string | null;
   onSelectFloor: (floorId: string) => void;
+  compact?: boolean;
 }
 
 export function FloorSelector({
   floors,
   selectedFloorId,
   onSelectFloor,
+  compact = false,
 }: FloorSelectorProps) {
   const [open, setOpen] = useState(false);
   const activeFloor =
@@ -24,15 +27,18 @@ export function FloorSelector({
       <Pressable
         style={({pressed}) => [
           styles.trigger,
+          compact && styles.triggerCompact,
           pressed && styles.triggerPressed,
         ]}
         onPress={() => setOpen(true)}
         accessibilityRole="button"
         accessibilityLabel={`Select floor, current ${activeFloor?.name ?? 'floor'}`}>
-        <Text style={styles.triggerText} numberOfLines={1}>
+        <Text
+          style={[styles.triggerText, compact && styles.triggerTextCompact]}
+          numberOfLines={1}>
           {activeFloor?.name ?? 'Select floor'}
         </Text>
-        <Text style={styles.chevron}>▾</Text>
+        <ChevronDownIcon size={compact ? 12 : 14} />
       </Pressable>
 
       <Popover visible={open} onClose={() => setOpen(false)} align="end">
@@ -82,6 +88,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
+  triggerCompact: {
+    minHeight: 40,
+    minWidth: 168,
+    maxWidth: 240,
+    flexGrow: 1,
+    flexShrink: 0,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+  },
   triggerPressed: {
     backgroundColor: colors.cream,
   },
@@ -91,9 +106,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
-  chevron: {
-    fontSize: 12,
-    color: colors.textSecondary,
+  triggerTextCompact: {
+    fontSize: 13,
   },
   title: {
     fontSize: 14,

@@ -87,8 +87,86 @@ function normalizeSession(raw: Record<string, unknown>): TableSessionDetails {
   };
 }
 
+export type TableSessionAction =
+  | 'RELEASE'
+  | 'UPDATE_GUESTS'
+  | 'TRANSFER'
+  | 'RECONFIGURE';
+
+export interface UpdateTableSessionPayload {
+  guestCount?: number;
+  effectiveSeatCount?: number;
+  linkedTableIds?: string[];
+  notes?: string;
+  newEmployeeId?: string;
+  adminOverride?: boolean;
+  releaseReason?: string;
+}
+
+export interface UpdateTableSessionResult {
+  success: boolean;
+  message?: string;
+  requiresAdminOverride?: boolean;
+}
+
+
 export function isSessionApiConfigured(): boolean {
   return useLiveApi;
+}
+
+export async function updateTableSession(
+  sessionId: string,
+  action: TableSessionAction,
+  payload: UpdateTableSessionPayload = {},
+): Promise<UpdateTableSessionResult> {
+  if (!useLiveApi) {
+    throw new Error('API not configured');
+  }
+
+  try {
+    const response = await api.put<ApiEnvelope<unknown>>('/api/sales/sessions', {
+      sessionId,
+      action,
+      guestCount: payload.guestCount,
+      effectiveSeatCount: payload.effectiveSeatCount,
+      linkedTableIds: payload.linkedTableIds,
+      notes: payload.notes,
+      newEmployeeId: payload.newEmployeeId,
+      adminOverride: payload.adminOverride,
+      releaseReason: payload.releaseReason,
+    });
+
+    if (!response.data?.success) {
+      const message = response.data?.message || 'Action failed';
+      const requiresAdminOverride =
+        action === 'RELEASE' &&
+        message.toLowerCase().includes('unpaid');
+      return {
+        success: false,
+        message,
+        requiresAdminOverride,
+      };
+    }
+
+    return {
+      success: true,
+      message: response.data.message,
+    };
+  } catch (error) {
+    if (isAxiosError(error)) {
+      const message =
+        (error.response?.data as {message?: string})?.message ||
+        'Action failed';
+      const requiresAdminOverride =
+        action === 'RELEASE' && message.toLowerCase().includes('unpaid');
+      return {
+        success: false,
+        message,
+        requiresAdminOverride,
+      };
+    }
+    return {success: false, message: 'Network error'};
+  }
 }
 
 export async function fetchTableSession(
@@ -113,24 +191,16 @@ export async function fetchTableSession(
   }
 }
 
-export async function releaseTableSession(sessionId: string): Promise<void> {
-  if (!useLiveApi) {
-    throw new Error('API not configured');
-  }
+export async function releaseTableSession(
+  sessionId: string,
+  options?: {adminOverride?: boolean; releaseReason?: string},
+): Promise<void> {
+  const result = await updateTableSession(sessionId, 'RELEASE', {
+    adminOverride: options?.adminOverride,
+    releaseReason: options?.releaseReason,
+  });
 
-  try {
-    const response = await api.put<ApiEnvelope<unknown>>('/api/sales/sessions', {
-      sessionId,
-      action: 'RELEASE',
-    });
-
-    if (!response.data?.success) {
-      throw new Error(response.data?.message || 'Failed to release table');
-    }
-  } catch (error) {
-    if (error instanceof Error && error.message !== 'API not configured') {
-      throw new Error(mapSessionApiError(error));
-    }
-    throw error;
+  if (!result.success) {
+    throw new Error(result.message || 'Failed to release table');
   }
 }

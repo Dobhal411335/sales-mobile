@@ -4,6 +4,7 @@ import {TABLE_STATUS_STYLES} from '../../constants/tableStatus';
 import {colors} from '../../constants/colors';
 import type {FloorTable, TableDisplayStatus, TableSession} from '../../types/table';
 import {
+  formatTableCardLabel,
   getEmployeeFirstName,
   isSessionOwnedByUser,
 } from '../../utils/tableStatus';
@@ -29,6 +30,7 @@ export function TableCard({
   const isMine = isSessionOwnedByUser(session, currentUserId);
   const isOther = Boolean(session) && !isMine;
   const employeeFirst = getEmployeeFirstName(session?.assignedEmployeeName);
+  const tableLabel = formatTableCardLabel(table.tableNumber);
 
   return (
     <Pressable
@@ -44,10 +46,12 @@ export function TableCard({
       ]}
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Table ${table.tableNumber}, ${statusStyle.label}`}
+      accessibilityLabel={`Table ${tableLabel}, ${statusStyle.label}`}
       accessibilityState={{selected}}>
-      <Text style={[styles.tableNumber, {color: statusStyle.text}]}>
-        TABLE {table.tableNumber}
+      <Text
+        style={[styles.tableNumber, {color: statusStyle.text}]}
+        numberOfLines={1}>
+        {tableLabel}
       </Text>
 
       <Text style={[styles.status, {color: statusStyle.statusText}]}>
@@ -58,7 +62,9 @@ export function TableCard({
         <View style={styles.sessionMeta}>
           <View style={styles.guestRow}>
             {employeeFirst ? (
-              <Text style={[styles.employeeName, {color: statusStyle.text}]}>
+              <Text
+                style={[styles.employeeName, {color: statusStyle.text}]}
+                numberOfLines={1}>
                 {employeeFirst}
               </Text>
             ) : null}
@@ -89,53 +95,58 @@ export function TableCard({
 
 const styles = StyleSheet.create({
   card: {
-    minWidth: 96,
-    minHeight: 96,
-    borderWidth: 2,
-    borderRadius: 12,
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    borderWidth: 1.5,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
     position: 'relative',
   },
   cardRound: {
     borderRadius: 999,
   },
   cardSelected: {
-    borderWidth: 3,
+    borderWidth: 2.5,
     backgroundColor: colors.cream,
   },
   cardPressed: {
     opacity: 0.92,
   },
   tableNumber: {
-    fontSize: 12,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+    maxWidth: '100%',
+  },
+  status: {
+    marginTop: 2,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.4,
   },
-  status: {
-    marginTop: 4,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
   sessionMeta: {
-    marginTop: 8,
+    marginTop: 4,
     alignItems: 'center',
-    gap: 2,
+    gap: 1,
+    maxWidth: '100%',
   },
   guestRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 4,
+    maxWidth: '100%',
   },
   employeeName: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
+    flexShrink: 1,
   },
   guestCount: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
   },
   seats: {
@@ -143,35 +154,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   seatsAvailable: {
-    marginTop: 8,
+    marginTop: 4,
     fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   lockBadge: {
     position: 'absolute',
-    top: -6,
-    right: -6,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    top: -5,
+    right: -5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#374151',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: colors.text,
     alignItems: 'center',
     justifyContent: 'center',
   },
   lockText: {
-    fontSize: 10,
+    fontSize: 8,
   },
   statusDot: {
     position: 'absolute',
-    top: -4,
-    right: -4,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
+    top: -3,
+    right: -3,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.5,
     borderColor: colors.text,
   },
 });

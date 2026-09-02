@@ -16,13 +16,22 @@ import {config} from '../../constants/config';
 import {useAuth} from '../../hooks/useAuth';
 import type {SalesStackParamList} from '../../navigation/types';
 import {formatHeaderDateTime} from '../../utils/date';
+import {
+  ChevronDownIcon,
+  FloorTabIcon,
+  OrdersTabIcon,
+} from './Icons';
 import {ProfileMenu} from './ProfileMenu';
 
 type SalesRouteName = keyof SalesStackParamList;
 
-const PRIMARY_TABS: {label: string; route: SalesRouteName}[] = [
-  {label: 'Floor', route: 'Floor'},
-  {label: 'Orders', route: 'Orders'},
+const PRIMARY_TABS: {
+  label: string;
+  route: SalesRouteName;
+  Icon: typeof FloorTabIcon;
+}[] = [
+  {label: 'Floor', route: 'Floor', Icon: FloorTabIcon},
+  {label: 'Orders', route: 'Orders', Icon: OrdersTabIcon},
 ];
 
 export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
@@ -51,6 +60,8 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
           <View style={styles.center}>
             {PRIMARY_TABS.map((tab) => {
               const active = activeRoute === tab.route;
+              const iconColor = active ? colors.surface : colors.textSecondary;
+              const TabIcon = tab.Icon;
               return (
                 <Pressable
                   key={tab.route}
@@ -67,6 +78,7 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
                   accessibilityRole="button"
                   accessibilityState={{selected: active}}
                   accessibilityLabel={tab.label}>
+                  <TabIcon size={14} color={iconColor} />
                   <Text style={[styles.tabText, active && styles.tabTextActive]}>
                     {tab.label}
                   </Text>
@@ -101,7 +113,7 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
                 </Text>
                 <Text style={styles.profileRole}>STAFF</Text>
               </View>
-              <Text style={styles.chevron}>▾</Text>
+              <ChevronDownIcon size={14} color={colors.textSecondary} />
             </Pressable>
           </View>
         </View>
@@ -165,11 +177,13 @@ const styles = StyleSheet.create({
   },
   tab: {
     minHeight: 40,
-    minWidth: 88,
+    minWidth: 96,
     borderRadius: 12,
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    gap: 6,
+    paddingHorizontal: 14,
   },
   tabActive: {
     backgroundColor: colors.primary,
@@ -239,9 +253,5 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textSecondary,
     letterSpacing: 0.6,
-  },
-  chevron: {
-    fontSize: 12,
-    color: colors.textSecondary,
   },
 });

@@ -253,6 +253,21 @@ Returns populated session; use `data._id` as `sessionId` for navigation.
 
 Polled every 30 seconds — no dedicated socket event.
 
+## Mobile floor UI (implemented)
+
+| Feature | Component / service |
+|---------|-------------------|
+| Combine tables at seat | `StartSessionModal` + `CombineTablePicker` → `linkedTableIds` on POST |
+| Temporary table setup | `TableActionsSheet` → `PUT RECONFIGURE` |
+| Adjust guests | `TableActionsSheet` → `PUT UPDATE_GUESTS` |
+| Transfer table | `TableActionsSheet` → `PUT TRANSFER` |
+| Release table | `TableActionsSheet` → `PUT RELEASE`; admin force via `AdminReleaseDialog` |
+| Table actions menu | `TableActionsSheet` (replaces direct navigate on own/admin tap) |
+| Readonly + admin override | `TableReadonlySheet` → opens actions for ADMIN/MANAGER |
+| Realtime refresh | `useFloorRealtime` joins `floor:{id}`; reconnect re-join; `AppState` foreground reload |
+| Session socket emit | Server emits table events to **both** `floor:{id}` and `restaurant:{id}` via `getSocketServer()` |
+| Web floor sync | Stable socket listeners + silent reload; soft poll every 8s as fallback when events are missed |
+
 ## Known Gaps
 
 | Item | Status |
@@ -262,3 +277,4 @@ Polled every 30 seconds — no dedicated socket event.
 | `PAYMENT_PENDING` UI trigger | API action exists; no web caller found |
 | Party name on floor cards | Not on floor API |
 | `TableGroup` model | Defined but unused |
+| Online staff name popover | Count only on mobile; API returns full list |

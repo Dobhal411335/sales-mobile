@@ -107,8 +107,18 @@ export function getTableCardSize(table: FloorTable): {
   width: number;
   height: number;
 } {
+  // Slightly under stored floor coords so cards don't touch neighbors.
   return {
-    width: (table.width || 80) * 1.2,
+    width: (table.width || 80) * 1,
     height: (table.height || 80) * 1.1,
   };
+}
+
+/** Compact label for floor cards (avoids "TABLE Table 01"). */
+export function formatTableCardLabel(tableNumber: string | number | null | undefined): string {
+  const raw = String(tableNumber ?? '').trim();
+  if (!raw) {
+    return '—';
+  }
+  return raw.replace(/^table\s+/i, '') || raw;
 }

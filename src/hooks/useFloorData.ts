@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {AppState, type AppStateStatus} from 'react-native';
 import type {Floor, FloorData, GridMode} from '../types/table';
 import {fetchFloorData} from '../services/floorService';
-import {fetchOnlineStaffCount} from '../services/onlineStaffService';
+import {fetchOnlineStaff} from '../services/onlineStaffService';
+import type {OnlineStaffMember} from '../services/onlineStaffService';
 
 const SALES_FLOOR_STORAGE_KEY = 'sales-active-floor-id';
 const ONLINE_POLL_INTERVAL_MS = 30_000;
@@ -18,6 +20,7 @@ interface UseFloorDataResult {
   refreshing: boolean;
   error: string | null;
   onlineStaffCount: number;
+  onlineStaff: OnlineStaffMember[];
   tableCount: number;
   activeSessionCount: number;
   activeOrderCount: number;
@@ -53,12 +56,14 @@ export function useFloorData(): UseFloorDataResult {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [onlineStaffCount, setOnlineStaffCount] = useState(0);
+  const [onlineStaff, setOnlineStaff] = useState<OnlineStaffMember[]>([]);
   const hasLoadedRef = useRef(false);
   const selectedFloorIdRef = useRef<string | null>(null);
 
   const loadOnlineStaff = useCallback(async () => {
-    const count = await fetchOnlineStaffCount();
-    setOnlineStaffCount(count);
+    const snapshot = await fetchOnlineStaff();
+    setOnlineStaffCount(snapshot.count);
+    setOnlineStaff(snapshot.online);
   }, []);
 
   const loadFloor = useCallback(
@@ -124,6 +129,18 @@ export function useFloorData(): UseFloorDataResult {
     return () => clearInterval(timer);
   }, [loadOnlineStaff]);
 
+  useEffect(() => {
+    const onAppStateChange = (state: AppStateStatus) => {
+      if (state === 'active') {
+        void loadFloor(selectedFloorIdRef.current ?? undefined, {silent: true});
+        void loadOnlineStaff();
+      }
+    };
+
+    const subscription = AppState.addEventListener('change', onAppStateChange);
+    return () => subscription.remove();
+  }, [loadFloor, loadOnlineStaff]);
+
   const selectFloor = useCallback(
     (floorId: string) => {
       if (!floorId || floorId === selectedFloorIdRef.current) {
@@ -181,6 +198,7 @@ export function useFloorData(): UseFloorDataResult {
     refreshing,
     error,
     onlineStaffCount,
+    onlineStaff,
     tableCount,
     activeSessionCount,
     activeOrderCount,

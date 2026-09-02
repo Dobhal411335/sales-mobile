@@ -55,7 +55,7 @@ export function useFloorRealtime(
 
     const joinFloor = (id: string) => {
       const activeSocket = socketClient.getInstance();
-      if (!activeSocket?.connected) {
+      if (!activeSocket?.connected || !id) {
         return;
       }
       if (joinedFloorRef.current && joinedFloorRef.current !== id) {
@@ -94,6 +94,7 @@ export function useFloorRealtime(
         return;
       }
       wasDisconnectedRef.current = true;
+      joinedFloorRef.current = null;
       setConnectionStatus('disconnected');
     };
 
@@ -124,6 +125,7 @@ export function useFloorRealtime(
       activeSocket.on('connect', onConnect);
       activeSocket.on('disconnect', onDisconnect);
       activeSocket.io.on('reconnect_attempt', onReconnectAttempt);
+      activeSocket.io.on('reconnect', onConnect);
 
       for (const event of FLOOR_EVENTS) {
         activeSocket.on(event, onFloorEvent);
@@ -151,6 +153,7 @@ export function useFloorRealtime(
         activeSocket.off('connect', onConnect);
         activeSocket.off('disconnect', onDisconnect);
         activeSocket.io.off('reconnect_attempt', onReconnectAttempt);
+        activeSocket.io.off('reconnect', onConnect);
         for (const event of FLOOR_EVENTS) {
           activeSocket.off(event, onFloorEvent);
         }
@@ -161,15 +164,45 @@ export function useFloorRealtime(
 
   useEffect(() => {
     const socket = socketClient.getInstance();
-    if (!socket?.connected || !floorId) {
+    const id = floorId;
+
+    const joinWhenReady = () => {
+      if (!id) {
+        return;
+      }
+      const activeSocket = socketClient.getInstance();
+      if (!activeSocket?.connected) {
+        return;
+      }
+      if (joinedFloorRef.current && joinedFloorRef.current !== id) {
+        activeSocket.emit('leave', floorRoom(joinedFloorRef.current));
+      }
+      activeSocket.emit('join', floorRoom(id));
+      joinedFloorRef.current = id;
+    };
+
+    if (!id) {
       return;
     }
 
-    if (joinedFloorRef.current && joinedFloorRef.current !== floorId) {
-      socket.emit('leave', floorRoom(joinedFloorRef.current));
+    if (socket?.connected) {
+      joinWhenReady();
+      return;
     }
-    socket.emit('join', floorRoom(floorId));
-    joinedFloorRef.current = floorId;
+
+    const onLateConnect = () => {
+      joinWhenReady();
+    };
+
+    if (socket) {
+      socket.on('connect', onLateConnect);
+    }
+
+    return () => {
+      if (socket) {
+        socket.off('connect', onLateConnect);
+      }
+    };
   }, [floorId]);
 
   return {connectionStatus};

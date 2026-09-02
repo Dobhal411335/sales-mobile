@@ -7,36 +7,46 @@ interface ApiEnvelope<T> {
   data: T;
 }
 
-interface OnlineStaffData {
+export interface OnlineStaffMember {
+  id: string;
+  name: string;
+  role: string;
+  employeeId: string;
+  loginTime: string;
+}
+
+export interface OnlineStaffSnapshot {
   count: number;
-  online: Array<{
-    id: string;
-    name: string;
-    role: string;
-    employeeId: string;
-    loginTime: string;
-  }>;
+  online: OnlineStaffMember[];
 }
 
 const useLiveApi = Boolean(config.API_BASE_URL);
 
-export async function fetchOnlineStaffCount(): Promise<number> {
+export async function fetchOnlineStaff(): Promise<OnlineStaffSnapshot> {
   if (!useLiveApi) {
-    return 0;
+    return {count: 0, online: []};
   }
 
   try {
-    const response = await api.get<ApiEnvelope<OnlineStaffData>>(
+    const response = await api.get<ApiEnvelope<OnlineStaffSnapshot>>(
       '/api/sales/online',
     );
     if (!response.data?.success || !response.data.data) {
-      return 0;
+      return {count: 0, online: []};
     }
-    return response.data.data.count || 0;
+    return {
+      count: response.data.data.count || 0,
+      online: response.data.data.online || [],
+    };
   } catch (error) {
     if (isAxiosError(error) && !error.response) {
-      return 0;
+      return {count: 0, online: []};
     }
-    return 0;
+    return {count: 0, online: []};
   }
+}
+
+export async function fetchOnlineStaffCount(): Promise<number> {
+  const snapshot = await fetchOnlineStaff();
+  return snapshot.count;
 }

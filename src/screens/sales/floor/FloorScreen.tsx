@@ -4,8 +4,8 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {FloorCanvas} from '../../../components/floor/FloorCanvas';
 import {FloorHeader} from '../../../components/floor/FloorHeader';
-import {FloorToolbar} from '../../../components/floor/FloorToolbar';
 import {StartSessionModal} from '../../../components/floor/StartSessionModal';
+import {TableActionsSheet} from '../../../components/floor/TableActionsSheet';
 import {TableReadonlySheet} from '../../../components/floor/TableReadonlySheet';
 import {colors} from '../../../constants/colors';
 import {useAuth} from '../../../hooks/useAuth';
@@ -13,8 +13,9 @@ import {useFloorData} from '../../../hooks/useFloorData';
 import {useFloorRealtime} from '../../../hooks/useFloorRealtime';
 import type {OrderType, SalesStackParamList} from '../../../navigation/types';
 import type {FloorTable, TableSession} from '../../../types/table';
+import {canOverrideFloorSession} from '../../../utils/floorRoles';
 import {
-  resolveTableDisplayStatus,
+  isSessionOwnedByUser,
 } from '../../../utils/tableStatus';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'Floor'>;
@@ -32,9 +33,7 @@ export function FloorScreen({navigation}: Props) {
     refreshing,
     error,
     onlineStaffCount,
-    tableCount,
-    activeSessionCount,
-    activeOrderCount,
+    onlineStaff,
     cycleGridMode,
     selectFloor,
     reload,
@@ -51,35 +50,53 @@ export function FloorScreen({navigation}: Props) {
   const [readonlySession, setReadonlySession] = useState<TableSession | null>(
     null,
   );
+  const [actionsTable, setActionsTable] = useState<FloorTable | null>(null);
+  const [actionsSession, setActionsSession] = useState<TableSession | null>(
+    null,
+  );
+
+  const currentUserId = user?.id ?? null;
+  const canAdminOverride = canOverrideFloorSession(user?.role);
 
   const handleTablePress = useCallback(
     (table: FloorTable, session: TableSession | null) => {
       setSelectedTableId(table.id);
-      const status = resolveTableDisplayStatus(session, user?.id ?? null);
 
       if (!session) {
         setStartSessionTable(table);
         return;
       }
 
-      if (status === 'BOOKED') {
-        setReadonlyTable(table);
-        setReadonlySession(session);
+      const isMine = isSessionOwnedByUser(session, currentUserId);
+
+      if (isMine || canAdminOverride) {
+        setActionsTable(table);
+        setActionsSession(session);
         return;
       }
 
-      navigation.navigate('CreateOrder', {
-        orderType: 'table',
-        tableId: table.id,
-        sessionId: session.id,
-      });
+      setReadonlyTable(table);
+      setReadonlySession(session);
     },
-    [navigation, user?.id],
+    [canAdminOverride, currentUserId],
   );
 
   const handleSessionStarted = useCallback(
     (sessionId: string, tableId: string) => {
       setStartSessionTable(null);
+      navigation.navigate('CreateOrder', {
+        orderType: 'table',
+        tableId,
+        sessionId,
+      });
+    },
+    [navigation],
+  );
+
+  const handleContinueOrder = useCallback(
+    (sessionId: string, tableId: string) => {
+      setActionsTable(null);
+      setActionsSession(null);
       navigation.navigate('CreateOrder', {
         orderType: 'table',
         tableId,
@@ -100,23 +117,27 @@ export function FloorScreen({navigation}: Props) {
     [navigation],
   );
 
+  const handleAdminOverrideFromReadonly = useCallback(() => {
+    if (!readonlyTable || !readonlySession) {
+      return;
+    }
+    setReadonlyTable(null);
+    setReadonlySession(null);
+    setActionsTable(readonlyTable);
+    setActionsSession(readonlySession);
+  }, [readonlyTable, readonlySession]);
+
   return (
     <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
       <FloorHeader
-        floorName={activeFloor?.name ?? 'Floor'}
-        tableCount={tableCount}
-        activeSessionCount={activeSessionCount}
-        activeOrderCount={activeOrderCount}
         floors={floors}
         selectedFloorId={selectedFloorId}
         gridMode={gridMode}
+        onlineStaffCount={onlineStaffCount}
+        onlineStaff={onlineStaff}
+        connectionStatus={connectionStatus}
         onSelectFloor={selectFloor}
         onToggleGrid={cycleGridMode}
-      />
-
-      <FloorToolbar
-        onlineStaffCount={onlineStaffCount}
-        connectionStatus={connectionStatus}
         onSelectOrderType={handleSelectOrderType}
       />
 
@@ -141,7 +162,7 @@ export function FloorScreen({navigation}: Props) {
         tables={tables}
         sessions={sessions}
         gridMode={gridMode}
-        currentUserId={user?.id ?? null}
+        currentUserId={currentUserId}
         selectedTableId={selectedTableId}
         loading={loading}
         refreshing={refreshing}
@@ -153,14 +174,35 @@ export function FloorScreen({navigation}: Props) {
         visible={Boolean(startSessionTable)}
         table={startSessionTable}
         floorName={activeFloor?.name}
+        tables={tables}
+        sessions={sessions}
+        currentUserId={currentUserId}
         onClose={() => setStartSessionTable(null)}
         onSessionStarted={handleSessionStarted}
+      />
+
+      <TableActionsSheet
+        visible={Boolean(actionsTable && actionsSession)}
+        table={actionsTable}
+        session={actionsSession}
+        floorName={activeFloor?.name}
+        tables={tables}
+        sessions={sessions}
+        currentUserId={currentUserId}
+        onClose={() => {
+          setActionsTable(null);
+          setActionsSession(null);
+        }}
+        onContinueOrder={handleContinueOrder}
+        onSessionUpdated={reload}
       />
 
       <TableReadonlySheet
         visible={Boolean(readonlyTable)}
         table={readonlyTable}
         session={readonlySession}
+        showAdminOverride={canAdminOverride}
+        onAdminOverride={handleAdminOverrideFromReadonly}
         onClose={() => {
           setReadonlyTable(null);
           setReadonlySession(null);

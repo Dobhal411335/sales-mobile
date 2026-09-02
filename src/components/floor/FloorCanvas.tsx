@@ -157,13 +157,9 @@ export function FloorCanvas({
                 );
                 const cardSize = getTableCardSize(table);
                 const left =
-                  (table.x || 0) -
-                  contentBounds.offsetX -
-                  cardSize.width * 0.1;
+                  (table.x || 0) - contentBounds.offsetX + cardSize.width * 0.06;
                 const top =
-                  (table.y || 0) -
-                  contentBounds.offsetY -
-                  cardSize.height * 0.1;
+                  (table.y || 0) - contentBounds.offsetY + cardSize.height * 0.06;
 
                 return (
                   <View

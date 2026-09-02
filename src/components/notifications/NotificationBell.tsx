@@ -4,6 +4,7 @@ import {colors} from '../../constants/colors';
 import type {SalesStackParamList} from '../../navigation/types';
 import {useNotificationActions} from '../../hooks/useNotificationActions';
 import {useNotificationStore} from '../../store/notificationStore';
+import {BellIcon} from '../common/Icons';
 import {Popover} from '../common/Popover';
 import {NotificationPreview} from './NotificationPreview';
 
@@ -73,7 +74,7 @@ export function NotificationBell({navigation}: NotificationBellProps) {
             ? `Notifications, ${unreadCount} unread`
             : 'Notifications'
         }>
-        <Text style={styles.iconGlyph}>🔔</Text>
+        <BellIcon size={20} color="#D97706" />
         {badgeLabel ? (
           <View style={styles.notificationBadge}>
             <Text style={styles.notificationBadgeText}>{badgeLabel}</Text>
@@ -109,9 +110,6 @@ const styles = StyleSheet.create({
   },
   iconButtonPressed: {
     backgroundColor: colors.cream,
-  },
-  iconGlyph: {
-    fontSize: 18,
   },
   notificationBadge: {
     position: 'absolute',

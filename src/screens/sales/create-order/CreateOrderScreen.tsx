@@ -11,8 +11,11 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {Cart} from '../../../components/cart/Cart';
 import {TabletModal} from '../../../components/common/TabletModal';
-import {CategoryList} from '../../../components/menu/CategoryList';
+import {LayoutGridIcon, ListViewIcon} from '../../../components/common/Icons';
+import {HeadList} from '../../../components/menu/HeadList';
+import {MenuListFilters} from '../../../components/menu/MenuListFilters';
 import {ModifierModal} from '../../../components/menu/ModifierModal';
+import {OfferOptionsModal} from '../../../components/menu/OfferOptionsModal';
 import {ProductGrid} from '../../../components/menu/ProductGrid';
 import {
   PartyNameForm,
@@ -45,7 +48,11 @@ import {useOrderStore} from '../../../store/orderStore';
 import type {MenuProduct} from '../../../types/product';
 import type {ReceiptOrder} from '../../../types/receipt';
 import {productNeedsOptions} from '../../../types/product';
-import {buildSimpleCartLine} from '../../../utils/cartBuilder';
+import {
+  buildOfferCartLine,
+  buildSimpleCartLine,
+} from '../../../utils/cartBuilder';
+import {offerNeedsOptions} from '../../../utils/offerDetails';
 import {resolvePartyName} from '../../../utils/partyName';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'CreateOrder'>;
@@ -79,12 +86,19 @@ export function CreateOrderScreen({navigation, route}: Props) {
 
   const {
     categories,
+    heads,
     activeCategory,
+    activeHead,
+    viewMode,
+    searchQuery,
     filteredProducts,
     globalTaxes,
     loading: menuLoading,
     error: menuError,
     setActiveCategory,
+    setActiveHead,
+    setViewMode,
+    setSearchQuery,
   } = useMenuData();
 
   const items = useCartStore((state) => state.items);
@@ -121,6 +135,8 @@ export function CreateOrderScreen({navigation, route}: Props) {
     null,
   );
   const [modifierOpen, setModifierOpen] = useState(false);
+  const [offerProduct, setOfferProduct] = useState<MenuProduct | null>(null);
+  const [offerOpen, setOfferOpen] = useState(false);
   const [partyModalOpen, setPartyModalOpen] = useState(false);
   const [staffModalOpen, setStaffModalOpen] = useState(false);
   const [kotPreviewOpen, setKotPreviewOpen] = useState(false);
@@ -180,6 +196,17 @@ export function CreateOrderScreen({navigation, route}: Props) {
 
   const handleProductPress = useCallback(
     (product: MenuProduct) => {
+      if (product.isOffer) {
+        if (offerNeedsOptions(product)) {
+          setOfferProduct(product);
+          setOfferOpen(true);
+          return;
+        }
+        markDirty();
+        addItems([buildOfferCartLine(product, {}, globalTaxes)]);
+        return;
+      }
+
       if (productNeedsOptions(product)) {
         setModifierProduct(product);
         setModifierOpen(true);
@@ -455,15 +482,57 @@ export function CreateOrderScreen({navigation, route}: Props) {
       <View style={styles.layout}>
         <View style={styles.menuPane}>
           <View style={styles.contextHeader}>
-            <Text style={styles.screenTitle}>{display.headerTitle}</Text>
-            <Text style={styles.contextSubtitle}>{display.partyLabel}</Text>
+            <View style={styles.contextHeaderText}>
+              <Text style={styles.screenTitle}>{display.headerTitle}</Text>
+              <Text style={styles.contextSubtitle}>{display.partyLabel}</Text>
+            </View>
+            <View style={styles.viewToggle}>
+              <Pressable
+                style={[
+                  styles.viewToggleBtn,
+                  viewMode === 'grid' && styles.viewToggleBtnActive,
+                ]}
+                onPress={() => setViewMode('grid')}
+                accessibilityRole="button"
+                accessibilityState={{selected: viewMode === 'grid'}}
+                accessibilityLabel="Grid view">
+                <LayoutGridIcon
+                  size={16}
+                  color={viewMode === 'grid' ? colors.text : colors.textSecondary}
+                />
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.viewToggleBtn,
+                  viewMode === 'list' && styles.viewToggleBtnActive,
+                ]}
+                onPress={() => setViewMode('list')}
+                accessibilityRole="button"
+                accessibilityState={{selected: viewMode === 'list'}}
+                accessibilityLabel="List view">
+                <ListViewIcon
+                  size={16}
+                  color={viewMode === 'list' ? colors.text : colors.textSecondary}
+                />
+              </Pressable>
+            </View>
           </View>
 
-          <CategoryList
-            categories={categories}
-            activeCategory={activeCategory}
-            onSelectCategory={setActiveCategory}
-          />
+          {viewMode === 'grid' ? (
+            <HeadList
+              heads={heads}
+              activeHead={activeHead}
+              onSelectHead={setActiveHead}
+            />
+          ) : (
+            <MenuListFilters
+              categories={categories}
+              activeCategory={activeCategory}
+              searchQuery={searchQuery}
+              onChangeSearch={setSearchQuery}
+              onSelectCategory={setActiveCategory}
+            />
+          )}
 
           {showSessionLoader ? (
             <View style={styles.loaderPane}>
@@ -528,6 +597,20 @@ export function CreateOrderScreen({navigation, route}: Props) {
         onClose={() => {
           setModifierOpen(false);
           setModifierProduct(null);
+        }}
+        onAdd={(lines) => {
+          markDirty();
+          addItems(lines);
+        }}
+      />
+
+      <OfferOptionsModal
+        visible={offerOpen}
+        offer={offerProduct}
+        globalTaxes={globalTaxes}
+        onClose={() => {
+          setOfferOpen(false);
+          setOfferProduct(null);
         }}
         onAdd={(lines) => {
           markDirty();
@@ -712,12 +795,20 @@ const styles = StyleSheet.create({
     minWidth: 320,
   },
   contextHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.surface,
+  },
+  contextHeaderText: {
+    flex: 1,
+    minWidth: 0,
   },
   screenTitle: {
     fontSize: 20,
@@ -729,6 +820,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.textSecondary,
+  },
+  viewToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#F4F4F5',
+    padding: 4,
+    borderRadius: 10,
+  },
+  viewToggleBtn: {
+    width: 36,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewToggleBtnActive: {
+    backgroundColor: colors.surface,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    shadowOffset: {width: 0, height: 1},
+    elevation: 1,
   },
   loaderPane: {
     flex: 1,

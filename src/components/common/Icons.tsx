@@ -34,43 +34,47 @@ export function BellIcon({size = 20, color = '#D97706'}: IconProps) {
   return (
     <View style={[styles.box, {width: size, height: size}]}>
       <View
-        style={{
-          width: size * 0.18,
-          height: size * 0.14,
-          borderRadius: size,
-          borderWidth: 1.5,
-          borderColor: color,
-          marginBottom: 1,
-        }}
+        style={[
+          styles.bellTop,
+          {
+            width: size * 0.18,
+            height: size * 0.14,
+            borderRadius: size,
+            borderColor: color,
+          },
+        ]}
       />
       <View
-        style={{
-          width: bodyW,
-          height: bodyH,
-          borderTopLeftRadius: bodyW / 2,
-          borderTopRightRadius: bodyW / 2,
-          borderBottomLeftRadius: 2,
-          borderBottomRightRadius: 2,
-          backgroundColor: color,
-        }}
+        style={[
+          styles.bellBody,
+          {
+            width: bodyW,
+            height: bodyH,
+            borderTopLeftRadius: bodyW / 2,
+            borderTopRightRadius: bodyW / 2,
+            backgroundColor: color,
+          },
+        ]}
       />
       <View
-        style={{
-          width: size * 0.72,
-          height: 2.5,
-          borderRadius: 2,
-          backgroundColor: color,
-          marginTop: 1,
-        }}
+        style={[
+          styles.bellClapperBar,
+          {
+            width: size * 0.72,
+            backgroundColor: color,
+          },
+        ]}
       />
       <View
-        style={{
-          width: size * 0.16,
-          height: size * 0.16,
-          borderRadius: size,
-          backgroundColor: color,
-          marginTop: 1.5,
-        }}
+        style={[
+          styles.bellClapper,
+          {
+            width: size * 0.16,
+            height: size * 0.16,
+            borderRadius: size,
+            backgroundColor: color,
+          },
+        ]}
       />
     </View>
   );
@@ -84,40 +88,32 @@ export function FloorTabIcon({
   const gap = size * 0.12;
   return (
     <View style={[styles.box, {width: size, height: size, gap}]}>
-      <View style={{flexDirection: 'row', gap}}>
+      <View style={[styles.row, {gap}]}>
         <View
-          style={{
-            width: cell,
-            height: cell,
-            borderRadius: 2,
-            backgroundColor: color,
-          }}
+          style={[
+            styles.floorCell,
+            {width: cell, height: cell, backgroundColor: color},
+          ]}
         />
         <View
-          style={{
-            width: cell,
-            height: cell,
-            borderRadius: 2,
-            backgroundColor: color,
-          }}
+          style={[
+            styles.floorCell,
+            {width: cell, height: cell, backgroundColor: color},
+          ]}
         />
       </View>
-      <View style={{flexDirection: 'row', gap}}>
+      <View style={[styles.row, {gap}]}>
         <View
-          style={{
-            width: cell,
-            height: cell,
-            borderRadius: 2,
-            backgroundColor: color,
-          }}
+          style={[
+            styles.floorCell,
+            {width: cell, height: cell, backgroundColor: color},
+          ]}
         />
         <View
-          style={{
-            width: cell,
-            height: cell,
-            borderRadius: 2,
-            backgroundColor: color,
-          }}
+          style={[
+            styles.floorCell,
+            {width: cell, height: cell, backgroundColor: color},
+          ]}
         />
       </View>
     </View>
@@ -134,71 +130,71 @@ export function OrdersTabIcon({
     <View
       style={[
         styles.box,
+        styles.ordersBox,
         {
           width: size,
           height: size,
-          alignItems: 'stretch',
-          justifyContent: 'center',
           gap,
           paddingHorizontal: size * 0.08,
         },
       ]}>
       <View
-        style={{
-          height: lineH,
-          borderRadius: 1,
-          backgroundColor: color,
-          width: '100%',
-        }}
+        style={[
+          styles.ordersLineFull,
+          {height: lineH, backgroundColor: color},
+        ]}
       />
       <View
-        style={{
-          height: lineH,
-          borderRadius: 1,
-          backgroundColor: color,
-          width: '78%',
-        }}
+        style={[
+          styles.ordersLineShort,
+          {height: lineH, backgroundColor: color},
+        ]}
       />
       <View
-        style={{
-          height: lineH,
-          borderRadius: 1,
-          backgroundColor: color,
-          width: '90%',
-        }}
+        style={[
+          styles.ordersLineMedium,
+          {height: lineH, backgroundColor: color},
+        ]}
       />
     </View>
   );
 }
 
+/** Alias for create-order grid/list toggle. */
+export const LayoutGridIcon = FloorTabIcon;
+export const ListViewIcon = OrdersTabIcon;
+
 export function UsersIcon({size = 14, color = '#065F46'}: IconProps) {
   const head = size * 0.28;
   return (
     <View style={[styles.box, {width: size, height: size}]}>
-      <View style={{flexDirection: 'row', alignItems: 'flex-end', gap: 2}}>
-        <View style={{alignItems: 'center'}}>
+      <View style={styles.usersRow}>
+        <View style={styles.alignCenter}>
           <View
-            style={{
-              width: head * 0.85,
-              height: head * 0.85,
-              borderRadius: head,
-              backgroundColor: color,
-              opacity: 0.55,
-            }}
+            style={[
+              styles.userHeadFaded,
+              {
+                width: head * 0.85,
+                height: head * 0.85,
+                borderRadius: head,
+                backgroundColor: color,
+              },
+            ]}
           />
           <View
-            style={{
-              width: head * 1.2,
-              height: head * 0.7,
-              borderTopLeftRadius: head,
-              borderTopRightRadius: head,
-              backgroundColor: color,
-              opacity: 0.55,
-              marginTop: 1,
-            }}
+            style={[
+              styles.userBodyFaded,
+              {
+                width: head * 1.2,
+                height: head * 0.7,
+                borderTopLeftRadius: head,
+                borderTopRightRadius: head,
+                backgroundColor: color,
+              },
+            ]}
           />
         </View>
-        <View style={{alignItems: 'center', marginLeft: -4}}>
+        <View style={styles.userFront}>
           <View
             style={{
               width: head,
@@ -208,14 +204,16 @@ export function UsersIcon({size = 14, color = '#065F46'}: IconProps) {
             }}
           />
           <View
-            style={{
-              width: head * 1.45,
-              height: head * 0.85,
-              borderTopLeftRadius: head,
-              borderTopRightRadius: head,
-              backgroundColor: color,
-              marginTop: 1,
-            }}
+            style={[
+              styles.userBodyFront,
+              {
+                width: head * 1.45,
+                height: head * 0.85,
+                borderTopLeftRadius: head,
+                borderTopRightRadius: head,
+                backgroundColor: color,
+              },
+            ]}
           />
         </View>
       </View>
@@ -233,5 +231,65 @@ const styles = StyleSheet.create({
     borderRightWidth: 2,
     transform: [{rotate: '45deg'}],
     marginTop: -2,
+  },
+  bellTop: {
+    borderWidth: 1.5,
+    marginBottom: 1,
+  },
+  bellBody: {
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
+  },
+  bellClapperBar: {
+    height: 2.5,
+    borderRadius: 2,
+    marginTop: 1,
+  },
+  bellClapper: {
+    marginTop: 1.5,
+  },
+  row: {
+    flexDirection: 'row',
+  },
+  floorCell: {
+    borderRadius: 2,
+  },
+  ordersBox: {
+    alignItems: 'stretch',
+    justifyContent: 'center',
+  },
+  ordersLineFull: {
+    borderRadius: 1,
+    width: '100%',
+  },
+  ordersLineShort: {
+    borderRadius: 1,
+    width: '78%',
+  },
+  ordersLineMedium: {
+    borderRadius: 1,
+    width: '90%',
+  },
+  usersRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  alignCenter: {
+    alignItems: 'center',
+  },
+  userFront: {
+    alignItems: 'center',
+    marginLeft: -4,
+  },
+  userHeadFaded: {
+    opacity: 0.55,
+  },
+  userBodyFaded: {
+    opacity: 0.55,
+    marginTop: 1,
+  },
+  userBodyFront: {
+    marginTop: 1,
   },
 });

@@ -2,7 +2,13 @@
  * Development-only mock menu data.
  * Replace with menuService → GET /api/menu/* in a later integration phase.
  */
-import type {MenuCategory, MenuProduct, TaxRate} from '../types/product';
+import type {
+  MenuCategory,
+  MenuHead,
+  MenuProduct,
+  ProductHeadMapping,
+  TaxRate,
+} from '../types/product';
 
 export const MOCK_CATEGORY_NAMES = [
   'All',
@@ -28,6 +34,17 @@ const categories: MenuCategory[] = MOCK_CATEGORY_NAMES.filter(
 export const MOCK_GLOBAL_TAXES: TaxRate[] = [
   {id: 'tax-hst', name: 'HST', type: 'percent', value: 13},
 ];
+
+const MOCK_HEAD_NAMES = [
+  'Breakfast',
+  'Lunch',
+  'Dinner',
+  'Soups',
+  'Kids Menu',
+  'Tea & Coffee',
+  'Soft Drinks',
+  'Bar & Alcohol',
+] as const;
 
 const products: MenuProduct[] = [
   {
@@ -205,10 +222,33 @@ const tableContextById: Record<
   };
 
 export function getMockMenuData() {
+  const heads: MenuHead[] = [
+    {id: 'all', name: 'All'},
+    ...MOCK_HEAD_NAMES.map((name, index) => ({
+      id: `head-${index + 1}`,
+      name,
+      status: 'Active',
+    })),
+    {id: 'offer', name: 'Offer'},
+  ];
+
+  const productHeads: ProductHeadMapping[] = MOCK_HEAD_NAMES.map(
+    (name, index) => ({
+      id: `ph-${index + 1}`,
+      headName: name,
+      status: 'Active',
+      productIds: products
+        .filter((p) => p.category.name === name && !p.isOffer)
+        .map((p) => p.id),
+    }),
+  );
+
   return {
     categories,
     products,
     offers: [],
+    heads,
+    productHeads,
     globalTaxes: MOCK_GLOBAL_TAXES,
     categoryNames: [...MOCK_CATEGORY_NAMES],
   };

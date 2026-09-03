@@ -71,6 +71,22 @@ export interface MenuOffer {
   status?: string;
 }
 
+export interface MenuHead {
+  id: string;
+  name: string;
+  status?: string;
+  imageUrl?: string;
+}
+
+export interface ProductHeadMapping {
+  id: string;
+  headName: string;
+  status?: string;
+  productIds: string[];
+}
+
+export type MenuViewMode = 'grid' | 'list';
+
 export function productNeedsOptions(product: MenuProduct): boolean {
   const hasVariants = Boolean(product.variants?.length);
   const hasAddons = Boolean(product.addons?.length);

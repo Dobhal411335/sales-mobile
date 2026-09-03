@@ -23,11 +23,16 @@ function CartItemComponent({
     <View style={styles.item}>
       <View style={styles.topRow}>
         <View style={styles.info}>
-          <Text style={styles.name} numberOfLines={2}>
-            {item.name}
-          </Text>
+          <View style={styles.nameRow}>
+            {item.isOffer ? (
+              <Text style={styles.offerBadge}>OFFER</Text>
+            ) : null}
+            <Text style={styles.name} numberOfLines={2}>
+              {item.name}
+            </Text>
+          </View>
           {item.modifier ? (
-            <Text style={styles.modifier} numberOfLines={2}>
+            <Text style={styles.modifier} numberOfLines={3}>
               {item.modifier}
             </Text>
           ) : null}
@@ -82,7 +87,27 @@ const styles = StyleSheet.create({
   info: {
     flex: 1,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  offerBadge: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6D28D9',
+    backgroundColor: '#F5F3FF',
+    borderWidth: 1,
+    borderColor: '#EDE9FE',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
   name: {
+    flex: 1,
     fontSize: 15,
     fontWeight: '800',
     color: colors.text,

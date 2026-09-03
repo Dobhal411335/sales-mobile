@@ -4,14 +4,28 @@ import {colors} from '../../constants/colors';
 import type {MenuProduct} from '../../types/product';
 import {productNeedsOptions} from '../../types/product';
 import {formatCurrency} from '../../utils/currency';
+import {cleanOfferList, offerNeedsOptions} from '../../utils/offerDetails';
 
 interface ProductCardProps {
   product: MenuProduct;
   onPress: (product: MenuProduct) => void;
 }
 
+function getOfferOptionPreview(product: MenuProduct): string {
+  const parts = [
+    ...cleanOfferList(product.inclusions),
+    ...cleanOfferList(product.choices),
+    ...cleanOfferList(product.drinks),
+  ];
+  return parts.join(' · ');
+}
+
 function ProductCardComponent({product, onPress}: ProductCardProps) {
-  const hasOptions = productNeedsOptions(product);
+  const isOffer = Boolean(product.isOffer);
+  const hasOptions = isOffer
+    ? offerNeedsOptions(product)
+    : productNeedsOptions(product);
+  const offerOptionsPreview = isOffer ? getOfferOptionPreview(product) : '';
   const basePrice =
     product.variants && product.variants.length > 0
       ? product.variants[0].price
@@ -26,7 +40,11 @@ function ProductCardComponent({product, onPress}: ProductCardProps) {
       <View style={styles.headerRow}>
         {product.productCode ? (
           <Text style={styles.code}>{product.productCode}</Text>
-        ) : null}
+        ) : isOffer ? (
+          <Text style={styles.offerTag}>Offer</Text>
+        ) : (
+          <View />
+        )}
         {hasOptions ? (
           <View style={styles.optionsBadge}>
             <Text style={styles.optionsBadgeText}>Options</Text>
@@ -40,6 +58,11 @@ function ProductCardComponent({product, onPress}: ProductCardProps) {
       <Text style={styles.category} numberOfLines={1}>
         {product.category?.name || 'Uncategorized'}
       </Text>
+      {offerOptionsPreview ? (
+        <Text style={styles.optionsPreview} numberOfLines={2}>
+          {offerOptionsPreview}
+        </Text>
+      ) : null}
       <Text style={styles.price}>{formatCurrency(basePrice)}</Text>
     </Pressable>
   );
@@ -67,12 +90,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 8,
+    minHeight: 18,
   },
   code: {
     fontSize: 12,
     fontWeight: '800',
     color: colors.primaryHover,
     letterSpacing: 0.4,
+  },
+  offerTag: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6D28D9',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   optionsBadge: {
     backgroundColor: colors.primaryLight,
@@ -98,7 +129,14 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 10,
+    marginBottom: 6,
+  },
+  optionsPreview: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    lineHeight: 16,
+    marginBottom: 8,
   },
   price: {
     fontSize: 16,

@@ -2,9 +2,11 @@ import {isAxiosError} from 'axios';
 import {config} from '../constants/config';
 import type {
   MenuCategory,
+  MenuHead,
   MenuOffer,
   MenuProduct,
   ProductAddon,
+  ProductHeadMapping,
   ProductVariant,
   TaxRate,
 } from '../types/product';
@@ -16,6 +18,8 @@ export interface MenuData {
   categories: MenuCategory[];
   products: MenuProduct[];
   offers: MenuOffer[];
+  heads: MenuHead[];
+  productHeads: ProductHeadMapping[];
   globalTaxes: TaxRate[];
   categoryNames: string[];
 }
@@ -161,6 +165,39 @@ function normalizeOffer(raw: Record<string, unknown>): MenuOffer {
   };
 }
 
+function normalizeHead(raw: Record<string, unknown>): MenuHead {
+  const image = raw.image as {url?: string} | undefined;
+  return {
+    id: toId(raw._id ?? raw.id),
+    name: String(raw.name ?? ''),
+    status: raw.status ? String(raw.status) : 'Active',
+    imageUrl: image?.url ? String(image.url) : undefined,
+  };
+}
+
+function normalizeProductHead(raw: Record<string, unknown>): ProductHeadMapping {
+  const headRaw = raw.head as Record<string, unknown> | string | undefined;
+  const headName =
+    headRaw && typeof headRaw === 'object'
+      ? String(headRaw.name ?? '')
+      : '';
+  const categories = Array.isArray(raw.categories) ? raw.categories : [];
+  const productIds = categories.flatMap((entry) => {
+    const row = entry as {products?: unknown[]};
+    if (!Array.isArray(row.products)) {
+      return [];
+    }
+    return row.products.map((pid) => toId(pid)).filter(Boolean);
+  });
+
+  return {
+    id: toId(raw._id ?? raw.id),
+    headName,
+    status: raw.status ? String(raw.status) : 'Active',
+    productIds,
+  };
+}
+
 function offerToProduct(offer: MenuOffer): MenuProduct {
   return {
     id: offer.id,
@@ -179,18 +216,29 @@ function offerToProduct(offer: MenuOffer): MenuProduct {
 }
 
 async function fetchLiveMenuData(): Promise<MenuData> {
-  const [catRes, prodRes, taxRes, offerRes] = await Promise.all([
-    api.get<ApiEnvelope<Record<string, unknown>[]>>(
-      '/api/menu/categories?active=1',
-    ),
-    api.get<ApiEnvelope<Record<string, unknown>[]>>(
-      '/api/menu/products?active=1',
-    ),
-    api.get<ApiEnvelope<Record<string, unknown>[]>>('/api/tax'),
-    api.get<ApiEnvelope<Record<string, unknown>[]>>(
-      '/api/menu/offers?active=1',
-    ),
-  ]);
+  const [catRes, prodRes, taxRes, offerRes, headResult, phResult] =
+    await Promise.all([
+      api.get<ApiEnvelope<Record<string, unknown>[]>>(
+        '/api/menu/categories?active=1',
+      ),
+      api.get<ApiEnvelope<Record<string, unknown>[]>>(
+        '/api/menu/products?active=1',
+      ),
+      api.get<ApiEnvelope<Record<string, unknown>[]>>('/api/tax'),
+      api.get<ApiEnvelope<Record<string, unknown>[]>>(
+        '/api/menu/offers?active=1',
+      ),
+      api
+        .get<ApiEnvelope<Record<string, unknown>[]>>(
+          '/api/menu/heads?active=1',
+        )
+        .catch(() => null),
+      api
+        .get<ApiEnvelope<Record<string, unknown>[]>>(
+          '/api/menu/product-heads?active=1',
+        )
+        .catch(() => null),
+    ]);
 
   const categories = (catRes.data.data || [])
     .map((row) => normalizeCategory(row))
@@ -212,8 +260,49 @@ async function fetchLiveMenuData(): Promise<MenuData> {
   const offerProducts = offers.map(offerToProduct);
   const allProducts = [...products, ...offerProducts];
 
+  const headRows =
+    headResult?.data?.success && Array.isArray(headResult.data.data)
+      ? headResult.data.data
+      : [];
+  const menuHeads = headRows
+    .map((row) => normalizeHead(row))
+    .filter(
+      (h) =>
+        h.name &&
+        String(h.name).toLowerCase() !== 'offer' &&
+        String(h.status || 'Active') !== 'Inactive',
+    );
+
+  const heads: MenuHead[] =
+    menuHeads.length > 0
+      ? [
+          {id: 'all', name: 'All'},
+          ...menuHeads,
+          {id: 'offer', name: 'Offer'},
+        ]
+      : [
+          {id: 'all', name: 'All'},
+          ...categories
+            .filter((c) => c.name.toLowerCase() !== 'offer')
+            .map((c) => ({id: c.id, name: c.name, status: c.status})),
+          {id: 'offer', name: 'Offer'},
+        ];
+
+  const phRows =
+    phResult?.data?.success && Array.isArray(phResult.data.data)
+      ? phResult.data.data
+      : [];
+  const productHeads = phRows
+    .map((row) => normalizeProductHead(row))
+    .filter(
+      (ph) => ph.headName && String(ph.status || 'Active') !== 'Inactive',
+    );
+
   const globalTaxes = (taxRes.data.data || [])
-    .filter((row) => String((row as {status?: string}).status || 'Active') === 'Active')
+    .filter(
+      (row) =>
+        String((row as {status?: string}).status || 'Active') === 'Active',
+    )
     .map((row) => normalizeTax(row));
 
   const categoryNames = [
@@ -226,6 +315,8 @@ async function fetchLiveMenuData(): Promise<MenuData> {
     categories,
     products: allProducts,
     offers,
+    heads,
+    productHeads,
     globalTaxes,
     categoryNames,
   };

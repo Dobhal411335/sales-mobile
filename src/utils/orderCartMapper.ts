@@ -3,39 +3,12 @@ import type {ApiOrder, ApiOrderItem} from '../types/order';
 import type {CartTotals} from '../types/cart';
 import {getCartFingerprint} from './cartPricing';
 import {
-  normalizeChoiceSelections,
-} from './productChoices';
-
-const OFFER_CATEGORY = 'Offers';
-
-function cleanOfferList(list: unknown): string[] {
-  if (!Array.isArray(list)) {
-    return [];
-  }
-  return list.map((value) => String(value).trim()).filter(Boolean);
-}
-
-function isOfferItem(item: ApiOrderItem): boolean {
-  return Boolean(item.isOffer) || item.category === OFFER_CATEGORY;
-}
-
-function buildOfferCartModifier(item: {
-  inclusions?: string[];
-  choices?: string[];
-  drinks?: string[];
-}): string | undefined {
-  const parts: string[] = [];
-  if (item.inclusions?.length) {
-    parts.push(`Includes: ${item.inclusions.join(', ')}`);
-  }
-  if (item.choices?.length) {
-    parts.push(`Choices: ${item.choices.join(', ')}`);
-  }
-  if (item.drinks?.length) {
-    parts.push(`Drinks: ${item.drinks.join(', ')}`);
-  }
-  return parts.length ? parts.join(' | ') : undefined;
-}
+  OFFER_CATEGORY,
+  buildOfferCartModifier,
+  cleanOfferList,
+  isOfferItem,
+} from './offerDetails';
+import {normalizeChoiceSelections} from './productChoices';
 
 export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineItem[] {
   return items.map((item, idx) => {

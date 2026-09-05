@@ -1,12 +1,12 @@
 import React, {useMemo, useState} from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
+  FlatList,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {Notification, NotificationFilter} from '../../types/notification';

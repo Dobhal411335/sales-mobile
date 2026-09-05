@@ -2,10 +2,10 @@ import React from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {PrintJob, PrintJobDetailData, PrintJobStatus} from '../../types/printJob';

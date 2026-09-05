@@ -11,7 +11,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {Cart} from '../../../components/cart/Cart';
 import {TabletModal} from '../../../components/common/TabletModal';
-import {LayoutGridIcon, ListViewIcon} from '../../../components/common/Icons';
+import {LayoutGrid, List} from 'lucide-react-native';
 import {HeadList} from '../../../components/menu/HeadList';
 import {MenuListFilters} from '../../../components/menu/MenuListFilters';
 import {ModifierModal} from '../../../components/menu/ModifierModal';
@@ -25,6 +25,7 @@ import {StaffPartyForm} from '../../../components/orders/StaffPartyForm';
 import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
 import {PrintJobStatusStrip} from '../../../components/printing/PrintJobStatusStrip';
 import {colors} from '../../../constants/colors';
+import {toast} from '../../../components/common/Toast';
 import {useMenuData} from '../../../hooks/useMenuData';
 import {useOrderContextDisplay} from '../../../hooks/useOrderContext';
 import {
@@ -251,7 +252,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
             orderId: activeOrderId ?? undefined,
             tableNo: orderContext?.tableNumber,
             floorName: orderContext?.floorName,
-            guestName: resolvedPartyName,
+            guestName: guestName.trim() || undefined,
             partyName: resolvedPartyName,
             contactNumber: guestPhone.trim() || null,
             guestCountryCode: guestPhone.trim() ? guestCountryCode : null,
@@ -267,13 +268,18 @@ export function CreateOrderScreen({navigation, route}: Props) {
         const result = await submitOrder(payload);
         if (!result.success || !result.data) {
           Alert.alert('Unable to send order', result.message ?? 'Try again.');
+          setPartyModalOpen(false);
+          setStaffModalOpen(false);
           return;
         }
+
+        // Close modal immediately so UI feels instant
+        setPartyModalOpen(false);
+        setStaffModalOpen(false);
 
         const receiptOrder = toReceiptOrder(result.data);
         setPartyFields({
           partyName: resolvedPartyName,
-          guestName: resolvedPartyName,
         });
         applyKotResult({
           orderNumber: result.data.orderNumber,
@@ -298,22 +304,30 @@ export function CreateOrderScreen({navigation, route}: Props) {
         setDirty(false);
         setRemoteUpdatePending(false);
 
+        const isBarTicket = result.data.ticketType === 'BAR_RECEIPT';
+        toast.success(
+          isBarTicket ? 'Bar ticket created!' : 'Order sent to kitchen!',
+        );
+
         if (receiptOrder && result.data.kotPayload.length > 0) {
           setTicketPrintJobId(result.data.printJobId ?? null);
           setKotPrintMessage(null);
           setKotReceiptOrder(receiptOrder);
-          setKotPreviewOpen(true);
+          // Let the success toast show before the KOT preview modal covers it
+          setTimeout(() => {
+            setKotPreviewOpen(true);
+          }, 700);
         }
       } catch {
         Alert.alert(
           'Unable to send order',
           'Check your connection and try again.',
         );
+        setPartyModalOpen(false);
+        setStaffModalOpen(false);
       } finally {
         setIsSubmitting(false);
         setSaving(false);
-        setPartyModalOpen(false);
-        setStaffModalOpen(false);
       }
     },
     [
@@ -323,6 +337,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
       globalTaxes,
       guestCountryCode,
       guestEmail,
+      guestName,
       guestPhone,
       items,
       orderContext?.floorName,
@@ -496,7 +511,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
                 accessibilityRole="button"
                 accessibilityState={{selected: viewMode === 'grid'}}
                 accessibilityLabel="Grid view">
-                <LayoutGridIcon
+                <LayoutGrid
                   size={16}
                   color={viewMode === 'grid' ? colors.text : colors.textSecondary}
                 />
@@ -510,7 +525,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
                 accessibilityRole="button"
                 accessibilityState={{selected: viewMode === 'list'}}
                 accessibilityLabel="List view">
-                <ListViewIcon
+                <List
                   size={16}
                   color={viewMode === 'list' ? colors.text : colors.textSecondary}
                 />
@@ -630,6 +645,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
           },
           {
             label: 'Confirm & Send',
+            loadingLabel: 'Sending KOT...',
             variant: 'primary',
             onPress: handleConfirmParty,
             disabled: isSubmitting,
@@ -660,8 +676,6 @@ export function CreateOrderScreen({navigation, route}: Props) {
           tableNumber={orderContext?.tableNumber}
           floorName={orderContext?.floorName}
           guestCount={orderContext?.guestCount}
-          isWalkIn={isWalkIn}
-          orderType={orderType}
         />
       </TabletModal>
 
@@ -677,6 +691,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
           },
           {
             label: 'Confirm & Send',
+            loadingLabel: 'Sending KOT...',
             variant: 'primary',
             onPress: handleConfirmStaff,
             disabled: isSubmitting || !staffForId,

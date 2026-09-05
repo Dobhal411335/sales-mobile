@@ -1,10 +1,10 @@
 import React, {useState} from 'react';
 import {
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {OrderType} from '../../navigation/types';

@@ -160,10 +160,6 @@ export function OrdersTabIcon({
   );
 }
 
-/** Alias for create-order grid/list toggle. */
-export const LayoutGridIcon = FloorTabIcon;
-export const ListViewIcon = OrdersTabIcon;
-
 export function UsersIcon({size = 14, color = '#065F46'}: IconProps) {
   const head = size * 0.28;
   return (

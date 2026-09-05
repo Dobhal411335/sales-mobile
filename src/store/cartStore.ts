@@ -195,8 +195,8 @@ export const useCartStore = create<CartState>((set, get) => ({
     set({
       items: input.items,
       orderNote: input.orderNote ?? '',
-      guestName: input.guestName ?? input.partyName ?? '',
-      partyName: input.partyName ?? input.guestName ?? '',
+      guestName: input.guestName ?? '',
+      partyName: input.partyName ?? '',
       guestPhone: input.guestPhone ?? '',
       guestCountryCode: input.guestCountryCode ?? '+1',
       guestEmail: input.guestEmail ?? '',

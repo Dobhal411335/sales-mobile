@@ -2,17 +2,16 @@ import React, {useState} from 'react';
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import {countryCodes} from '../../utils/countryCodes';
 import {
   formatTableLocation,
-  resolvePartyName,
   validatePartyEmail,
   validatePartyPhone,
 } from '../../utils/partyName';
@@ -29,8 +28,6 @@ interface PartyNameFormProps {
   tableNumber?: string;
   floorName?: string;
   guestCount?: number;
-  isWalkIn?: boolean;
-  orderType?: string;
 }
 
 export function PartyNameForm({
@@ -45,18 +42,10 @@ export function PartyNameForm({
   tableNumber,
   floorName,
   guestCount,
-  isWalkIn,
-  orderType,
 }: PartyNameFormProps) {
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
 
   const tableLabel = formatTableLocation(tableNumber, floorName);
-  const fallbackName = resolvePartyName('', guestName, {
-    isWalkIn,
-    orderType: orderType as 'walking' | 'table' | undefined,
-    tableLabel,
-    guestCount,
-  });
 
   return (
     <View style={styles.container}>
@@ -74,10 +63,6 @@ export function PartyNameForm({
             autoCapitalize="words"
             accessibilityLabel="Customer or party name"
           />
-          <Text style={styles.hint}>
-            If empty, will use:{' '}
-            <Text style={styles.hintBold}>{fallbackName}</Text>
-          </Text>
         </View>
 
         <View style={styles.field}>
@@ -139,6 +124,7 @@ export function PartyNameForm({
         visible={countryPickerOpen}
         transparent
         animationType="fade"
+        statusBarTranslucent={true}
         onRequestClose={() => setCountryPickerOpen(false)}>
         <Pressable
           style={styles.pickerBackdrop}
@@ -240,15 +226,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 10,
     borderBottomRightRadius: 10,
   },
-  hint: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  hintBold: {
-    fontWeight: '800',
-    color: colors.text,
-  },
   contextPanel: {
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -284,6 +261,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderRadius: 16,
     maxHeight: 400,
+    width: '100%',
+    maxWidth: 360,
+    alignSelf: 'center',
     padding: 16,
   },
   pickerTitle: {

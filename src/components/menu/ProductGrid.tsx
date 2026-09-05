@@ -1,11 +1,11 @@
 import React, {useMemo} from 'react';
 import {
   ActivityIndicator,
-  FlatList,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  FlatList,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {MenuProduct} from '../../types/product';

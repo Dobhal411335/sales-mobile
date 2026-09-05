@@ -1,14 +1,24 @@
 import React from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type ImageSourcePropType,
+} from 'react-native';
 import {colors} from '../../constants/colors';
 import type {CardTypeName} from '../../types/payment';
 
-const CARD_TYPES: CardTypeName[] = [
-  'Visa',
-  'Mastercard',
-  'RuPay',
-  'Amex',
-  'Discover',
+const CARD_TYPES: {
+  name: CardTypeName;
+  image: ImageSourcePropType;
+}[] = [
+  {name: 'Visa', image: require('../../assets/card/visa.png')},
+  {name: 'Mastercard', image: require('../../assets/card/mastercard.webp')},
+  {name: 'RuPay', image: require('../../assets/card/rupay.webp')},
+  {name: 'Amex', image: require('../../assets/card/american-express.webp')},
+  {name: 'Discover', image: require('../../assets/card/discover.png')},
 ];
 
 interface CardTypeSelectorProps {
@@ -22,28 +32,34 @@ export function CardTypeSelector({
 }: CardTypeSelectorProps) {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>CARD TYPE</Text>
+      <Text style={styles.title}>SELECT CARD TYPE</Text>
       <View style={styles.grid}>
-        {CARD_TYPES.map((type) => {
-          const isSelected = selected === type;
+        {CARD_TYPES.map((card) => {
+          const isSelected = selected === card.name;
           return (
             <Pressable
-              key={type}
+              key={card.name}
               style={({pressed}) => [
                 styles.chip,
                 isSelected && styles.chipSelected,
                 pressed && styles.chipPressed,
               ]}
-              onPress={() => onSelect(type)}
+              onPress={() => onSelect(card.name)}
               accessibilityRole="button"
               accessibilityState={{selected: isSelected}}
-              accessibilityLabel={type}>
+              accessibilityLabel={card.name}>
+              <Image
+                source={card.image}
+                style={styles.logo}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
               <Text
                 style={[
                   styles.chipText,
                   isSelected && styles.chipTextSelected,
                 ]}>
-                {type}
+                {card.name}
               </Text>
             </Pressable>
           );
@@ -69,27 +85,34 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    minHeight: 48,
-    minWidth: 100,
-    paddingHorizontal: 14,
+    width: '23.5%',
+    minHeight: 64,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
     borderRadius: 12,
     borderWidth: 2,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
   },
   chipSelected: {
     borderColor: colors.primary,
-    backgroundColor: colors.cream,
+    backgroundColor: '#FFF7ED',
   },
   chipPressed: {
     opacity: 0.9,
   },
+  logo: {
+    width: 40,
+    height: 24,
+  },
   chipText: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 10,
+    fontWeight: '800',
     color: colors.textSecondary,
+    textAlign: 'center',
   },
   chipTextSelected: {
     color: colors.text,

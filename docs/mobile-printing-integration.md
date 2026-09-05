@@ -72,31 +72,33 @@ Socket payload (`toPrintJobEventPayload`): `printJobId`, `orderId`, `orderNumber
 
 ## 10. Printer configuration source
 
-**Database:** `PrinterConfig` model — `target`, `host`, `port` (default 9100), `enabled`, per restaurant.
+**Database:** `PrinterConfig` — `target` (purpose), `connectionType` (`USB` | `NETWORK` | `LAN` | `BLUETOOTH`), `systemPrinterName` (USB), `host`/`port` (network only), `location`, `type` (`THERMAL`), `enabled`.
 
-Admin: `/api/admin/printers`. Sales/Electron: `GET /api/sales/printers`.
+Admin: `/api/admin/printers`. Sales agents: `GET /api/sales/printers`.
 
 ## 11. Printer ID
 
-`PrinterConfig._id` — used for admin test (`PRINTER_TEST` socket event). Print jobs match by `printerTarget` string at print time, not FK.
+`PrinterConfig._id` — stored on `PrintJob.printerId` when created; also in `NEW_PRINT_JOB` payload as `printerId` + `connectionType` + `systemPrinterName`.
 
 ## 12. Printer IP / hostname
 
-Stored in `PrinterConfig.host` + `port`. **Never hard-code in mobile.**
+Stored in `PrinterConfig.host` + `port` for **NETWORK/LAN only**. USB printers do **not** use IP. **Never hard-code in mobile.**
 
 ## 13. Printer model
 
-UNKNOWN — not stored on `PrinterConfig` in API responses used by sales app. Admin UI may show name only.
+Optional `type` field (default `THERMAL`). Display name is `PrinterConfig.name`.
 
 ## 14. Printer connection type
 
-LAN raw socket port 9100 (ESC/POS) via Electron `printRaw` IPC. **UNKNOWN** for Star SDK on mobile tablets.
+- **USB:** Windows local print-bridge (`127.0.0.1:9105`) → Spooler RAW → USB thermal (e.g. KPC307-UEWB)
+- **NETWORK/LAN:** Electron `printRaw` TCP :9100 ESC/POS
+- **BLUETOOTH:** reserved (not in Milestone 1)
 
 ## 15. Adapter architecture
 
 - `getPrinterAdapter()` — `PRINT_ADAPTER` env: `mock` (default) or `star` (placeholder fails)
 - `executePrintJob()` runs adapter on retry/print-test only
-- Jobs created as `QUEUED`; not auto-printed on create
+- Jobs created as `QUEUED`; hardware agents (Electron / print-bridge) print and call `/complete`
 
 ## 16. Star integration
 
@@ -114,11 +116,13 @@ LAN raw socket port 9100 (ESC/POS) via Electron `printRaw` IPC. **UNKNOWN** for 
 | `PRINT_JOB_UPDATED` | Same | Status change, retry, complete |
 | `PRINTER_TEST` | `restaurant:{restaurantId}` | Admin printer test |
 
+Payload includes `printJobId`, `printerId`, `connectionType`, `systemPrinterName` (no payment secrets).
+
 Mobile: `usePrintJobRealtime` in `socket.ts` listens `NEW_PRINT_JOB`, `PRINT_JOB_UPDATED`.
 
 ## 19. Retry behavior
 
-`PATCH` action `retry` → resets to `QUEUED`, runs `executePrintJob()`. Retries **print job ID**, not order creation.
+`PATCH` action `retry` → resets to `QUEUED`, runs `executePrintJob()`. Retries **print job ID**, not order creation. USB bridge also listens for re-queued `NEW_PRINT_JOB` / status updates if re-emitted.
 
 ## 20. Failure behavior
 
@@ -134,33 +138,54 @@ All APIs scoped by authenticated `request.restaurant`. Printer configs and jobs 
 
 ---
 
+## Milestone 1 — USB print bridge (locked architecture)
+
+```
+Android App (Android Studio on Windows laptop)
+    ↓  HTTPS APIs only — NO USB printer libraries
+Hostinger Next.js Backend
+    ↓  Existing PrintJob + idempotency
+Socket.IO NEW_PRINT_JOB
+    ↓
+Windows print-bridge on 127.0.0.1:9105 (same laptop as USB printer)
+    ↓
+Windows Spooler RAW
+    ↓
+KPC307-UEWB USB Printer
+```
+
+### Hard rules for Mobile
+
+- **Do NOT** add Android USB printer SDKs or ESC/POS-over-USB from the app
+- **Do NOT** call `127.0.0.1:9105` from Android
+- Android only creates sales/orders and tracks print-job status via existing APIs/sockets
+- Physical print is solely the Windows print-bridge’s responsibility
+
+### Printer registration example (USB receipt)
+
+- name: `Receipt Printer`
+- type: `THERMAL`
+- connectionType: `USB`
+- systemPrinterName: `KPC307-UEWB`
+- host/port: null
+- location: `COUNTER`
+- target/purpose: `RECEIPT`
+- enabled: true
+
+---
+
 ## BACKEND GAP: Mixed kitchen + bar orders
 
 If cart contains both kitchen and bar items, web sends **one** KOT to kitchen (entire ticket). No split into separate kitchen KOT + bar ticket in one POST. Mobile follows this behavior.
 
-## PRINTER HARDWARE BLOCKER
+## PRINTER HARDWARE PATHS
 
-Physical printing in production today:
+1. Backend creates `QUEUED` print jobs after successful order/payment
+2. Socket emits `NEW_PRINT_JOB`
+3. **USB:** Windows `print-bridge` listens, builds ESC/POS, sends Spooler RAW, `POST .../complete`
+4. **NETWORK/LAN:** Electron desktop (`ElectronPrintAgent`) TCP :9100, then `complete`
 
-1. Backend creates `QUEUED` print jobs
-2. **Electron desktop** (`ElectronPrintAgent`) listens `NEW_PRINT_JOB`
-3. Fetches job detail, builds ESC/POS, sends to LAN printer via `electronPOS.printRaw`
-4. Reports `POST /api/sales/print-jobs/:id/complete`
-
-**Mobile tablets have no native Star SDK / ESC/POS module in this repo.**
-
-Phase 4 mobile implements:
-
-- Backend print job integration (status, retry, print-test API)
-- UI states (queued / printing / printed / failed)
-- `PrinterService` abstraction with `backend` mode default when API configured
-
-**Required before native mobile printing:**
-
-- Printer models (TSP100, TSP143, SP700, etc.)
-- Network topology (tablet → printer direct vs master device vs print box)
-- Whether mobile replaces Electron agent or supplements it
-- Star SDK vs raw ESC/POS on iOS/Android
+**Mobile does not talk to USB or the local print bridge.**
 
 Do not claim physical printing works without testing on restaurant hardware.
 

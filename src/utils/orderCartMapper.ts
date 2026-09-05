@@ -22,7 +22,7 @@ export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineIte
     const drinks = cleanOfferList(item.drinks);
     const parts: string[] = [];
 
-    if (item.size && item.size !== 'Standard') {
+    if (item.size) {
       parts.push(`Size: ${item.size}`);
     }
     if (style) {

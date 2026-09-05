@@ -1,5 +1,5 @@
 import React from 'react';
-import {Pressable, ScrollView, StyleSheet, Text} from 'react-native';
+import {Pressable, StyleSheet, Text, ScrollView} from 'react-native';
 import {colors} from '../../constants/colors';
 import type {TodayOrderFilter} from '../../types/todayOrder';
 import {TODAY_ORDER_FILTERS} from '../../utils/todayOrderHelpers';

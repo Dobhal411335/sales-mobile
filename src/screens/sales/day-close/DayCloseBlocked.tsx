@@ -1,11 +1,11 @@
 import React from 'react';
 import {
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  ScrollView,
 } from 'react-native';
 import type {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {DayCloseBlockerCard} from '../../../components/day-close/DayCloseBlockerCard';

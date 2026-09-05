@@ -17,7 +17,7 @@ interface SoundConstructor {
     filename: string,
     basePath: string,
     callback: (error: Error | null) => void,
-  ): NativeSound;
+  ): NativeSound; 
 }
 
 const playedIds = new Set<string>();
@@ -25,7 +25,6 @@ let lastPlayedAt = 0;
 let bellSound: NativeSound | null = null;
 let soundModuleEnabled = false;
 let nativeSoundChecked = false;
-let nativeSoundAvailable = false;
 let SoundClass: SoundConstructor | null = null;
 
 function loadSoundModule(): SoundConstructor | null {
@@ -41,7 +40,6 @@ function loadSoundModule(): SoundConstructor | null {
   }
 
   if (!NativeModules.RNSound) {
-    nativeSoundAvailable = false;
     SoundClass = null;
     return null;
   }
@@ -53,10 +51,8 @@ function loadSoundModule(): SoundConstructor | null {
     const Sound = ('default' in module ? module.default : module) as SoundConstructor;
     Sound.setCategory('Playback');
     SoundClass = Sound;
-    nativeSoundAvailable = true;
     return SoundClass;
   } catch {
-    nativeSoundAvailable = false;
     SoundClass = null;
     return null;
   }

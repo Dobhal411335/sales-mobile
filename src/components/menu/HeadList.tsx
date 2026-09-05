@@ -2,10 +2,10 @@ import React from 'react';
 import {
   Image,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  ScrollView,
 } from 'react-native';
 import {FloorTabIcon} from '../common/Icons';
 import {colors} from '../../constants/colors';

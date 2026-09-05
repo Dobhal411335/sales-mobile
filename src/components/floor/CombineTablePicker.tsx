@@ -1,5 +1,5 @@
 import React from 'react';
-import {Pressable, ScrollView, StyleSheet, Text, View} from 'react-native';
+import {Pressable, StyleSheet, Text, View, ScrollView} from 'react-native';
 import {colors} from '../../constants/colors';
 import type {FloorTable, TableSession} from '../../types/table';
 import type {CombineTableGroups} from '../../utils/floorCombineTables';

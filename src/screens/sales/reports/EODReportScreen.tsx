@@ -2,10 +2,10 @@ import React, {useState} from 'react';
 import {
   ActivityIndicator,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  ScrollView,
 } from 'react-native';
 import {SalesMetricCard} from '../../../components/common/SalesMetricCard';
 import {DetailedSalesSummary} from '../../../components/reports/DetailedSalesSummary';

@@ -2,10 +2,10 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem, ChoiceSelection} from '../../types/cart';
@@ -134,6 +134,7 @@ export function ModifierModal({
         const price = variant?.price ?? product.price;
         const tax = calculateItemTax(product, price, globalTaxes);
         const modifierParts = [
+          size ? `Size: ${size}` : undefined,
           selectedStyle || undefined,
           ...choiceSelections.flatMap((group) =>
             group.subChoices.map((value) => `${group.name}: ${value}`),
@@ -189,6 +190,7 @@ export function ModifierModal({
       const price = product.price || 0;
       const tax = calculateItemTax(product, price, globalTaxes);
       const modifierParts = [
+        'Size: Standard',
         selectedStyle || undefined,
         ...choiceSelections.flatMap((group) =>
           group.subChoices.map((value) => `${group.name}: ${value}`),

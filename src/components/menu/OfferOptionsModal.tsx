@@ -2,10 +2,10 @@ import React, {useEffect, useState} from 'react';
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
+  ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem} from '../../types/cart';

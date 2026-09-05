@@ -16,11 +16,7 @@ import {config} from '../../constants/config';
 import {useAuth} from '../../hooks/useAuth';
 import type {SalesStackParamList} from '../../navigation/types';
 import {formatHeaderDateTime} from '../../utils/date';
-import {
-  ChevronDownIcon,
-  FloorTabIcon,
-  OrdersTabIcon,
-} from './Icons';
+import {ChevronDown, Grid2X2, ShoppingBag} from 'lucide-react-native';
 import {ProfileMenu} from './ProfileMenu';
 
 type SalesRouteName = keyof SalesStackParamList;
@@ -28,10 +24,10 @@ type SalesRouteName = keyof SalesStackParamList;
 const PRIMARY_TABS: {
   label: string;
   route: SalesRouteName;
-  Icon: typeof FloorTabIcon;
+  Icon: typeof Grid2X2;
 }[] = [
-  {label: 'Floor', route: 'Floor', Icon: FloorTabIcon},
-  {label: 'Orders', route: 'Orders', Icon: OrdersTabIcon},
+  {label: 'Floor', route: 'Floor', Icon: Grid2X2},
+  {label: 'Orders', route: 'Orders', Icon: ShoppingBag},
 ];
 
 export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
@@ -113,7 +109,7 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
                 </Text>
                 <Text style={styles.profileRole}>STAFF</Text>
               </View>
-              <ChevronDownIcon size={14} color={colors.textSecondary} />
+              <ChevronDown size={14} color={colors.textSecondary} />
             </Pressable>
           </View>
         </View>
@@ -184,9 +180,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: {width: 0, height: 2},
+    elevation: 2,
   },
   tabActive: {
     backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    elevation: 4,
   },
   tabPressed: {
     backgroundColor: colors.cream,

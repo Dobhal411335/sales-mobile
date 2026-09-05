@@ -3,18 +3,19 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   useWindowDimensions,
   View,
+  ScrollView,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {CardTypeSelector} from '../../../components/payment/CardTypeSelector';
 import {PaymentMethodSelector} from '../../../components/payment/PaymentMethodSelector';
 import {PaymentSummary} from '../../../components/payment/PaymentSummary';
+import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
 import {
   applyDiscountCode,
@@ -188,8 +189,8 @@ export function PaymentScreen({navigation, route}: Props) {
             orderId: order._id,
             orderStatus: order.status,
             orderNote: order.specialNote,
-            partyName: order.partyName ?? order.guestName,
-            guestName: order.guestName ?? order.partyName,
+            partyName: order.partyName,
+            guestName: order.guestName,
             guestPhone: order.contactNumber ?? '',
             guestCountryCode: order.guestCountryCode ?? '+1',
             guestEmail: order.guestEmail ?? '',
@@ -242,8 +243,8 @@ export function PaymentScreen({navigation, route}: Props) {
               orderNumber: match.orderNumber,
               orderId: match._id,
               orderStatus: match.status,
-              partyName: match.partyName ?? match.guestName,
-              guestName: match.guestName ?? match.partyName,
+              partyName: match.partyName,
+              guestName: match.guestName,
               hasSentKot: true,
               kotCartFingerprint: null,
               persistedTotals: {
@@ -549,6 +550,7 @@ export function PaymentScreen({navigation, route}: Props) {
     }
 
     setPaymentStatus('success');
+    toast.success('Payment collected successfully!');
     navigateToReceipt(
       result.order,
       result.printJobId,
@@ -835,9 +837,14 @@ export function PaymentScreen({navigation, route}: Props) {
           disabled={completeDisabled}
           accessibilityRole="button"
           accessibilityLabel="Complete payment">
-          <Text style={styles.completeText}>
-            {paymentStatus === 'processing' ? 'Processing...' : 'Complete Payment'}
-          </Text>
+          {paymentStatus === 'processing' ? (
+            <View style={styles.completeLoadingRow}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.completeText}>Processing...</Text>
+            </View>
+          ) : (
+            <Text style={styles.completeText}>Complete Payment</Text>
+          )}
         </Pressable>
       </View>
     </SafeAreaView>
@@ -1115,5 +1122,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: colors.surface,
+  },
+  completeLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 });

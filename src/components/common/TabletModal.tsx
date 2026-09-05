@@ -1,19 +1,21 @@
 import React from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
+  ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 
 interface TabletModalFooterAction {
   label: string;
+  loadingLabel?: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'destructive';
   disabled?: boolean;
@@ -112,17 +114,41 @@ export function TabletModal({
                     disabled={action.disabled || action.loading}
                     accessibilityRole="button"
                     accessibilityLabel={action.label}>
-                    <Text
-                      style={[
-                        styles.footerButtonText,
-                        action.variant === 'primary' && styles.footerPrimaryText,
-                        action.variant === 'destructive' &&
-                          styles.footerDestructiveText,
-                        action.variant === 'secondary' &&
-                          styles.footerSecondaryText,
-                      ]}>
-                      {action.loading ? '...' : action.label}
-                    </Text>
+                    {action.loading ? (
+                      <View style={styles.loadingRow}>
+                        <ActivityIndicator
+                          size="small"
+                          color={
+                            action.variant === 'primary' ? '#fff' : colors.text
+                          }
+                        />
+                        <Text
+                          style={[
+                            styles.footerButtonText,
+                            action.variant === 'primary' &&
+                              styles.footerPrimaryText,
+                            action.variant === 'destructive' &&
+                              styles.footerDestructiveText,
+                            action.variant === 'secondary' &&
+                              styles.footerSecondaryText,
+                          ]}>
+                          {action.loadingLabel ?? action.label}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text
+                        style={[
+                          styles.footerButtonText,
+                          action.variant === 'primary' &&
+                            styles.footerPrimaryText,
+                          action.variant === 'destructive' &&
+                            styles.footerDestructiveText,
+                          action.variant === 'secondary' &&
+                            styles.footerSecondaryText,
+                        ]}>
+                        {action.label}
+                      </Text>
+                    )}
                   </Pressable>
                 ))}
               </View>
@@ -256,5 +282,10 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.9,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
 });

@@ -1,15 +1,16 @@
 import React, {useState} from 'react';
 import {
-  FlatList,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
+  FlatList,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem, CartTotals} from '../../types/cart';
 import {ConfirmDialog} from '../common/ConfirmDialog';
+import {ShoppingCart} from 'lucide-react-native';
 import {CartItem} from './CartItem';
 import {CartSummary} from './CartSummary';
 
@@ -47,15 +48,25 @@ export function Cart({
   onPayNow,
 }: CartProps) {
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const itemCount = items.reduce((sum, item) => sum + item.qty, 0);
 
   return (
     <View style={styles.cart}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>ORDER</Text>
-          {orderNumber ? (
-            <Text style={styles.orderNumber}>Order {orderNumber}</Text>
-          ) : null}
+        <View style={styles.headerLeft}>
+          <View style={styles.cartIconWrap}>
+            <ShoppingCart size={18} color={colors.text} />
+            {itemCount > 0 ? (
+              <View style={styles.cartBadge}>
+                <Text style={styles.cartBadgeText}>{itemCount}</Text>
+              </View>
+            ) : null}
+          </View>
+          <View>
+            <Text style={styles.title}>
+              {orderNumber ? `Order #${orderNumber}` : 'ORDER'}
+            </Text>
+          </View>
         </View>
         {items.length > 0 ? (
           <Pressable
@@ -169,7 +180,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 16,
@@ -177,17 +188,39 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flexShrink: 1,
+  },
+  cartIconWrap: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -8,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.surface,
+  },
   title: {
     fontSize: 16,
     fontWeight: '800',
     color: colors.text,
-    letterSpacing: 0.6,
-  },
-  orderNumber: {
-    marginTop: 4,
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.textSecondary,
   },
   clearAll: {
     fontSize: 13,
@@ -214,10 +247,11 @@ const styles = StyleSheet.create({
   },
   list: {
     flex: 1,
+    backgroundColor: '#FAFAFA',
   },
   listContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   footer: {
     paddingHorizontal: 16,

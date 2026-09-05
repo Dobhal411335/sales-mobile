@@ -2,11 +2,11 @@ import React, {useState} from 'react';
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
+  ScrollView,
 } from 'react-native';
 import {ChevronDownIcon} from '../common/Icons';
 import {colors} from '../../constants/colors';

@@ -52,12 +52,15 @@ export interface PrintJobMetadata {
   specialNote?: string;
   guestName?: string;
   partyName?: string;
+  isReprint?: boolean;
 }
 
 export interface PrintJob {
   _id: string;
   restaurantId?: string;
   orderId?: PrintJobOrderRef | string;
+  printerId?: string | null;
+  parentPrintJobId?: string | null;
   printType: PrintType;
   printerTarget: PrinterTarget;
   status: PrintJobStatus;
@@ -104,6 +107,8 @@ export interface PrintJobEventPayload {
   orderNumber?: string | null;
   printType?: PrintType;
   printerTarget?: PrinterTarget;
+  printerId?: string | null;
+  connectionType?: string | null;
   status?: PrintJobStatus;
   attemptCount?: number;
   createdAt?: string;

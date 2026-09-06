@@ -33,7 +33,7 @@ export function buildCartTotals(
   discount?: AppliedDiscount | null,
 ): CartTotals {
   const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const taxTotal = items.reduce((sum, item) => sum + item.tax * item.qty, 0);
+  const rawTaxTotal = items.reduce((sum, item) => sum + item.tax * item.qty, 0);
 
   let discountTotal = 0;
   if (discount) {
@@ -43,11 +43,15 @@ export function buildCartTotals(
         : Math.min(discount.value, subtotal);
   }
 
+  const taxableRatio =
+    subtotal > 0 ? Math.max(0, subtotal - discountTotal) / subtotal : 1;
+  const taxTotal = Math.round(rawTaxTotal * taxableRatio * 100) / 100;
+
   return {
     subtotal,
     taxTotal,
     discountTotal,
-    total: subtotal - discountTotal + taxTotal,
+    total: Math.max(0, subtotal - discountTotal + taxTotal),
   };
 }
 

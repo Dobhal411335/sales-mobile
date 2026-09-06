@@ -4,6 +4,7 @@ import type {NativeStackHeaderProps} from '@react-navigation/native-stack';
 import {colors} from '../constants/colors';
 import {SalesHeader} from '../components/common/SalesHeader';
 import {useNotificationBootstrap} from '../socket/socket';
+import {MobilePrintAgent} from '../components/printing/MobilePrintAgent';
 import {CreateOrderScreen} from '../screens/sales/create-order/CreateOrderScreen';
 import {DayCloseScreen} from '../screens/sales/day-close/DayCloseScreen';
 import {FloorScreen} from '../screens/sales/floor/FloorScreen';
@@ -27,7 +28,9 @@ export function SalesNavigator() {
   useNotificationBootstrap();
 
   return (
-    <Stack.Navigator initialRouteName="Floor" screenOptions={screenOptions}>
+    <>
+      <MobilePrintAgent />
+      <Stack.Navigator initialRouteName="Floor" screenOptions={screenOptions}>
       <Stack.Screen name="Floor" component={FloorScreen} />
       <Stack.Screen name="CreateOrder" component={CreateOrderScreen} />
       <Stack.Screen
@@ -47,5 +50,6 @@ export function SalesNavigator() {
       <Stack.Screen name="PrintJobs" component={PrintJobsScreen} />
       <Stack.Screen name="DayClose" component={DayCloseScreen} />
     </Stack.Navigator>
+    </>
   );
 }

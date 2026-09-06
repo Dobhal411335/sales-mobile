@@ -210,3 +210,98 @@ export async function fetchPrinters(): Promise<PrintersListResponse> {
     return {success: false, message: mapApiError(status)};
   }
 }
+
+export interface CompletePrintJobResponse {
+  success: boolean;
+  data?: PrintJob;
+  message?: string;
+}
+
+export interface ReprintTicketParams {
+  jobId?: string;
+  orderId?: string;
+  printType: 'customer' | 'kot' | 'bar' | 'RECEIPT' | 'KOT' | 'BAR_RECEIPT';
+  kotItems?: unknown[];
+  guestCount?: number;
+  serverName?: string;
+  specialNote?: string;
+  restaurantName?: string;
+  idempotencyKey?: string;
+}
+
+export interface ReprintTicketResponse {
+  success: boolean;
+  data?: {
+    job: PrintJob;
+    created: boolean;
+  };
+  message?: string;
+}
+
+export async function reprintTicket(
+  params: ReprintTicketParams,
+): Promise<ReprintTicketResponse> {
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
+  }
+
+  try {
+    const res = await api.post<ReprintTicketResponse>(
+      '/api/sales/print-jobs/reprint-ticket',
+      params,
+    );
+    if (!res.data.success) {
+      return {
+        success: false,
+        message:
+          res.data.message ??
+          mapApiError(res.status, 'Failed to reprint ticket.'),
+      };
+    }
+    return res.data;
+  } catch (err: unknown) {
+    const status = (err as {response?: {status?: number}})?.response?.status;
+    const serverMessage = (err as {
+      response?: {data?: {message?: string}};
+    })?.response?.data?.message;
+    return {
+      success: false,
+      message: serverMessage ?? mapApiError(status, 'Failed to reprint ticket.'),
+    };
+  }
+}
+
+export async function completePrintJob(
+  id: string,
+  success: boolean,
+  errorMessage?: string,
+): Promise<CompletePrintJobResponse> {
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
+  }
+
+  try {
+    const res = await api.post<CompletePrintJobResponse>(
+      `/api/sales/print-jobs/${id}/complete`,
+      {
+        success: !!success,
+        errorMessage: errorMessage || undefined,
+      },
+    );
+    if (!res.data.success) {
+      return {
+        success: false,
+        message:
+          res.data.message ??
+          mapApiError(res.status, 'Unable to complete print job.'),
+      };
+    }
+    return res.data;
+  } catch (err: unknown) {
+    const status = (err as {response?: {status?: number}})?.response?.status;
+    return {
+      success: false,
+      message: mapApiError(status, 'Unable to complete print job.'),
+    };
+  }
+}

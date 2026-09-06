@@ -15,8 +15,8 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {PasswordInput} from '../../components/common/PasswordInput';
+import {TastyBitesLogo} from '../../components/branding/TastyBitesLogo';
 import {colors} from '../../constants/colors';
-import {config} from '../../constants/config';
 import {useAuth} from '../../hooks/useAuth';
 
 export function LoginScreen() {
@@ -109,15 +109,21 @@ export function LoginScreen() {
     }
   };
 
+  const logoSize = isLandscape
+    ? Math.min(Math.round(width * 0.28), Math.round(height * 0.45), 300)
+    : Math.min(Math.max(Math.round(width * 0.24), 130), 180);
+
   const brandPanel = (
-    <View style={[styles.brandPanel, !isLandscape && styles.brandPanelPortrait]}>
-      <Text style={styles.brandName} accessibilityRole="header">
-        {config.APP_NAME}
-      </Text>
-      <Text style={styles.brandSubtitle}>{config.APP_SUBTITLE}</Text>
-      <Text style={styles.brandNote}>
-        Logo asset can be added later. Text branding is temporary.
-      </Text>
+    <View
+      style={[
+        styles.brandPanel,
+        isLandscape ? styles.brandPanelLandscape : styles.brandPanelPortrait,
+      ]}>
+      <TastyBitesLogo
+        variant="full"
+        size={logoSize}
+        accessibilityLabel="Tasty Bites Restaurant POS"
+      />
     </View>
   );
 
@@ -343,38 +349,23 @@ const styles = StyleSheet.create({
   },
   brandPanel: {
     flex: 1,
-    backgroundColor: colors.primary,
+    backgroundColor: colors.cream,
     justifyContent: 'center',
-    paddingHorizontal: 48,
+    alignItems: 'center',
+    paddingHorizontal: 32,
     paddingVertical: 40,
+  },
+  brandPanelLandscape: {
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
   },
   brandPanelPortrait: {
     flex: 0,
-    borderRadius: 16,
-    marginHorizontal: 24,
-    marginBottom: 16,
-    paddingVertical: 32,
-  },
-  brandName: {
-    fontSize: 42,
-    fontWeight: '800',
-    color: colors.surface,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
     marginBottom: 8,
-  },
-  brandSubtitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 2,
-    color: colors.surface,
-    opacity: 0.95,
-    marginBottom: 16,
-  },
-  brandNote: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: colors.surface,
-    opacity: 0.8,
-    maxWidth: 280,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   formPanel: {
     flex: 1,

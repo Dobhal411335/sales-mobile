@@ -99,12 +99,6 @@ export function PrintJobStatusStrip({
       {errorMessage ? (
         <Text style={styles.errorText}>{errorMessage}</Text>
       ) : null}
-      {!isPrinted && status !== 'PRINTING' ? (
-        <Text style={styles.hintText}>
-          Ticket queued on server. Physical print depends on the restaurant print
-          agent.
-        </Text>
-      ) : null}
       <View style={styles.actions}>
         {isFailed ? (
           <Pressable
@@ -172,11 +166,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: colors.error,
-  },
-  hintText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.textSecondary,
   },
   actions: {
     flexDirection: 'row',

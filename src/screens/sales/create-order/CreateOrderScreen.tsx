@@ -39,6 +39,7 @@ import {
 } from '../../../hooks/useStaffEmployees';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {printerService} from '../../../printer/printerService';
+import {reprintTicket} from '../../../services/printJobService';
 import {
   buildSubmitPayloadFromCart,
   submitOrder,
@@ -47,7 +48,7 @@ import {
 import {useCartStore} from '../../../store/cartStore';
 import {useOrderStore} from '../../../store/orderStore';
 import type {MenuProduct} from '../../../types/product';
-import type {ReceiptOrder} from '../../../types/receipt';
+import type {KotLineItem, ReceiptOrder} from '../../../types/receipt';
 import {productNeedsOptions} from '../../../types/product';
 import {
   buildOfferCartLine,
@@ -55,6 +56,19 @@ import {
 } from '../../../utils/cartBuilder';
 import {offerNeedsOptions} from '../../../utils/offerDetails';
 import {resolvePartyName} from '../../../utils/partyName';
+
+const BAR_CATEGORIES = new Set([
+  'BAR',
+  'BEVERAGES',
+  'BEVERAGE',
+  'DRINKS',
+  'DRINK',
+  'COCKTAILS',
+  'WINE',
+  'BEER',
+  'LIQUOR',
+  'SPIRITS',
+]);
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'CreateOrder'>;
 
@@ -115,7 +129,6 @@ export function CreateOrderScreen({navigation, route}: Props) {
   const staffForId = useCartStore((state) => state.staffForId);
   const staffOrderReason = useCartStore((state) => state.staffOrderReason);
   const kotPayload = useCartStore((state) => state.kotPayload);
-  const ticketType = useCartStore((state) => state.ticketType);
   const serverName = useCartStore((state) => state.serverName);
   const isSubmitting = useCartStore((state) => state.isSubmitting);
   const appliedDiscount = useCartStore((state) => state.appliedDiscount);
@@ -146,6 +159,9 @@ export function CreateOrderScreen({navigation, route}: Props) {
   );
   const [ticketPrintJobId, setTicketPrintJobId] = useState<string | null>(null);
   const [kotPrintMessage, setKotPrintMessage] = useState<string | null>(null);
+  const [activePreviewMode, setActivePreviewMode] = useState<'kot' | 'bar'>('kot');
+  const [isReprint, setIsReprint] = useState(false);
+  const [reprinting, setReprinting] = useState(false);
 
   const display = useOrderContextDisplay(orderNumber);
 
@@ -309,10 +325,16 @@ export function CreateOrderScreen({navigation, route}: Props) {
           isBarTicket ? 'Bar ticket created!' : 'Order sent to kitchen!',
         );
 
-        if (receiptOrder && result.data.kotPayload.length > 0) {
+        if (
+          receiptOrder &&
+          ((result.data.kotPayload && result.data.kotPayload.length > 0) ||
+            (result.data.items && result.data.items.length > 0))
+        ) {
           setTicketPrintJobId(result.data.printJobId ?? null);
           setKotPrintMessage(null);
           setKotReceiptOrder(receiptOrder);
+          setActivePreviewMode(isBarTicket ? 'bar' : 'kot');
+          setIsReprint(false);
           // Let the success toast show before the KOT preview modal covers it
           setTimeout(() => {
             setKotPreviewOpen(true);
@@ -428,30 +450,100 @@ export function CreateOrderScreen({navigation, route}: Props) {
     tableId,
   ]);
 
+  const resolvedKotItems = useMemo(() => {
+    if (kotPayload && kotPayload.length > 0) {
+      return kotPayload;
+    }
+    return (kotReceiptOrder?.items || []) as unknown as KotLineItem[];
+  }, [kotPayload, kotReceiptOrder]);
+
+  const hasBarItems = useMemo(() => {
+    const allItems = (kotReceiptOrder?.items || []) as Array<{
+      productType?: string;
+      category?: string;
+    }>;
+    return allItems.some((item) => {
+      const pType = String(item?.productType || '').toUpperCase();
+      const cat = String(item?.category || '').toUpperCase();
+      return pType === 'BAR' || BAR_CATEGORIES.has(cat);
+    });
+  }, [kotReceiptOrder]);
+
   const handlePrintKot = useCallback(async () => {
     if (!kotReceiptOrder) {
       return;
     }
+    const currentTicketType =
+      activePreviewMode === 'bar' ? 'BAR_RECEIPT' : 'KOT';
     const result = await printerService.printKOT(
       {
         order: kotReceiptOrder,
-        kotItems: kotPayload,
-        ticketType,
+        kotItems: resolvedKotItems,
+        ticketType: currentTicketType,
         serverName: serverName ?? undefined,
         guestCount: orderContext?.guestCount,
         specialNote: orderNote,
+        isReprint,
       },
       ticketPrintJobId,
     );
     setKotPrintMessage(result.message ?? null);
   }, [
     kotReceiptOrder,
-    kotPayload,
-    ticketType,
+    activePreviewMode,
+    resolvedKotItems,
     serverName,
     orderContext?.guestCount,
     orderNote,
+    isReprint,
     ticketPrintJobId,
+  ]);
+
+  const handleReprintTicket = useCallback(async () => {
+    const orderId = kotReceiptOrder?.orderId || activeOrderId;
+    if (!orderId && !ticketPrintJobId) {
+      toast.error('No order ID found to reprint');
+      return;
+    }
+    setReprinting(true);
+    try {
+      const printType = activePreviewMode === 'bar' ? 'BAR_RECEIPT' : 'KOT';
+      const res = await reprintTicket({
+        orderId: orderId || undefined,
+        jobId: ticketPrintJobId ?? undefined,
+        printType,
+        kotItems: resolvedKotItems,
+        guestCount: orderContext?.guestCount,
+        serverName: serverName ?? undefined,
+        specialNote: orderNote,
+      });
+      if (res.success) {
+        setIsReprint(true);
+        if (res.data?.job?._id) {
+          setTicketPrintJobId(res.data.job._id);
+        }
+        toast.success(
+          activePreviewMode === 'bar'
+            ? 'Bar ticket reprint queued'
+            : 'KOT reprint queued',
+        );
+      } else {
+        toast.error(res.message || 'Failed to queue reprint');
+      }
+    } catch {
+      toast.error('Network error reprinting ticket');
+    } finally {
+      setReprinting(false);
+    }
+  }, [
+    kotReceiptOrder?.orderId,
+    activeOrderId,
+    ticketPrintJobId,
+    activePreviewMode,
+    resolvedKotItems,
+    orderContext?.guestCount,
+    serverName,
+    orderNote,
   ]);
 
   const handleViewPrintJob = useCallback(
@@ -468,9 +560,8 @@ export function CreateOrderScreen({navigation, route}: Props) {
   }, [refetchOrder, setRemoteUpdatePending]);
 
   const totals = getTotals();
-  const kotMode = ticketType === 'BAR_RECEIPT' ? 'bar' : 'kot';
   const kotModalTitle =
-    ticketType === 'BAR_RECEIPT' ? 'Bar Receipt' : 'Kitchen Order Ticket (KOT)';
+    activePreviewMode === 'bar' ? 'Bar Receipt' : 'Kitchen Order Ticket (KOT)';
 
   const showSessionLoader = sessionLoading && items.length === 0;
 
@@ -722,17 +813,65 @@ export function CreateOrderScreen({navigation, route}: Props) {
             ? {
                 left: (
                   <ReceiptPreview
-                    mode={kotMode}
+                    mode={activePreviewMode}
                     order={kotReceiptOrder}
-                    kotItems={kotPayload}
+                    kotItems={resolvedKotItems}
+                    barItems={resolvedKotItems}
                     serverName={serverName ?? undefined}
                     guestCount={orderContext?.guestCount}
                     specialNote={orderNote}
+                    isReprint={isReprint}
                   />
                 ),
                 right: (
                   <View style={styles.kotActions}>
-                    <Text style={styles.kotActionsTitle}>KOT ACTIONS</Text>
+                    <Text style={styles.kotActionsTitle}>
+                      {activePreviewMode === 'bar'
+                        ? 'BAR ACTIONS'
+                        : 'KOT ACTIONS'}
+                    </Text>
+
+                    {hasBarItems ? (
+                      <View style={styles.kotTabRow}>
+                        <Pressable
+                          style={[
+                            styles.kotTabButton,
+                            activePreviewMode === 'kot' &&
+                              styles.kotTabButtonActive,
+                          ]}
+                          onPress={() => setActivePreviewMode('kot')}
+                          accessibilityRole="button"
+                          accessibilityLabel="Kitchen KOT">
+                          <Text
+                            style={[
+                              styles.kotTabText,
+                              activePreviewMode === 'kot' &&
+                                styles.kotTabTextActive,
+                            ]}>
+                            Kitchen (KOT)
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={[
+                            styles.kotTabButton,
+                            activePreviewMode === 'bar' &&
+                              styles.kotTabButtonActive,
+                          ]}
+                          onPress={() => setActivePreviewMode('bar')}
+                          accessibilityRole="button"
+                          accessibilityLabel="Bar Ticket">
+                          <Text
+                            style={[
+                              styles.kotTabText,
+                              activePreviewMode === 'bar' &&
+                                styles.kotTabTextActive,
+                            ]}>
+                            Bar Ticket
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
+
                     {orderContext?.tableNumber ? (
                       <Text style={styles.kotMeta}>
                         Table {orderContext.tableNumber}
@@ -751,7 +890,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
                     <PrintJobStatusStrip
                       printJobId={ticketPrintJobId}
                       label={
-                        ticketType === 'BAR_RECEIPT'
+                        activePreviewMode === 'bar'
                           ? 'Bar ticket print job'
                           : 'KOT print job'
                       }
@@ -766,12 +905,32 @@ export function CreateOrderScreen({navigation, route}: Props) {
                       style={styles.kotActionButton}
                       onPress={handlePrintKot}
                       accessibilityRole="button"
-                      accessibilityLabel="Print KOT">
+                      accessibilityLabel="Print Ticket">
                       <Text style={styles.kotActionPrimaryText}>
-                        {ticketType === 'BAR_RECEIPT'
+                        {activePreviewMode === 'bar'
                           ? 'Queue Bar Ticket'
                           : 'Queue KOT Print'}
                       </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.kotReprintButton,
+                        reprinting && styles.buttonDisabled,
+                      ]}
+                      onPress={handleReprintTicket}
+                      disabled={reprinting}
+                      accessibilityRole="button"
+                      accessibilityLabel="Reprint Ticket">
+                      {reprinting ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Text style={styles.kotReprintButtonText}>
+                          {isReprint
+                            ? `Reprint ${activePreviewMode === 'bar' ? 'Bar Ticket' : 'KOT'} Again`
+                            : `Reprint ${activePreviewMode === 'bar' ? 'Bar Ticket' : 'KOT'}`}
+                        </Text>
+                      )}
                     </Pressable>
 
                     <Pressable
@@ -907,6 +1066,34 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 4,
   },
+  kotTabRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 4,
+  },
+  kotTabButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kotTabButtonActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#EEF2FF',
+  },
+  kotTabText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  kotTabTextActive: {
+    color: colors.primary,
+  },
   kotMeta: {
     fontSize: 15,
     fontWeight: '700',
@@ -923,12 +1110,27 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
   kotActionPrimaryText: {
     fontSize: 16,
     fontWeight: '800',
     color: colors.surface,
+  },
+  kotReprintButton: {
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: '#D97706',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kotReprintButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   kotActionSecondary: {
     minHeight: 52,

@@ -55,7 +55,7 @@ export function ActionSheet({
             <Pressable
               style={({pressed}) => [
                 styles.cancelButton,
-                pressed && styles.optionPressed,
+                pressed && styles.cancelButtonPressed,
               ]}
               onPress={onClose}
               accessibilityRole="button"
@@ -117,14 +117,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   cancelButton: {
-    minHeight: 48,
+    minHeight: 52,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
-    marginTop: 4,
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  cancelButtonPressed: {
+    backgroundColor: colors.primaryHover,
   },
   cancelText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textSecondary,
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.surface,
     textAlign: 'center',
   },
 });

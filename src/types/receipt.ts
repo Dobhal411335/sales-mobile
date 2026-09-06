@@ -23,10 +23,13 @@ export interface KotLineItem {
 export interface TaxBreakdownLine {
   name: string;
   amount: number;
+  rate?: number;
+  taxId?: string;
 }
 
 export interface ReceiptOrder {
   orderNumber: string;
+  invoiceNumber?: string;
   orderId?: string;
   tableNo?: string;
   floorName?: string;
@@ -39,6 +42,7 @@ export interface ReceiptOrder {
   subTotal?: number;
   taxTotal?: number;
   discountTotal?: number;
+  discountPercent?: number | null;
   discountCode?: string;
   giftcardUsedAmount?: number;
   totalAmount?: number;
@@ -51,11 +55,12 @@ export interface ReceiptOrder {
   cardAmount?: number;
   paymentStatus?: string;
   source?: string;
+  isReprint?: boolean;
+  restaurantName?: string;
 }
 
 export interface PaidOrderSnapshot extends ReceiptOrder {
   paidAt: string;
-  invoiceNumber?: string;
   cardType?: string;
   taxBreakdown?: TaxBreakdownLine[];
 }
@@ -67,6 +72,7 @@ export interface KotPrintPayload {
   serverName?: string;
   guestCount?: number;
   specialNote?: string;
+  isReprint?: boolean;
 }
 
 export interface BillPrintPayload {
@@ -75,4 +81,5 @@ export interface BillPrintPayload {
   serverName?: string;
   guestCount?: number;
   restaurantName?: string;
+  isReprint?: boolean;
 }

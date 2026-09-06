@@ -90,8 +90,8 @@ Optional `type` field (default `THERMAL`). Display name is `PrinterConfig.name`.
 
 ## 14. Printer connection type
 
-- **USB:** Windows local print-bridge (`127.0.0.1:9105`) → Spooler RAW → USB thermal (e.g. KPC307-UEWB)
-- **NETWORK/LAN:** Electron `printRaw` TCP :9100 ESC/POS
+- **NETWORK/LAN & Wi-Fi:** Direct TCP port 9100 ESC/POS from Mobile app (`MobilePrintAgent` / `networkPrinter.ts`) and Electron desktop (`ElectronPrintAgent`). Recommended for production iOS & Android tablets.
+- **USB:** Windows local print-bridge (`127.0.0.1:9105`) → Spooler RAW → USB thermal (e.g. KPC307-UEWB). Used only when a Windows PC has a physical USB printer connected.
 - **BLUETOOTH:** reserved (not in Milestone 1)
 
 ## 15. Adapter architecture
@@ -182,10 +182,16 @@ If cart contains both kitchen and bar items, web sends **one** KOT to kitchen (e
 
 1. Backend creates `QUEUED` print jobs after successful order/payment
 2. Socket emits `NEW_PRINT_JOB`
-3. **USB:** Windows `print-bridge` listens, builds ESC/POS, sends Spooler RAW, `POST .../complete`
-4. **NETWORK/LAN:** Electron desktop (`ElectronPrintAgent`) TCP :9100, then `complete`
-
-**Mobile does not talk to USB or the local print bridge.**
+3. **NETWORK/LAN / Wi-Fi (Production iPads & Android tablets):**
+   - Direct connection via raw TCP socket on port 9100 using `react-native-tcp-socket` (`networkPrinter.ts`).
+   - `MobilePrintAgent` background component mounted in `SalesNavigator` catches `NEW_PRINT_JOB` events.
+   - Generates ESC/POS bytes (`escpos.ts`), writes directly to `host:port` (e.g. `192.168.1.150:9100`), and calls `POST /api/sales/print-jobs/:id/complete`.
+   - **No Windows PC or print-bridge required.**
+4. **NETWORK/LAN (Electron Desktop):**
+   - Electron desktop (`ElectronPrintAgent`) uses Node `net.Socket()` to send TCP :9100, then calls `complete`.
+5. **USB (Windows Laptop only):**
+   - Local Windows `print-bridge` (`127.0.0.1:9105`) listens via Socket.IO, builds ESC/POS, sends Windows Spooler RAW to local USB queue, then calls `complete`.
+   - **Mobile does not talk to USB or call 127.0.0.1:9105.**
 
 Do not claim physical printing works without testing on restaurant hardware.
 

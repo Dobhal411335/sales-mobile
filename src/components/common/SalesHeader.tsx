@@ -13,6 +13,7 @@ import {
 } from '../notifications/NotificationBell';
 import {colors} from '../../constants/colors';
 import {config} from '../../constants/config';
+import {TastyBitesLogo} from '../branding/TastyBitesLogo';
 import {useAuth} from '../../hooks/useAuth';
 import type {SalesStackParamList} from '../../navigation/types';
 import {formatHeaderDateTime} from '../../utils/date';
@@ -47,7 +48,11 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
       <SafeAreaView edges={['top']} style={styles.safe}>
         <View style={styles.header}>
           <View style={styles.left}>
-            <Text style={styles.brandName}>{config.APP_NAME}</Text>
+            <TastyBitesLogo
+              variant="compact"
+              size={36}
+              accessibilityLabel="Tasty Bites"
+            />
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{config.APP_SUBTITLE}</Text>
             </View>
@@ -147,11 +152,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     flexShrink: 0,
-  },
-  brandName: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: colors.text,
   },
   badge: {
     backgroundColor: colors.primaryLight,

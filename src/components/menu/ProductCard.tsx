@@ -39,7 +39,9 @@ function ProductCardComponent({product, onPress}: ProductCardProps) {
       accessibilityLabel={`${product.name}, ${formatCurrency(basePrice)}`}>
       <View style={styles.headerRow}>
         {product.productCode ? (
-          <Text style={styles.code}>{product.productCode}</Text>
+          <View style={styles.codeBadge}>
+            <Text style={styles.codeBadgeText}>{product.productCode}</Text>
+          </View>
         ) : isOffer ? (
           <Text style={styles.offerTag}>Offer</Text>
         ) : (
@@ -91,6 +93,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 8,
     minHeight: 18,
+  },
+  codeBadge: {
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    alignSelf: 'flex-start',
+  },
+  codeBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.primaryHover,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   code: {
     fontSize: 12,

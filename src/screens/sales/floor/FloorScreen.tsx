@@ -27,6 +27,9 @@ export function FloorScreen({navigation}: Props) {
     activeFloor,
     tables,
     sessions,
+    tableCount,
+    activeSessionCount,
+    activeOrderCount,
     selectedFloorId,
     gridMode,
     loading,
@@ -68,8 +71,9 @@ export function FloorScreen({navigation}: Props) {
       }
 
       const isMine = isSessionOwnedByUser(session, currentUserId);
+      const isPaid = session.status === 'PAYMENT_PENDING';
 
-      if (isMine || canAdminOverride) {
+      if (isMine || canAdminOverride || isPaid) {
         setActionsTable(table);
         setActionsSession(session);
         return;
@@ -131,6 +135,10 @@ export function FloorScreen({navigation}: Props) {
     <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
       <FloorHeader
         floors={floors}
+        activeFloor={activeFloor}
+        tableCount={tableCount}
+        activeSessionCount={activeSessionCount}
+        activeOrderCount={activeOrderCount}
         selectedFloorId={selectedFloorId}
         gridMode={gridMode}
         onlineStaffCount={onlineStaffCount}

@@ -17,13 +17,17 @@ export function formatTableNumbersWithFloor(
   tableNo?: string,
   floorName?: string,
 ): string {
-  const table = (tableNo ?? '').trim();
+  let table = (tableNo ?? '').trim();
+  table = table.replace(/^(tables?\s*)+/i, '').trim();
   const floor = (floorName ?? '').trim();
   if (table && floor) {
-    return `Table ${table} · ${floor}`;
+    if (table.toLowerCase().includes(floor.toLowerCase())) {
+      return table;
+    }
+    return `${table} · ${floor}`;
   }
   if (table) {
-    return `Table ${table}`;
+    return table;
   }
   if (floor) {
     return floor;

@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -13,9 +14,11 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {ConfirmDialog} from '../../../components/common/ConfirmDialog';
 import {PrintJobStatusStrip} from '../../../components/printing/PrintJobStatusStrip';
 import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
+import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {printerService} from '../../../printer/printerService';
+import {reprintTicket} from '../../../services/printJobService';
 import {releaseTableSession} from '../../../services/sessionService';
 import {isPaymentApiConfigured} from '../../../services/paymentService';
 import {useCartStore} from '../../../store/cartStore';
@@ -33,6 +36,11 @@ export function ReceiptScreen({navigation, route}: Props) {
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [printMessage, setPrintMessage] = useState<string | null>(null);
+  const [activePrintJobId, setActivePrintJobId] = useState<string | null>(
+    printJobId ?? null,
+  );
+  const [isReprint, setIsReprint] = useState(Boolean(orderSnapshot.isReprint));
+  const [reprinting, setReprinting] = useState(false);
 
   const effectiveTaxBreakdown = taxBreakdown ?? orderSnapshot.taxBreakdown;
   const isTableSession = orderType === 'table' && Boolean(sessionId);
@@ -60,12 +68,48 @@ export function ReceiptScreen({navigation, route}: Props) {
         taxBreakdown: effectiveTaxBreakdown,
         guestCount: orderSnapshot.guestCount,
         restaurantName: 'TASTY BITES',
+        isReprint,
       },
-      printJobId,
+      activePrintJobId ?? undefined,
     );
     setPrintMessage(result.message ?? null);
     if (!result.success) {
       Alert.alert('Receipt print', result.message ?? 'Unable to queue receipt.');
+    }
+  };
+
+  const handleReprintBill = async () => {
+    const orderId =
+      orderSnapshot.orderId ||
+      (orderSnapshot as { _id?: string })._id;
+    if (!orderId && !activePrintJobId) {
+      toast.error('No order ID found to reprint');
+      return;
+    }
+
+    setReprinting(true);
+    try {
+      const res = await reprintTicket({
+        orderId: orderId ? String(orderId) : undefined,
+        jobId: activePrintJobId ?? undefined,
+        printType: 'RECEIPT',
+        guestCount: orderSnapshot.guestCount,
+        restaurantName: 'TASTY BITES',
+      });
+
+      if (res.success) {
+        setIsReprint(true);
+        if (res.data?.job?._id) {
+          setActivePrintJobId(res.data.job._id);
+        }
+        toast.success('Receipt reprint queued');
+      } else {
+        toast.error(res.message || 'Failed to queue receipt reprint');
+      }
+    } catch {
+      toast.error('Network error reprinting receipt');
+    } finally {
+      setReprinting(false);
     }
   };
 
@@ -107,17 +151,34 @@ export function ReceiptScreen({navigation, route}: Props) {
       </View>
 
       <View style={[styles.body, isWide && styles.bodyWide]}>
-        <View style={[styles.previewPane, isWide && styles.previewPaneWide]}>
+        <ScrollView
+          style={[styles.previewScroll, isWide && styles.previewScrollWide]}
+          contentContainerStyle={styles.previewScrollContent}
+          showsVerticalScrollIndicator={true}
+          persistentScrollbar={true}
+          keyboardShouldPersistTaps="handled">
           <ReceiptPreview
             mode="customer"
             order={orderSnapshot}
             taxBreakdown={effectiveTaxBreakdown}
             guestCount={orderSnapshot.guestCount}
             restaurantName="TASTY BITES"
+            serverName={
+              (orderSnapshot as {serverName?: string; processedByName?: string})
+                .serverName ||
+              (orderSnapshot as {serverName?: string; processedByName?: string})
+                .processedByName
+            }
+            isReprint={isReprint}
           />
-        </View>
+        </ScrollView>
 
-        <View style={[styles.summaryPane, isWide && styles.summaryPaneWide]}>
+        <ScrollView
+          style={[styles.summaryScroll, isWide && styles.summaryScrollWide]}
+          contentContainerStyle={styles.summaryScrollContent}
+          showsVerticalScrollIndicator={true}
+          persistentScrollbar={true}
+          keyboardShouldPersistTaps="handled">
           <Text style={styles.sectionTitle}>PAYMENT</Text>
           <Text style={styles.meta}>Order #{orderSnapshot.orderNumber}</Text>
           <Text style={styles.statusPaid}>Paid</Text>
@@ -131,7 +192,7 @@ export function ReceiptScreen({navigation, route}: Props) {
           </View>
 
           <PrintJobStatusStrip
-            printJobId={printJobId}
+            printJobId={activePrintJobId}
             label="Receipt print job"
             onViewJob={handleViewPrintJob}
           />
@@ -149,6 +210,21 @@ export function ReceiptScreen({navigation, route}: Props) {
           </Pressable>
 
           <Pressable
+            style={[styles.reprintAction, reprinting && styles.buttonDisabled]}
+            onPress={handleReprintBill}
+            disabled={reprinting}
+            accessibilityRole="button"
+            accessibilityLabel="Reprint bill">
+            {reprinting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.reprintActionText}>
+                {isReprint ? 'Reprint Bill Again' : 'Reprint Bill'}
+              </Text>
+            )}
+          </Pressable>
+
+          <Pressable
             style={styles.secondaryAction}
             onPress={handleDone}
             accessibilityRole="button"
@@ -159,7 +235,7 @@ export function ReceiptScreen({navigation, route}: Props) {
               <Text style={styles.secondaryActionText}>Done</Text>
             )}
           </Pressable>
-        </View>
+        </ScrollView>
       </View>
 
       <ConfirmDialog
@@ -218,29 +294,33 @@ const styles = StyleSheet.create({
   bodyWide: {
     flexDirection: 'row',
   },
-  previewPane: {
+  previewScroll: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 24,
     backgroundColor: colors.cream,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  previewPaneWide: {
+  previewScrollWide: {
     flex: 1.2,
     borderBottomWidth: 0,
     borderRightWidth: 1,
     borderRightColor: colors.border,
   },
-  summaryPane: {
-    padding: 24,
-    gap: 10,
+  previewScrollContent: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+  },
+  summaryScroll: {
+    flex: 1,
     backgroundColor: colors.surface,
   },
-  summaryPaneWide: {
+  summaryScrollWide: {
     flex: 0.8,
-    justifyContent: 'center',
+  },
+  summaryScrollContent: {
+    padding: 24,
+    gap: 10,
   },
   sectionTitle: {
     fontSize: 12,
@@ -291,6 +371,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: colors.surface,
+  },
+  reprintAction: {
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: '#D97706',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  reprintActionText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   secondaryAction: {
     minHeight: 52,

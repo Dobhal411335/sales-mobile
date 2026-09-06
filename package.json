@@ -29,6 +29,7 @@
     "react-native-share": "^12.3.1",
     "react-native-sound": "^0.13.0",
     "react-native-svg": "^15.15.5",
+    "react-native-tcp-socket": "^6.4.2",
     "socket.io-client": "^4.8.3",
     "zustand": "^5.0.15"
   },

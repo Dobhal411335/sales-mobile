@@ -168,7 +168,7 @@ export function ToastProvider() {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...(StyleSheet.absoluteFill as object),
     justifyContent: 'flex-end',
     alignItems: 'center',
     paddingBottom: 40,

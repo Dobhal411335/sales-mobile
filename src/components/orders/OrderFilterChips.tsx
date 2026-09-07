@@ -1,6 +1,5 @@
 import React from 'react';
 import {Pressable, StyleSheet, Text, ScrollView} from 'react-native';
-import {colors} from '../../constants/colors';
 import type {TodayOrderFilter} from '../../types/todayOrder';
 import {TODAY_ORDER_FILTERS} from '../../utils/todayOrderHelpers';
 
@@ -46,31 +45,31 @@ const styles = StyleSheet.create({
   row: {
     gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 4,
+    paddingVertical: 2,
   },
   chip: {
-    minHeight: 44,
+    minHeight: 38,
     paddingHorizontal: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: '#D4D4D8',
+    backgroundColor: '#E4E4E7',
     alignItems: 'center',
     justifyContent: 'center',
   },
   chipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: '#18181B',
+    borderColor: '#18181B',
   },
   chipPressed: {
-    backgroundColor: colors.primaryLight,
+    backgroundColor: '#D4D4D8',
   },
   chipText: {
     fontSize: 13,
     fontWeight: '700',
-    color: colors.text,
+    color: '#18181B',
   },
   chipTextSelected: {
-    color: colors.surface,
+    color: '#FFFFFF',
   },
 });

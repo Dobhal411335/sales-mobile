@@ -12,21 +12,6 @@ function getPaidOrders(orders: TodayOrder[]) {
   return getValidOrders(orders).filter((o) => isOrderPaid(o));
 }
 
-function calculateCashTotal(orders: TodayOrder[]): number {
-  let cash = 0;
-  getPaidOrders(orders).forEach((order) => {
-    const method = String(order.paymentMethod || '').toLowerCase();
-    const giftUsed = Number(order.giftcardUsedAmount || 0);
-    const isCash = method.includes('cash');
-    const remaining = Math.max(0, Number(order.totalAmount || 0) - giftUsed);
-    const tip = Number(order.tipAmount || 0);
-    if (isCash) {
-      cash += remaining + tip;
-    }
-  });
-  return cash;
-}
-
 export function computeTodaySalesMetrics(
   orders: TodayOrder[],
   loading: boolean,
@@ -42,7 +27,32 @@ export function computeTodaySalesMetrics(
     (sum, o) => sum + Number(o.tipAmount || 0),
     0,
   );
-  const cashTotal = calculateCashTotal(orders);
+
+  const paid = getPaidOrders(orders);
+  const totals = {cash: 0, card: 0, gift: 0};
+  const counts = {cash: 0, card: 0, gift: 0};
+
+  paid.forEach((order) => {
+    const method = String(order.paymentMethod || '').toLowerCase();
+    const giftUsed = Number(order.giftcardUsedAmount || 0);
+    const isCard = method.includes('card') && !method.includes('gift');
+    const isCash = method.includes('cash');
+    const isGift = method.includes('gift');
+    const remaining = Math.max(0, Number(order.totalAmount || 0) - giftUsed);
+    const tip = Number(order.tipAmount || 0);
+
+    if (giftUsed > 0 || isGift) {
+      totals.gift += giftUsed > 0 ? giftUsed : remaining + tip;
+      counts.gift += 1;
+    }
+    if (isCash) {
+      totals.cash += remaining + tip;
+      counts.cash += 1;
+    } else if (isCard) {
+      totals.card += remaining + tip;
+      counts.card += 1;
+    }
+  });
 
   return [
     {
@@ -73,7 +83,22 @@ export function computeTodaySalesMetrics(
       key: 'cash',
       label: 'Cash',
       short: 'Cash',
-      value: loading ? '—' : formatCurrency(cashTotal),
+      value: loading ? '—' : formatCurrency(totals.cash),
+      count: counts.cash,
+    },
+    {
+      key: 'card',
+      label: 'Card',
+      short: 'Card',
+      value: loading ? '—' : formatCurrency(totals.card),
+      count: counts.card,
+    },
+    {
+      key: 'gift',
+      label: 'Gift',
+      short: 'Gift',
+      value: loading ? '—' : formatCurrency(totals.gift),
+      count: counts.gift,
     },
   ];
 }

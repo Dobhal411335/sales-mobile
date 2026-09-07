@@ -2,18 +2,30 @@ import React, {useCallback, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   useWindowDimensions,
   View,
-  ScrollView,
-  FlatList,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {
+  ArrowLeft,
+  Banknote,
+  CreditCard,
+  DollarSign,
+  Gift,
+  Receipt,
+  RefreshCw,
+  Search,
+  ShoppingBag,
+  Wallet,
+} from 'lucide-react-native';
 import {SalesMetricCard} from '../../../components/common/SalesMetricCard';
 import {TabletModal} from '../../../components/common/TabletModal';
 import {OrderDetailPanel} from '../../../components/orders/OrderDetailPanel';
@@ -37,12 +49,14 @@ import {
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'Orders'>;
 
-const METRIC_ICONS: Record<string, string> = {
-  sales: '$',
-  orders: '#',
-  avg: 'Ø',
-  tips: 'T',
-  cash: 'C',
+const METRIC_ICONS: Record<string, React.ReactNode> = {
+  sales: <DollarSign size={18} color="#FFFFFF" strokeWidth={2.4} />,
+  orders: <ShoppingBag size={18} color="#FFFFFF" strokeWidth={2.4} />,
+  avg: <Receipt size={18} color="#FFFFFF" strokeWidth={2.4} />,
+  tips: <Wallet size={18} color="#FFFFFF" strokeWidth={2.4} />,
+  cash: <Banknote size={18} color="#FFFFFF" strokeWidth={2.4} />,
+  card: <CreditCard size={18} color="#FFFFFF" strokeWidth={2.4} />,
+  gift: <Gift size={18} color="#FFFFFF" strokeWidth={2.4} />,
 };
 
 function mapSourceToOrderType(source?: string): OrderType {
@@ -247,11 +261,27 @@ export function TodaySalesScreen({navigation}: Props) {
     );
   };
 
+  const cardsRowWidth = Math.max(width - 32, 820);
+
   return (
     <View style={styles.screen}>
       <View style={styles.toolbar}>
         <View style={styles.toolbarTop}>
-          <Text style={styles.title}>Today's Orders</Text>
+          <View style={styles.toolbarTitleGroup}>
+            <Pressable
+              style={({pressed}) => [
+                styles.floorButton,
+                pressed && styles.buttonPressed,
+              ]}
+              onPress={() => navigation.navigate('Floor')}
+              accessibilityRole="button"
+              accessibilityLabel="Back to Floor">
+              <ArrowLeft size={16} color="#FFFFFF" strokeWidth={2.5} />
+              <Text style={styles.floorButtonText}>Floor</Text>
+            </Pressable>
+            <Text style={styles.title}>Today's Orders</Text>
+          </View>
+
           <View style={styles.toolbarActions}>
             <Pressable
               style={({pressed}) => [
@@ -262,33 +292,49 @@ export function TodaySalesScreen({navigation}: Props) {
               disabled={refreshing || loading}
               accessibilityRole="button"
               accessibilityLabel="Refresh">
+              {refreshing ? (
+                <ActivityIndicator size="small" color={colors.text} />
+              ) : (
+                <RefreshCw size={15} color={colors.text} strokeWidth={2.2} />
+              )}
               <Text style={styles.refreshButtonText}>
                 {refreshing ? 'Refreshing...' : 'Refresh'}
               </Text>
             </Pressable>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search ID, name, table..."
-              placeholderTextColor={colors.textSecondary}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              accessibilityLabel="Search orders"
-            />
+            <View style={styles.searchWrapper}>
+              <Search
+                size={16}
+                color={colors.textSecondary}
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search ID, name, table..."
+                placeholderTextColor={colors.textSecondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                accessibilityLabel="Search orders"
+              />
+            </View>
           </View>
         </View>
 
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.metricsRow}>
-          {metrics.map((metric) => (
-            <SalesMetricCard
-              key={metric.key}
-              label={metric.short}
-              value={metric.value}
-              icon={METRIC_ICONS[metric.key]}
-            />
-          ))}
+          contentContainerStyle={styles.metricsScrollView}>
+          <View style={[styles.metricsGrid, {width: cardsRowWidth}]}>
+            {metrics.map((metric) => (
+              <SalesMetricCard
+                key={metric.key}
+                label={metric.short}
+                value={metric.value}
+                count={metric.count}
+                icon={METRIC_ICONS[metric.key]}
+                style={styles.metricCard}
+              />
+            ))}
+          </View>
         </ScrollView>
 
         <OrderFilterChips
@@ -414,6 +460,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     gap: 12,
   },
+  toolbarTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minWidth: 0,
+  },
+  floorButton: {
+    height: 40,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#EF4444',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    justifyContent: 'center',
+  },
+  floorButtonText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
   title: {
     fontSize: 20,
     fontWeight: '800',
@@ -432,7 +499,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
     justifyContent: 'center',
     backgroundColor: colors.surface,
   },
@@ -441,7 +510,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
   },
-  searchInput: {
+  searchWrapper: {
     flex: 1,
     maxWidth: 280,
     minHeight: 44,
@@ -449,14 +518,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.primary,
     backgroundColor: colors.cream,
-    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: '100%',
     fontSize: 14,
     fontWeight: '600',
     color: colors.text,
+    padding: 0,
   },
-  metricsRow: {
-    gap: 8,
+  metricsScrollView: {
     paddingHorizontal: 16,
+    flexGrow: 1,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  metricCard: {
+    flex: 1,
+    minWidth: 105,
   },
   body: {
     flex: 1,

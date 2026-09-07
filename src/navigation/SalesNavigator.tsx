@@ -9,7 +9,8 @@ import {CreateOrderScreen} from '../screens/sales/create-order/CreateOrderScreen
 import {DayCloseScreen} from '../screens/sales/day-close/DayCloseScreen';
 import {FloorScreen} from '../screens/sales/floor/FloorScreen';
 import {NotificationsScreen} from '../screens/sales/notifications/NotificationsScreen';
-import {TodaySalesScreen} from '../screens/sales/today/TodaySales';
+import {TodaySalesScreen as OrdersScreen} from '../screens/sales/today/TodaySales';
+import {TodaySalesScreen} from '../screens/sales/today-sales/TodaySalesScreen';
 import {PaymentScreen} from '../screens/sales/payment/PaymentScreen';
 import {ReceiptScreen} from '../screens/sales/payment/ReceiptScreen';
 import {PrintJobsScreen} from '../screens/sales/print-jobs/PrintJobsScreen';
@@ -42,7 +43,8 @@ export function SalesNavigator() {
         component={ReceiptScreen}
         options={{headerShown: false}}
       />
-      <Stack.Screen name="Orders" component={TodaySalesScreen} />
+      <Stack.Screen name="Orders" component={OrdersScreen} />
+      <Stack.Screen name="TodaySales" component={TodaySalesScreen} />
       <Stack.Screen name="Reports" component={ReportsScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="PrintJobs" component={PrintJobsScreen} />

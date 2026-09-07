@@ -44,7 +44,7 @@ export function ReportActions({
 
   return (
     <View style={styles.container}>
-      <View style={styles.fieldsRow}>
+      <View style={styles.row}>
         <View style={styles.field}>
           <Text style={styles.label}>Business Day</Text>
           <BusinessDateField value={businessDate} onChange={onDateChange} />
@@ -62,43 +62,43 @@ export function ReportActions({
             accessibilityLabel="Actual deposit amount"
           />
         </View>
-      </View>
 
-      <View style={styles.actionsRow}>
-        <ActionButton
-          label="Refresh Live"
-          onPress={onRefreshLive}
-          disabled={actionsDisabled}
-          loading={loading}
-          variant="secondary"
-        />
-        <ActionButton
-          label="Save Report"
-          onPress={onSave}
-          disabled={actionsDisabled}
-          loading={saving}
-          variant="primary"
-        />
-        <ActionButton
-          label="Excel"
-          onPress={() => onExport('excel')}
-          disabled={actionsDisabled || !hasReport}
-          loading={downloading === 'excel'}
-          variant="secondary"
-        />
-        <ActionButton
-          label="PDF"
-          onPress={() => onExport('pdf')}
-          disabled={actionsDisabled || !hasReport}
-          loading={downloading === 'pdf'}
-          variant="secondary"
-        />
-        <ActionButton
-          label="Email"
-          onPress={onEmail}
-          disabled={actionsDisabled || !hasReport}
-          variant="secondary"
-        />
+        <View style={styles.actionsRow}>
+          <ActionButton
+            label="Refresh Live"
+            onPress={onRefreshLive}
+            disabled={actionsDisabled}
+            loading={loading}
+            variant="secondary"
+          />
+          <ActionButton
+            label="Save Report"
+            onPress={onSave}
+            disabled={actionsDisabled}
+            loading={saving}
+            variant="primary"
+          />
+          <ActionButton
+            label="Excel"
+            onPress={() => onExport('excel')}
+            disabled={actionsDisabled || !hasReport}
+            loading={downloading === 'excel'}
+            variant="secondary"
+          />
+          <ActionButton
+            label="PDF"
+            onPress={() => onExport('pdf')}
+            disabled={actionsDisabled || !hasReport}
+            loading={downloading === 'pdf'}
+            variant="secondary"
+          />
+          <ActionButton
+            label="Email"
+            onPress={onEmail}
+            disabled={actionsDisabled || !hasReport}
+            variant="secondary"
+          />
+        </View>
       </View>
     </View>
   );
@@ -158,15 +158,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: colors.surface,
     padding: 14,
-    gap: 14,
   },
-  fieldsRow: {
+  row: {
     flexDirection: 'row',
+    alignItems: 'flex-end',
     flexWrap: 'wrap',
-    gap: 16,
+    gap: 12,
   },
   field: {
-    minWidth: 160,
     gap: 6,
   },
   label: {
@@ -178,11 +177,13 @@ const styles = StyleSheet.create({
   },
   depositInput: {
     minHeight: 44,
+    height: 44,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.cream,
     paddingHorizontal: 12,
+    paddingVertical: 0,
     fontSize: 15,
     fontWeight: '600',
     color: colors.text,
@@ -190,12 +191,14 @@ const styles = StyleSheet.create({
   },
   actionsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
   },
   actionButton: {
     minHeight: 44,
-    minWidth: 100,
+    height: 44,
+    minWidth: 84,
     borderRadius: 10,
     paddingHorizontal: 14,
     alignItems: 'center',

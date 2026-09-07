@@ -138,6 +138,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 44,
+    height: 44,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,

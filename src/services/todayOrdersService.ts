@@ -69,6 +69,8 @@ function normalizeTodayOrder(raw: Record<string, unknown>): TodayOrder {
       ? (String(raw.paymentStatus) as TodayOrder['paymentStatus'])
       : undefined,
     paymentMethod: raw.paymentMethod ? String(raw.paymentMethod) : undefined,
+    cashAmount: raw.cashAmount != null ? Number(raw.cashAmount) : undefined,
+    cardAmount: raw.cardAmount != null ? Number(raw.cardAmount) : undefined,
     totalAmount: Number(raw.totalAmount) || 0,
     subTotal: raw.subTotal != null ? Number(raw.subTotal) : undefined,
     taxTotal: raw.taxTotal != null ? Number(raw.taxTotal) : undefined,
@@ -116,15 +118,69 @@ function normalizeTodayOrder(raw: Record<string, unknown>): TodayOrder {
             options: Array.isArray(row.options)
               ? row.options.map((v) => String(v))
               : undefined,
+            productType: row.productType ? String(row.productType) : undefined,
+            category: row.category ? String(row.category) : undefined,
           };
         })
       : undefined,
+    taxBreakdown: Array.isArray(raw.taxBreakdown)
+      ? (raw.taxBreakdown as Array<{
+          name?: string;
+          rate?: number;
+          amount?: number;
+          taxAmount?: number;
+        }>)
+      : undefined,
+    discountPercent:
+      raw.discountPercent != null ? Number(raw.discountPercent) : undefined,
+    serviceChargeTotal:
+      raw.serviceChargeTotal != null ? Number(raw.serviceChargeTotal) : undefined,
+    serviceChargeName:
+      raw.serviceChargeName ? String(raw.serviceChargeName) : undefined,
+    tipMethod: raw.tipMethod ? String(raw.tipMethod) : undefined,
+    restaurantName: raw.restaurantName ? String(raw.restaurantName) : undefined,
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
   };
 }
 
 export function isTodayOrdersApiConfigured(): boolean {
   return useLiveApi;
+}
+
+export async function fetchEmployeeSales(
+  todayOnly = false,
+): Promise<TodayOrdersResponse> {
+  if (!useLiveApi) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 600));
+    return {
+      success: true,
+      data: getMockTodayOrders(),
+    };
+  }
+
+  try {
+    const url = todayOnly
+      ? '/api/orders/employee?today=true'
+      : '/api/orders/employee';
+    const response = await api.get<ApiEnvelope<Record<string, unknown>[]>>(url);
+
+    if (!response.data?.success) {
+      return {
+        success: false,
+        message: response.data?.message || 'Failed to load sales data',
+      };
+    }
+
+    return {
+      success: true,
+      data: (response.data.data || []).map((row) => normalizeTodayOrder(row)),
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: mapTodayOrdersApiError(error, 'Failed to load sales data'),
+    };
+  }
 }
 
 export async function fetchTodayOrders(): Promise<TodayOrdersResponse> {

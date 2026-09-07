@@ -17,6 +17,7 @@ export interface KotLineItem {
   choiceSelections?: Array<{name: string; subChoices: string[]}>;
   addonChoiceSelections?: Array<{name: string; subChoices: string[]}>;
   modifier?: string;
+  preparationStyle?: string;
   isOffer?: boolean;
 }
 

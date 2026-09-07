@@ -19,6 +19,8 @@ export type TodayOrderFilter =
   | 'PAID'
   | 'ONLINE';
 
+export type SalesDateRange = 'Today' | 'This Week' | 'This Month' | 'All';
+
 export interface TodayOrderItem {
   name: string;
   qty: number;
@@ -26,6 +28,8 @@ export interface TodayOrderItem {
   size?: string;
   preparationStyle?: string;
   options?: string[];
+  productType?: string;
+  category?: string;
 }
 
 export interface TodayOrderProcessedBy {
@@ -46,6 +50,8 @@ export interface TodayOrder {
   source?: TodayOrderSource;
   paymentStatus?: TodayOrderPaymentStatus;
   paymentMethod?: string;
+  cashAmount?: number;
+  cardAmount?: number;
   totalAmount: number;
   subTotal?: number;
   taxTotal?: number;
@@ -68,6 +74,17 @@ export interface TodayOrder {
   processedBy?: TodayOrderProcessedBy | string;
   tableSession?: TodayOrderTableSession | string;
   items?: TodayOrderItem[];
+  taxBreakdown?: Array<{
+    name?: string;
+    rate?: number;
+    amount?: number;
+    taxAmount?: number;
+  }>;
+  discountPercent?: number;
+  serviceChargeTotal?: number;
+  serviceChargeName?: string;
+  tipMethod?: string;
+  restaurantName?: string;
   createdAt: string;
 }
 
@@ -88,4 +105,5 @@ export interface TodaySalesMetric {
   label: string;
   short: string;
   value: string;
+  count?: number;
 }

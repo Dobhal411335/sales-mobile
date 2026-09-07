@@ -1,5 +1,13 @@
 import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {
+  Bell,
+  FileText,
+  Lock,
+  LogOut,
+  Printer,
+  TrendingUp,
+} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import {useAuth} from '../../hooks/useAuth';
 import type {SalesStackParamList} from '../../navigation/types';
@@ -12,11 +20,16 @@ interface ProfileMenuProps {
   onNavigate: (screen: keyof SalesStackParamList) => void;
 }
 
-const MENU_ITEMS: {label: string; screen: keyof SalesStackParamList}[] = [
-  {label: 'EOD / Reports', screen: 'Reports'},
-  {label: 'Print Jobs', screen: 'PrintJobs'},
-  {label: 'Notifications', screen: 'Notifications'},
-  {label: 'Day Close', screen: 'DayClose'},
+const MENU_ITEMS: {
+  label: string;
+  screen: keyof SalesStackParamList;
+  Icon: React.ComponentType<{size?: number; color?: string}>;
+}[] = [
+  {label: 'EOD / Reports', screen: 'Reports', Icon: FileText},
+  {label: 'Today Sales', screen: 'TodaySales', Icon: TrendingUp},
+  {label: 'Print Jobs', screen: 'PrintJobs', Icon: Printer},
+  {label: 'Notifications', screen: 'Notifications', Icon: Bell},
+  {label: 'Day Close', screen: 'DayClose', Icon: Lock},
 ];
 
 export function ProfileMenu({
@@ -35,19 +48,25 @@ export function ProfileMenu({
       </View>
 
       <View style={styles.actions}>
-        {MENU_ITEMS.map((item) => (
-          <Pressable
-            key={item.screen}
-            style={({pressed}) => [
-              styles.actionButton,
-              pressed && styles.actionButtonPressed,
-            ]}
-            onPress={() => onNavigate(item.screen)}
-            accessibilityRole="button"
-            accessibilityLabel={item.label}>
-            <Text style={styles.actionText}>{item.label}</Text>
-          </Pressable>
-        ))}
+        {MENU_ITEMS.map((item) => {
+          const ItemIcon = item.Icon;
+          return (
+            <Pressable
+              key={item.screen}
+              style={({pressed}) => [
+                styles.actionButton,
+                pressed && styles.actionButtonPressed,
+              ]}
+              onPress={() => onNavigate(item.screen)}
+              accessibilityRole="button"
+              accessibilityLabel={item.label}>
+              <View style={styles.actionContent}>
+                <ItemIcon size={18} color={colors.textSecondary} />
+                <Text style={styles.actionText}>{item.label}</Text>
+              </View>
+            </Pressable>
+          );
+        })}
 
         <Pressable
           style={({pressed}) => [
@@ -60,7 +79,10 @@ export function ProfileMenu({
           }}
           accessibilityRole="button"
           accessibilityLabel="Logout">
-          <Text style={styles.logoutText}>Logout</Text>
+          <View style={styles.logoutContent}>
+            <LogOut size={18} color={colors.surface} />
+            <Text style={styles.logoutText}>Logout</Text>
+          </View>
         </Pressable>
       </View>
     </Popover>
@@ -106,6 +128,11 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
   },
+  actionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   actionText: {
     fontSize: 15,
     fontWeight: '600',
@@ -121,6 +148,12 @@ const styles = StyleSheet.create({
   },
   logoutButtonPressed: {
     backgroundColor: colors.primaryHover,
+  },
+  logoutContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
   logoutText: {
     fontSize: 15,

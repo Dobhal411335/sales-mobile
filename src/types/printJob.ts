@@ -53,6 +53,19 @@ export interface PrintJobMetadata {
   guestName?: string;
   partyName?: string;
   isReprint?: boolean;
+  paymentMethod?: string;
+  cashAmount?: number;
+  cardAmount?: number;
+  giftcardUsedAmount?: number;
+  totalAmount?: number;
+  subTotal?: number;
+  discountTotal?: number;
+  discountPercent?: number | null;
+  taxTotal?: number;
+  tipAmount?: number;
+  tipMethod?: string;
+  serviceChargeTotal?: number;
+  serviceChargeName?: string;
 }
 
 export interface PrintJob {

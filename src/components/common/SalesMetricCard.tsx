@@ -1,23 +1,42 @@
 import React from 'react';
-import {StyleSheet, Text, View} from 'react-native';
+import {StyleProp, StyleSheet, Text, View, ViewStyle} from 'react-native';
 import {colors} from '../../constants/colors';
 
-interface SalesMetricCardProps {
+export interface SalesMetricCardProps {
   label: string;
   value: string;
-  icon?: string;
+  icon?: React.ReactNode | string;
+  count?: number;
+  style?: StyleProp<ViewStyle>;
 }
 
-export function SalesMetricCard({label, value, icon}: SalesMetricCardProps) {
+export function SalesMetricCard({
+  label,
+  value,
+  icon,
+  count,
+  style,
+}: SalesMetricCardProps) {
+  const isElement = React.isValidElement(icon);
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, style]}>
       {icon ? (
         <View style={styles.iconWrap}>
-          <Text style={styles.icon}>{icon}</Text>
+          {isElement ? (
+            icon
+          ) : (
+            <Text style={styles.icon}>{icon}</Text>
+          )}
         </View>
       ) : null}
       <View style={styles.content}>
-        <Text style={styles.label}>{label}</Text>
+        <Text style={styles.label} numberOfLines={1}>
+          {label}
+          {count !== undefined ? (
+            <Text style={styles.labelCount}> · {count}</Text>
+          ) : null}
+        </Text>
         <Text style={styles.value} numberOfLines={1}>
           {value}
         </Text>
@@ -29,45 +48,54 @@ export function SalesMetricCard({label, value, icon}: SalesMetricCardProps) {
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    minWidth: 110,
+    minWidth: 105,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.cream,
+    borderColor: '#D4D4D8',
+    backgroundColor: '#FAFAFA',
     paddingHorizontal: 10,
     paddingVertical: 8,
-    minHeight: 56,
+    minHeight: 58,
   },
   iconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   icon: {
     fontSize: 14,
     color: colors.surface,
+    fontWeight: '700',
   },
   content: {
     flex: 1,
     minWidth: 0,
+    justifyContent: 'center',
   },
   label: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
+    color: '#18181B',
+    letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
+  labelCount: {
+    fontWeight: '700',
+    color: '#18181B',
+    textTransform: 'none',
+  },
   value: {
-    marginTop: 2,
+    marginTop: 1,
     fontSize: 16,
     fontWeight: '800',
-    color: colors.text,
+    color: '#18181B',
+    fontVariant: ['tabular-nums'],
   },
 });

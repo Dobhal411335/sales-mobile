@@ -33,54 +33,238 @@ export interface PaymentTypeInfo {
   variant: 'unpaid' | 'waived' | 'card' | 'cash' | 'gift' | 'combo' | 'other';
 }
 
-export function getPaymentType(order: TodayOrder): PaymentTypeInfo {
-  if (String(order?.status || '').toUpperCase() === 'WAIVED') {
-    return {label: 'Waived', variant: 'waived'};
-  }
+export interface ParsedPaymentDetails {
+  label: string;
+  shortLabel: string;
+  variant: 'unpaid' | 'waived' | 'card' | 'cash' | 'gift' | 'combo' | 'other';
+  hasCash: boolean;
+  hasCard: boolean;
+  hasGift: boolean;
+  cardBrand: string | null;
+  displayBreakdown?: string;
+}
 
-  const method = String(order?.paymentMethod || '').trim();
-  const usedGiftCard =
-    Number(order?.giftcardUsedAmount || 0) > 0 || Boolean(order?.giftcardCode);
-  const lower = method.toLowerCase();
+export function parsePaymentDetails(
+  order?: Partial<TodayOrder> | null,
+): ParsedPaymentDetails {
+  const status = String(order?.status || '').toUpperCase();
+  const paymentStatus = String(order?.paymentStatus || '').toUpperCase();
 
-  if (!method && !usedGiftCard) {
-    return {label: 'Unpaid', variant: 'unpaid'};
-  }
-
-  const isCard = lower.includes('card') && !lower.includes('gift');
-  const isCash = lower.includes('cash');
-  const isGift = lower.includes('gift');
-
-  if (usedGiftCard && (isCard || isCash)) {
-    const cardType = method.replace(/^Card\s*-?\s*/i, '').trim();
-    const other = isCard
-      ? cardType && cardType.toLowerCase() !== 'card'
-        ? `Card · ${cardType}`
-        : 'Card'
-      : 'Cash';
-    return {label: `Gift + ${other}`, variant: 'combo'};
-  }
-
-  if (isGift || (usedGiftCard && !isCard && !isCash)) {
-    return {label: 'Gift Card', variant: 'gift'};
-  }
-
-  if (isCard) {
-    const cardType = method.replace(/^Card\s*-\s*/i, '').trim();
+  if (status === 'WAIVED' || paymentStatus === 'WAIVED') {
     return {
-      label:
-        cardType && cardType.toLowerCase() !== 'card'
-          ? `Card · ${cardType}`
-          : 'Card',
-      variant: 'card',
+      label: 'Waived',
+      shortLabel: 'Waived',
+      variant: 'waived',
+      hasCash: false,
+      hasCard: false,
+      hasGift: false,
+      cardBrand: null,
     };
   }
 
-  if (isCash) {
-    return {label: 'Cash', variant: 'cash'};
+  const rawMethod = String(order?.paymentMethod || '').trim();
+  const lower = rawMethod.toLowerCase();
+  const giftAmount = Number(order?.giftcardUsedAmount || 0);
+  const usedGiftCard = giftAmount > 0 || Boolean(order?.giftcardCode);
+
+  const isPaid = paymentStatus === 'PAID' || status === 'PAID';
+  if ((!rawMethod || lower === 'unpaid') && !usedGiftCard && !isPaid) {
+    return {
+      label: 'Unpaid',
+      shortLabel: 'Unpaid',
+      variant: 'unpaid',
+      hasCash: false,
+      hasCard: false,
+      hasGift: false,
+      cardBrand: null,
+    };
   }
 
-  return {label: method, variant: 'other'};
+  // 1. Detect Gift Card
+  const hasGift = usedGiftCard || /\bgift\b/i.test(lower);
+
+  // 2. Detect Cash
+  const cashAmount =
+    order?.cashAmount != null ? Number(order.cashAmount) : null;
+  const hasCash =
+    (cashAmount != null && cashAmount > 0) || /\bcash\b/i.test(lower);
+
+  // 3. Detect Card (ignore "card" if strictly inside "gift card")
+  const methodWithoutGift = lower
+    .replace(/gift\s*card/gi, '')
+    .replace(/\bgift\b/gi, '');
+  const cardAmount =
+    order?.cardAmount != null ? Number(order.cardAmount) : null;
+  const hasCard =
+    (cardAmount != null && cardAmount > 0) ||
+    /\bcard\b/i.test(methodWithoutGift) ||
+    /\b(visa|mastercard|amex|discover|debit|interac)\b/i.test(lower);
+
+  // 4. Extract Card Brand
+  let cardBrand: string | null = null;
+  if (hasCard) {
+    const brandMatch = rawMethod.match(
+      /\b(visa|mastercard|amex|discover|debit|interac)\b/i,
+    );
+    if (brandMatch) {
+      const b = brandMatch[1].toLowerCase();
+      if (b === 'visa') cardBrand = 'Visa';
+      else if (b === 'mastercard') cardBrand = 'Mastercard';
+      else if (b === 'amex') cardBrand = 'Amex';
+      else if (b === 'discover') cardBrand = 'Discover';
+      else if (b === 'debit') cardBrand = 'Debit';
+      else if (b === 'interac') cardBrand = 'Interac';
+    } else {
+      const dashMatch = rawMethod.match(/card\s*[-·:]\s*([A-Za-z0-9]+)/i);
+      if (dashMatch && dashMatch[1]) {
+        const val = dashMatch[1].trim();
+        if (!/^(cash|gift|card)$/i.test(val)) {
+          cardBrand = val;
+        }
+      }
+    }
+  }
+
+  // Build tender amounts breakdown if specific amounts exist
+  const partsWithAmounts: string[] = [];
+  if (hasGift && giftAmount > 0) {
+    partsWithAmounts.push(`Gift Card: $${giftAmount.toFixed(2)}`);
+  }
+  if (hasCard && cardAmount != null && cardAmount > 0) {
+    partsWithAmounts.push(
+      `${cardBrand ? `Card (${cardBrand})` : 'Card'}: $${cardAmount.toFixed(2)}`,
+    );
+  }
+  if (hasCash && cashAmount != null && cashAmount > 0) {
+    partsWithAmounts.push(`Cash: $${cashAmount.toFixed(2)}`);
+  }
+  const displayBreakdown =
+    partsWithAmounts.length > 1 ? partsWithAmounts.join(' · ') : undefined;
+
+  // Case A: Triple Split (Gift + Card + Cash)
+  if (hasGift && hasCard && hasCash) {
+    return {
+      label: 'Gift + Card + Cash',
+      shortLabel: 'Gift + Split',
+      variant: 'combo',
+      hasCash,
+      hasCard,
+      hasGift,
+      cardBrand,
+      displayBreakdown,
+    };
+  }
+
+  // Case B: Split Gift + Card
+  if (hasGift && hasCard) {
+    const cardPart = cardBrand ? `Card (${cardBrand})` : 'Card';
+    return {
+      label: `Gift + ${cardPart}`,
+      shortLabel: 'Gift + Card',
+      variant: 'combo',
+      hasCash,
+      hasCard,
+      hasGift,
+      cardBrand,
+      displayBreakdown,
+    };
+  }
+
+  // Case C: Split Gift + Cash
+  if (hasGift && hasCash) {
+    return {
+      label: 'Gift + Cash',
+      shortLabel: 'Gift + Cash',
+      variant: 'combo',
+      hasCash,
+      hasCard,
+      hasGift,
+      cardBrand,
+      displayBreakdown,
+    };
+  }
+
+  // Case D: Gift Card Only
+  if (hasGift) {
+    return {
+      label: 'Gift Card',
+      shortLabel: 'Gift Card',
+      variant: 'gift',
+      hasCash,
+      hasCard,
+      hasGift,
+      cardBrand,
+      displayBreakdown,
+    };
+  }
+
+  // Case E: Split Card + Cash
+  if (hasCard && hasCash) {
+    const cardPart = cardBrand ? `Card (${cardBrand})` : 'Card';
+    return {
+      label: `${cardPart} + Cash`,
+      shortLabel: 'Card + Cash',
+      variant: 'card',
+      hasCash,
+      hasCard,
+      hasGift,
+      cardBrand,
+      displayBreakdown,
+    };
+  }
+
+  // Case F: Card Only
+  if (hasCard) {
+    return {
+      label: cardBrand ? `Card · ${cardBrand}` : 'Card',
+      shortLabel: cardBrand || 'Card',
+      variant: 'card',
+      hasCash,
+      hasCard,
+      hasGift,
+      cardBrand,
+      displayBreakdown,
+    };
+  }
+
+  // Case G: Cash Only
+  if (hasCash) {
+    return {
+      label: 'Cash',
+      shortLabel: 'Cash',
+      variant: 'cash',
+      hasCash,
+      hasCard,
+      hasGift,
+      cardBrand,
+      displayBreakdown,
+    };
+  }
+
+  // Fallback cleanup
+  let fallbackLabel = rawMethod || 'Other';
+  if (/cash/i.test(fallbackLabel) && /card/i.test(fallbackLabel)) {
+    fallbackLabel = 'Card + Cash';
+  }
+
+  return {
+    label: fallbackLabel,
+    shortLabel: fallbackLabel,
+    variant: 'other',
+    hasCash: false,
+    hasCard: false,
+    hasGift: false,
+    cardBrand: null,
+    displayBreakdown,
+  };
+}
+
+export function getPaymentType(order: TodayOrder): PaymentTypeInfo {
+  const parsed = parsePaymentDetails(order);
+  return {
+    label: parsed.label,
+    variant: parsed.variant,
+  };
 }
 
 export function getStatusColors(status?: TodayOrderStatus | string) {

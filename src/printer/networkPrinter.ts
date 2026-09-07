@@ -1,4 +1,5 @@
 import TcpSocket from 'react-native-tcp-socket';
+import {config} from '../constants/config';
 
 const IPV4_RE =
   /^(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
@@ -27,7 +28,7 @@ export function validatePrintTarget(target: PrintTarget): {host: string; port: n
   if (!IPV4_RE.test(host) && !HOSTNAME_RE.test(host)) {
     throw new Error(`Invalid printer host: "${host}"`);
   }
-  const numericPort = Number(target.port) || 9100;
+  const numericPort = Number(target.port) || config.DEFAULT_PRINTER_PORT;
   if (numericPort < 1 || numericPort > 65535) {
     throw new Error(`Invalid printer port: ${numericPort}`);
   }

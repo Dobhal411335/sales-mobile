@@ -1,5 +1,6 @@
 import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {Banknote, CreditCard, Gift} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {PaymentMethodKey} from '../../types/payment';
 
@@ -11,11 +12,11 @@ interface PaymentMethodSelectorProps {
 const METHODS: Array<{
   key: PaymentMethodKey;
   label: string;
-  icon: string;
+  Icon: typeof CreditCard;
 }> = [
-  {key: 'Card', label: 'Card', icon: '💳'},
-  {key: 'Cash', label: 'Cash', icon: '💵'},
-  {key: 'GiftCard', label: 'Gift Card', icon: '🎁'},
+  {key: 'Card', label: 'CARD', Icon: CreditCard},
+  {key: 'Cash', label: 'CASH', Icon: Banknote},
+  {key: 'GiftCard', label: 'GIFT CARD', Icon: Gift},
 ];
 
 export function PaymentMethodSelector({
@@ -26,6 +27,7 @@ export function PaymentMethodSelector({
     <View style={styles.row}>
       {METHODS.map((method) => {
         const isSelected = selected === method.key;
+        const IconComponent = method.Icon;
         return (
           <Pressable
             key={method.key}
@@ -38,7 +40,11 @@ export function PaymentMethodSelector({
             accessibilityRole="button"
             accessibilityState={{selected: isSelected}}
             accessibilityLabel={method.label}>
-            <Text style={styles.icon}>{method.icon}</Text>
+            <IconComponent
+              size={24}
+              color={isSelected ? colors.primary : '#52525B'}
+              strokeWidth={2}
+            />
             <Text
               style={[
                 styles.label,
@@ -60,32 +66,30 @@ const styles = StyleSheet.create({
   },
   tile: {
     flex: 1,
-    minHeight: 72,
+    minHeight: 74,
     borderRadius: 14,
     borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: '#E4E4E7',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    padding: 10,
+    paddingVertical: 12,
   },
   tileSelected: {
     borderColor: colors.primary,
-    backgroundColor: colors.cream,
+    backgroundColor: '#FFF7ED',
   },
   tilePressed: {
     opacity: 0.92,
   },
-  icon: {
-    fontSize: 22,
-  },
   label: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '800',
-    color: colors.textSecondary,
+    color: '#52525B',
+    letterSpacing: 0.5,
   },
   labelSelected: {
-    color: colors.text,
+    color: colors.primary,
   },
 });

@@ -11,3 +11,11 @@ export function canOverrideFloorSession(role?: string | null): boolean {
   const normalized = String(role ?? '').trim().toUpperCase();
   return isSalesAdminRole(role) || normalized === 'MANAGER';
 }
+
+export function isStaffRole(role?: string | null): boolean {
+  if (!role) {
+    return false;
+  }
+  return String(role).trim().toUpperCase() === 'STAFF';
+}
+

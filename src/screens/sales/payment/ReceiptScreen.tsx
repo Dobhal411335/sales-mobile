@@ -16,6 +16,7 @@ import {PrintJobStatusStrip} from '../../../components/printing/PrintJobStatusSt
 import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
 import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
+import {config} from '../../../constants/config';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {printerService} from '../../../printer/printerService';
 import {reprintTicket} from '../../../services/printJobService';
@@ -61,53 +62,67 @@ export function ReceiptScreen({navigation, route}: Props) {
     goToFloor();
   };
 
-  const handlePrintBill = async () => {
-    const result = await printerService.printBill(
-      {
-        order: orderSnapshot,
-        taxBreakdown: effectiveTaxBreakdown,
-        guestCount: orderSnapshot.guestCount,
-        restaurantName: 'TASTY BITES',
-        isReprint,
-      },
-      activePrintJobId ?? undefined,
-    );
-    setPrintMessage(result.message ?? null);
-    if (!result.success) {
-      Alert.alert('Receipt print', result.message ?? 'Unable to queue receipt.');
-    }
-  };
-
   const handleReprintBill = async () => {
     const orderId =
       orderSnapshot.orderId ||
-      (orderSnapshot as { _id?: string })._id;
-    if (!orderId && !activePrintJobId) {
-      toast.error('No order ID found to reprint');
-      return;
-    }
+      (orderSnapshot as {_id?: string})._id;
 
     setReprinting(true);
     try {
-      const res = await reprintTicket({
-        orderId: orderId ? String(orderId) : undefined,
-        jobId: activePrintJobId ?? undefined,
-        printType: 'RECEIPT',
-        guestCount: orderSnapshot.guestCount,
-        restaurantName: 'TASTY BITES',
-      });
+      if (orderId || activePrintJobId) {
+        const res = await reprintTicket({
+          orderId: orderId ? String(orderId) : undefined,
+          jobId: activePrintJobId ?? undefined,
+          printType: 'RECEIPT',
+          guestCount: orderSnapshot.guestCount,
+          restaurantName: config.APP_NAME.toUpperCase(),
+        });
 
-      if (res.success) {
-        setIsReprint(true);
-        if (res.data?.job?._id) {
-          setActivePrintJobId(res.data.job._id);
+        if (res.success) {
+          setIsReprint(true);
+          if (res.data?.job?._id) {
+            setActivePrintJobId(res.data.job._id);
+          }
+          toast.success('Receipt reprint queued');
+          return;
         }
+      }
+
+      // Fallback to direct printerService bill print
+      const result = await printerService.printBill(
+        {
+          order: orderSnapshot,
+          taxBreakdown: effectiveTaxBreakdown,
+          guestCount: orderSnapshot.guestCount,
+          restaurantName: config.APP_NAME.toUpperCase(),
+          isReprint: true,
+        },
+        activePrintJobId ?? undefined,
+      );
+      if (result.success) {
+        setIsReprint(true);
         toast.success('Receipt reprint queued');
       } else {
-        toast.error(res.message || 'Failed to queue receipt reprint');
+        toast.error(result.message || 'Failed to queue receipt reprint');
       }
     } catch {
-      toast.error('Network error reprinting receipt');
+      // Fallback to local printerService
+      const result = await printerService.printBill(
+        {
+          order: orderSnapshot,
+          taxBreakdown: effectiveTaxBreakdown,
+          guestCount: orderSnapshot.guestCount,
+          restaurantName: config.APP_NAME.toUpperCase(),
+          isReprint: true,
+        },
+        activePrintJobId ?? undefined,
+      );
+      if (result.success) {
+        setIsReprint(true);
+        toast.success('Receipt reprint queued');
+      } else {
+        toast.error('Network error reprinting receipt');
+      }
     } finally {
       setReprinting(false);
     }
@@ -162,7 +177,7 @@ export function ReceiptScreen({navigation, route}: Props) {
             order={orderSnapshot}
             taxBreakdown={effectiveTaxBreakdown}
             guestCount={orderSnapshot.guestCount}
-            restaurantName="TASTY BITES"
+            restaurantName={config.APP_NAME.toUpperCase()}
             serverName={
               (orderSnapshot as {serverName?: string; processedByName?: string})
                 .serverName ||
@@ -202,15 +217,7 @@ export function ReceiptScreen({navigation, route}: Props) {
           ) : null}
 
           <Pressable
-            style={styles.primaryAction}
-            onPress={handlePrintBill}
-            accessibilityRole="button"
-            accessibilityLabel="Print bill">
-            <Text style={styles.primaryActionText}>Print Bill</Text>
-          </Pressable>
-
-          <Pressable
-            style={[styles.reprintAction, reprinting && styles.buttonDisabled]}
+            style={[styles.primaryAction, reprinting && styles.buttonDisabled]}
             onPress={handleReprintBill}
             disabled={reprinting}
             accessibilityRole="button"
@@ -218,7 +225,7 @@ export function ReceiptScreen({navigation, route}: Props) {
             {reprinting ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (
-              <Text style={styles.reprintActionText}>
+              <Text style={styles.primaryActionText}>
                 {isReprint ? 'Reprint Bill Again' : 'Reprint Bill'}
               </Text>
             )}

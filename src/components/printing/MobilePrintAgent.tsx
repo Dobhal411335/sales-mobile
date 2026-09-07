@@ -1,4 +1,5 @@
 import {useEffect, useRef} from 'react';
+import {config} from '../../constants/config';
 import {socketClient} from '../../socket/socket';
 import {fetchPrinters} from '../../services/printJobService';
 import {
@@ -106,7 +107,7 @@ export function MobilePrintAgent() {
             name: payload.name || 'Network Printer',
             target: payload.target || 'RECEIPT',
             host: payload.host,
-            port: payload.port || 9100,
+            port: payload.port || config.DEFAULT_PRINTER_PORT,
             connectionType: payload.connectionType || 'LAN',
             enabled: true,
           };

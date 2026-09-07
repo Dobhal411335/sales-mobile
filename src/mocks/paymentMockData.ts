@@ -7,9 +7,53 @@ export const MOCK_DISCOUNT_COUPONS: DiscountCoupon[] = [
 ];
 
 export const MOCK_GIFT_CARDS: Record<string, GiftCardDetails> = {
-  GIFT100: {code: 'GIFT100', balance: 100, status: 'ACTIVE'},
-  GIFT50: {code: 'GIFT50', balance: 50, status: 'ACTIVE'},
-  GIFT25: {code: 'GIFT25', balance: 25, status: 'ACTIVE'},
+  GIFT100: {
+    code: 'GIFT100',
+    name: 'VIP Guest Card',
+    value: 100,
+    balance: 100,
+    status: 'Active',
+    isIssued: true,
+    recipientName: 'Alex Morgan',
+    recipientEmail: 'alex.morgan@example.com',
+    recipientPhone: '555-0199',
+    issueDate: '2026-08-01T12:00:00.000Z',
+    history: [
+      {
+        usedAt: '2026-08-15T19:30:00.000Z',
+        amountUsed: 25,
+        balanceAfter: 75,
+        orderNumber: '0042',
+        note: 'POS Payment',
+      },
+    ],
+  },
+  GIFT50: {
+    code: 'GIFT50',
+    name: 'Loyalty Reward Card',
+    value: 50,
+    balance: 50,
+    status: 'Active',
+    isIssued: true,
+    recipientName: 'Jamie Smith',
+    recipientEmail: 'jamie.smith@example.com',
+    recipientPhone: '555-0144',
+    issueDate: '2026-08-10T10:00:00.000Z',
+    history: [],
+  },
+  GIFT25: {
+    code: 'GIFT25',
+    name: 'Welcome Gift',
+    value: 25,
+    balance: 25,
+    status: 'Active',
+    isIssued: true,
+    recipientName: 'Taylor Green',
+    recipientEmail: 'taylor.g@example.com',
+    recipientPhone: '555-0182',
+    issueDate: '2026-08-20T14:00:00.000Z',
+    history: [],
+  },
 };
 
 export const MOCK_SERVICE_TAX: ServiceTaxConfig = {

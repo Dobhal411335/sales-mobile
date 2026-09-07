@@ -138,6 +138,19 @@ export function buildReceiptOrderFromDetail(data: PrintJobDetailData): ReceiptOr
       guestName: order.guestName ?? meta.guestName,
       partyName: order.partyName ?? meta.partyName,
       guestCount: order.guestCount ?? data.guestCount ?? meta.guestCount,
+      paymentMethod: order.paymentMethod ?? meta.paymentMethod,
+      cashAmount: order.cashAmount ?? meta.cashAmount,
+      cardAmount: order.cardAmount ?? meta.cardAmount,
+      giftcardUsedAmount: order.giftcardUsedAmount ?? meta.giftcardUsedAmount,
+      totalAmount: order.totalAmount ?? meta.totalAmount,
+      subTotal: order.subTotal ?? meta.subTotal,
+      discountTotal: order.discountTotal ?? meta.discountTotal,
+      discountPercent: order.discountPercent ?? meta.discountPercent,
+      taxTotal: order.taxTotal ?? meta.taxTotal,
+      tipAmount: order.tipAmount ?? meta.tipAmount,
+      tipMethod: order.tipMethod ?? meta.tipMethod,
+      serviceChargeTotal: order.serviceChargeTotal ?? meta.serviceChargeTotal,
+      serviceChargeName: order.serviceChargeName ?? meta.serviceChargeName,
     };
   }
 
@@ -148,6 +161,19 @@ export function buildReceiptOrderFromDetail(data: PrintJobDetailData): ReceiptOr
     partyName: meta.partyName,
     guestCount: data.guestCount ?? meta.guestCount,
     createdAt: job.createdAt,
+    paymentMethod: meta.paymentMethod,
+    cashAmount: meta.cashAmount,
+    cardAmount: meta.cardAmount,
+    giftcardUsedAmount: meta.giftcardUsedAmount,
+    totalAmount: meta.totalAmount,
+    subTotal: meta.subTotal,
+    discountTotal: meta.discountTotal,
+    discountPercent: meta.discountPercent,
+    taxTotal: meta.taxTotal,
+    tipAmount: meta.tipAmount,
+    tipMethod: meta.tipMethod,
+    serviceChargeTotal: meta.serviceChargeTotal,
+    serviceChargeName: meta.serviceChargeName,
   };
 }
 

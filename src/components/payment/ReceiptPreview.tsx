@@ -1,6 +1,7 @@
 import React from 'react';
 import {Platform, StyleSheet, Text, View} from 'react-native';
 import {colors} from '../../constants/colors';
+import {config} from '../../constants/config';
 import type {CartLineItem} from '../../types/cart';
 import type {
   KotLineItem,
@@ -83,7 +84,7 @@ function KotReceiptBody({
   serverName,
   guestCount,
   specialNote,
-  restaurantName = 'TASTY BITES',
+  restaurantName = config.APP_NAME.toUpperCase(),
   isReprint = false,
 }: {
   order: ReceiptOrder;
@@ -234,7 +235,7 @@ function BarReceiptBody({
   serverName,
   guestCount,
   specialNote,
-  restaurantName = 'TASTY BITES',
+  restaurantName = config.APP_NAME.toUpperCase(),
   isReprint = false,
 }: {
   order: ReceiptOrder;
@@ -396,7 +397,7 @@ function CustomerReceiptBody({
   taxBreakdown,
   serverName,
   guestCount,
-  restaurantName = 'TASTY BITES',
+  restaurantName = config.APP_NAME.toUpperCase(),
   restaurantDetails,
   isReprint = false,
 }: {
@@ -409,7 +410,7 @@ function CustomerReceiptBody({
   isReprint?: boolean;
 }) {
   const restName =
-    restaurantDetails?.name || restaurantName || order?.restaurantName || 'TASTY BITES';
+    restaurantDetails?.name || restaurantName || order?.restaurantName || config.APP_NAME.toUpperCase();
   const restAddress =
     restaurantDetails?.address ||
     '345 Main Street South\nExeter, ON, Canada, N0M 1S6';
@@ -446,7 +447,12 @@ function CustomerReceiptBody({
   const tip = Number(order?.tipAmount || 0);
   const discount = Number(order?.discountTotal || 0);
   const serviceCharge = Number(order?.serviceChargeTotal || 0);
-  const giftUsed = Number(order?.giftcardUsedAmount || 0);
+  const giftUsed = Number(
+    order?.giftcardUsedAmount ??
+      (order as {giftCardUsedAmount?: number})?.giftCardUsedAmount ??
+      (order as {giftCardUsed?: number})?.giftCardUsed ??
+      0,
+  );
   const cash = Number(order?.cashAmount || 0);
   const card = Number(order?.cardAmount || 0);
   const orderTotal = Number(order?.totalAmount || 0);
@@ -489,20 +495,25 @@ function CustomerReceiptBody({
     if (breakdownRatesSum > 0) {
       return Math.round(breakdownRatesSum * 10) / 10;
     }
-    const taxableBase = Math.max(
-      0,
-      Number(order?.subTotal || 0) - Number(discount || 0),
-    );
-    if (taxableBase > 0 && hstAmount > 0) {
-      return Math.round((hstAmount / taxableBase) * 1000) / 10;
-    }
+    const sub = Number(order?.subTotal || 0);
+    const taxableBase = Math.max(0, sub - Number(discount || 0));
     if (
-      Number(order?.subTotal || 0) > 0 &&
+      taxableBase > 0 &&
       (hstAmount > 0 || Number(order?.taxTotal || 0) > 0)
     ) {
       return (
         Math.round(
-          (Number(order?.taxTotal || hstAmount) / Number(order?.subTotal || 1)) * 1000,
+          (Number(order?.taxTotal || hstAmount) / taxableBase) * 1000,
+        ) / 10
+      );
+    }
+    if (
+      sub > 0 &&
+      (hstAmount > 0 || Number(order?.taxTotal || 0) > 0)
+    ) {
+      return (
+        Math.round(
+          (Number(order?.taxTotal || hstAmount) / sub) * 1000,
         ) / 10
       );
     }
@@ -514,7 +525,9 @@ function CustomerReceiptBody({
       ? `HST (${totalHstRate}%)`
       : 'HST';
 
-  const methodStr = String(order?.paymentMethod || '');
+  const methodStr = String(
+    order?.paymentMethod || (order as {method?: string})?.method || '',
+  ).trim();
   const cardLabelMatch = methodStr.match(/Card\s*-\s*([^+/]+)/i);
   const cardLabel = cardLabelMatch
     ? `Card (${cardLabelMatch[1].trim()})`
@@ -535,7 +548,7 @@ function CustomerReceiptBody({
   })();
 
   const hasPaymentSplit = Boolean(
-    giftUsed > 0 || cash > 0 || card > 0 || order?.paymentMethod,
+    giftUsed > 0 || cash > 0 || card > 0 || methodStr,
   );
 
   const regularItems = items.filter((item) => !isOfferItem(item));
@@ -597,17 +610,10 @@ function CustomerReceiptBody({
             {order?.invoiceNumber || '—'}
           </Text>
         </View>
-        <View style={styles.metaTwoCol}>
-          <Text style={styles.metaLine}>
-            <Text style={styles.metaBold}>Server:</Text>{' '}
-            {serverName || 'Server'}
-          </Text>
-          {resolvedGuests != null ? (
-            <Text style={styles.metaLine}>
-              <Text style={styles.metaBold}>Guests:</Text> {resolvedGuests}
-            </Text>
-          ) : null}
-        </View>
+        <Text style={styles.metaLine}>
+          <Text style={styles.metaBold}>Server:</Text>{' '}
+          {serverName || (order as {serverName?: string}).serverName || 'Server'}
+        </Text>
         {shouldShowTable(order) && tableLabel ? (
           <Text style={styles.metaLine}>
             <Text style={styles.metaBold}>Table:</Text> {tableLabel}
@@ -617,6 +623,11 @@ function CustomerReceiptBody({
           <Text style={styles.metaLine}>
             <Text style={styles.metaBold}>Party:</Text>{' '}
             {partyLabel || 'Walk-in'}
+          </Text>
+        ) : null}
+        {resolvedGuests != null ? (
+          <Text style={styles.metaLine}>
+            <Text style={styles.metaBold}>Guests:</Text> {resolvedGuests}
           </Text>
         ) : null}
         <Text style={styles.metaLine}>
@@ -632,11 +643,15 @@ function CustomerReceiptBody({
         <Text style={styles.tableColLabel}>AMOUNT</Text>
       </View>
 
+      <View style={styles.divider} />
+
       {regularItems.map((item, idx) => renderReceiptItem(item, idx))}
 
       {offerItems.length > 0 ? (
         <View style={styles.offersBlock}>
+          {regularItems.length > 0 ? <View style={styles.divider} /> : null}
           <Text style={styles.offersTitle}>OFFERS</Text>
+          <View style={styles.dividerDashed} />
           {offerItems.map((item, idx) =>
             renderReceiptItem(item, `offer-${idx}`),
           )}
@@ -735,10 +750,22 @@ function CustomerReceiptBody({
                 <Text style={styles.totalValue}>{formatCurrency(card)}</Text>
               </View>
             ) : null}
-            {giftUsed <= 0 && cash <= 0 && card <= 0 && order?.paymentMethod ? (
+            {giftUsed <= 0 && cash <= 0 && card <= 0 && methodStr ? (
               <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Paid via</Text>
-                <Text style={styles.totalValue}>{order.paymentMethod}</Text>
+                <Text style={styles.totalLabel}>
+                  {methodStr.includes('+')
+                    ? methodStr
+                    : /gift/i.test(methodStr)
+                    ? 'Gift Card'
+                    : /cash/i.test(methodStr)
+                    ? 'Cash'
+                    : /card/i.test(methodStr)
+                    ? cardLabel
+                    : methodStr}
+                </Text>
+                <Text style={styles.totalValue}>
+                  {formatCurrency(grandTotal > 0 ? grandTotal : orderTotal)}
+                </Text>
               </View>
             ) : null}
           </View>
@@ -760,7 +787,7 @@ export function ReceiptPreview({
   serverName,
   guestCount,
   specialNote,
-  restaurantName = 'TASTY BITES',
+  restaurantName = config.APP_NAME.toUpperCase(),
   restaurantDetails,
   isReprint = false,
 }: ReceiptPreviewProps) {
@@ -769,7 +796,7 @@ export function ReceiptPreview({
     restaurantDetails?.name ||
     restaurantName ||
     order?.restaurantName ||
-    'TASTY BITES';
+    config.APP_NAME.toUpperCase();
 
   return (
     <View style={styles.paper}>

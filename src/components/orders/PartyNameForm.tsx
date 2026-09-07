@@ -45,6 +45,11 @@ export function PartyNameForm({
 }: PartyNameFormProps) {
   const [countryPickerOpen, setCountryPickerOpen] = useState(false);
 
+  const selectedCountry = countryCodes.find(
+    (c) => c.code === (guestCountryCode || '').trim(),
+  );
+  const countryName = selectedCountry?.country?.toLowerCase() || '';
+
   const tableLabel = formatTableLocation(tableNumber, floorName);
 
   return (
@@ -74,9 +79,13 @@ export function PartyNameForm({
               style={styles.countryButton}
               onPress={() => setCountryPickerOpen(true)}
               accessibilityRole="button"
-              accessibilityLabel="Select country code">
-              <Text style={styles.countryButtonText}>
-                {guestCountryCode} ▾
+              accessibilityLabel={`Select country code, current is ${guestCountryCode} ${countryName}`}>
+              <Text style={styles.countryButtonText} numberOfLines={1}>
+                {guestCountryCode}
+                {countryName ? (
+                  <Text style={styles.countryNameText}> ({countryName})</Text>
+                ) : null}
+                <Text style={styles.countryChevron}> ▾</Text>
               </Text>
             </Pressable>
             <TextInput
@@ -132,19 +141,32 @@ export function PartyNameForm({
           <View style={styles.pickerSheet}>
             <Text style={styles.pickerTitle}>Country Code</Text>
             <ScrollView style={styles.pickerList}>
-              {countryCodes.map((entry) => (
-                <Pressable
-                  key={entry.code}
-                  style={styles.pickerItem}
-                  onPress={() => {
-                    onChangeGuestCountryCode(entry.code);
-                    setCountryPickerOpen(false);
-                  }}>
-                  <Text style={styles.pickerItemText}>
-                    {entry.code} {entry.country}
-                  </Text>
-                </Pressable>
-              ))}
+              {countryCodes.map((entry) => {
+                const isSelected = entry.code === guestCountryCode;
+                return (
+                  <Pressable
+                    key={entry.code}
+                    style={[
+                      styles.pickerItem,
+                      isSelected && styles.pickerItemSelected,
+                    ]}
+                    onPress={() => {
+                      onChangeGuestCountryCode(entry.code);
+                      setCountryPickerOpen(false);
+                    }}>
+                    <Text
+                      style={[
+                        styles.pickerItemText,
+                        isSelected && styles.pickerItemTextSelected,
+                      ]}>
+                      {entry.code}{' '}
+                      <Text style={styles.pickerCountryText}>
+                        ({entry.country.toLowerCase()})
+                      </Text>
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
           </View>
         </Pressable>
@@ -204,6 +226,7 @@ const styles = StyleSheet.create({
   countryButton: {
     minHeight: 48,
     minWidth: 100,
+    maxWidth: 180,
     borderWidth: 1,
     borderColor: colors.border,
     borderTopLeftRadius: 10,
@@ -218,6 +241,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.text,
+  },
+  countryNameText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    textTransform: 'lowercase',
+  },
+  countryChevron: {
+    fontSize: 10,
+    color: colors.textSecondary,
   },
   phoneInput: {
     flex: 1,
@@ -280,10 +313,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    paddingHorizontal: 4,
+  },
+  pickerItemSelected: {
+    backgroundColor: colors.background,
+    borderRadius: 8,
   },
   pickerItemText: {
     fontSize: 15,
     fontWeight: '600',
     color: colors.text,
+  },
+  pickerItemTextSelected: {
+    color: colors.primary,
+    fontWeight: '700',
+  },
+  pickerCountryText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+    textTransform: 'lowercase',
   },
 });

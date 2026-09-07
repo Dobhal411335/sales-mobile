@@ -7,6 +7,7 @@
 
 import type {KotLineItem, ReceiptOrder, TaxBreakdownLine} from '../types/receipt';
 import type {PrintJob, PrintJobRestaurant} from '../types/printJob';
+import {config} from '../constants/config';
 
 const ESC = 0x1b;
 const GS = 0x1d;
@@ -344,10 +345,11 @@ function isStyleOption(opt: unknown, preparationStyle?: string): boolean {
 
 export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
   const lines: string[] = [];
-  const style = String(item?.preparationStyle || item?.modifier || '').trim();
+  const isOffer = isOfferItem(item);
+  const style = String(item?.preparationStyle || (!isOffer ? item?.modifier : '') || '').trim();
   if (style) lines.push(`+ ${style}`);
 
-  if (isOfferItem(item)) {
+  if (isOffer) {
     const inclusions = cleanList(item?.inclusions);
     const choices = cleanList(item?.choices);
     const drinks = cleanList(item?.drinks);
@@ -482,7 +484,7 @@ export function buildTestTicket(params: TestTicketParams): string {
   const {name, target, host, port, connectionType, systemPrinterName} = params;
   const e = encoder();
   e.init();
-  e.align(1).bold(true).line('TASTY BITES').bold(false);
+  e.align(1).bold(true).line(config.APP_NAME.toUpperCase()).bold(false);
   e.line('PRINTER TEST');
   e.resetStyle();
   e.line(divider());
@@ -492,7 +494,7 @@ export function buildTestTicket(params: TestTicketParams): string {
   if (systemPrinterName) {
     e.line(`System:  ${systemPrinterName}`);
   } else if (host) {
-    e.line(`Address: ${host}:${port || 9100}`);
+    e.line(`Address: ${host}:${port || config.DEFAULT_PRINTER_PORT}`);
   }
   e.line(`Width:   ${WIDTH} cols (Font A / 576 dots)`);
   e.line(divider());
@@ -528,7 +530,7 @@ export function buildKotTicket(params: KotTicketParams): string {
   e.init();
 
   const brand =
-    restaurantName || job?.metadata?.restaurantName || 'TASTY BITES';
+    restaurantName || job?.metadata?.restaurantName || config.APP_NAME.toUpperCase();
   const orderNumber =
     job?.metadata?.orderNumber || order?.orderNumber || '-';
   const tableNo = resolveTableNo(job, order);
@@ -636,7 +638,7 @@ export function buildBarTicket(params: KotTicketParams): string {
   e.init();
 
   const brand =
-    restaurantName || job?.metadata?.restaurantName || 'TASTY BITES';
+    restaurantName || job?.metadata?.restaurantName || config.APP_NAME.toUpperCase();
   const orderNumber =
     job?.metadata?.orderNumber || order?.orderNumber || '-';
   const tableNo = resolveTableNo(job, order);
@@ -747,7 +749,7 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
     rest.name ||
     restaurantName ||
     job?.metadata?.restaurantName ||
-    'TASTY BITES';
+    config.APP_NAME.toUpperCase();
   const restAddress =
     rest.address ||
     '345 Main Street South\nExeter, ON, Canada, N0M 1S6';
@@ -782,22 +784,44 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
       ? taxBreakdown.reduce((sum, t) => sum + Number(t.amount || 0), 0)
       : Number(order?.taxTotal || 0);
 
-  const tip = Number(order?.tipAmount || 0);
-  const discount = Number(order?.discountTotal || 0);
-  const serviceCharge = Number(order?.serviceChargeTotal || 0);
-  const giftUsed = Number(order?.giftcardUsedAmount || 0);
-  const cash = Number(order?.cashAmount || 0);
-  const card = Number(order?.cardAmount || 0);
-  const orderTotal = Number(order?.totalAmount || 0);
+  const rawOrder = (order || {}) as Record<string, unknown>;
+  const meta = (job?.metadata || {}) as Record<string, unknown>;
+
+  const methodStr = String(
+    rawOrder.paymentMethod ||
+    meta.paymentMethod ||
+    rawOrder.method ||
+    meta.method ||
+    '',
+  ).trim();
+
+  const tip = Number(rawOrder.tipAmount ?? meta.tipAmount ?? 0);
+  const discount = Number(rawOrder.discountTotal ?? meta.discountTotal ?? 0);
+  const serviceCharge = Number(
+    rawOrder.serviceChargeTotal ?? meta.serviceChargeTotal ?? 0,
+  );
+  const giftUsed = Number(
+    rawOrder.giftcardUsedAmount ??
+    rawOrder.giftCardUsedAmount ??
+    rawOrder.giftCardUsed ??
+    meta.giftcardUsedAmount ??
+    meta.giftCardUsedAmount ??
+    meta.giftCardUsed ??
+    0,
+  );
+  const cash = Number(rawOrder.cashAmount ?? meta.cashAmount ?? 0);
+  const card = Number(rawOrder.cardAmount ?? meta.cardAmount ?? 0);
+  const orderTotal = Number(
+    rawOrder.totalAmount ?? meta.totalAmount ?? rawOrder.amount ?? 0,
+  );
   const grandTotal = orderTotal + tip;
 
-  const methodStr = String(order?.paymentMethod || '');
   const cardLabelMatch = methodStr.match(/Card\s*-\s*([^+/]+)/i);
   const cardLabel = cardLabelMatch
     ? `Card (${cardLabelMatch[1].trim()})`
     : 'Card';
 
-  const tipMethod = String(order?.tipMethod || '').trim();
+  const tipMethod = String(rawOrder.tipMethod || meta.tipMethod || '').trim();
   let tipLabel = 'Tip';
   if (tip > 0) {
     if (/gift/i.test(tipMethod)) tipLabel = 'Tip (Gift Card)';
@@ -814,7 +838,7 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
   }
 
   const hasPaymentSplit =
-    giftUsed > 0 || cash > 0 || card > 0 || Boolean(order?.paymentMethod);
+    giftUsed > 0 || cash > 0 || card > 0 || Boolean(methodStr);
 
   const rawItems = ((order?.items || []) as unknown[]) as AnyTicketItem[];
   const regularItems = rawItems.filter((item) => !isOfferItem(item));
@@ -850,20 +874,25 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
     if (breakdownRatesSum > 0) {
       return Math.round(breakdownRatesSum * 10) / 10;
     }
-    const taxableBase = Math.max(
-      0,
-      Number(order?.subTotal || 0) - Number(discount || 0),
-    );
-    if (taxableBase > 0 && hstAmount > 0) {
-      return Math.round((hstAmount / taxableBase) * 1000) / 10;
-    }
+    const sub = Number(order?.subTotal || 0);
+    const taxableBase = Math.max(0, sub - Number(discount || 0));
     if (
-      Number(order?.subTotal || 0) > 0 &&
+      taxableBase > 0 &&
       (hstAmount > 0 || Number(order?.taxTotal || 0) > 0)
     ) {
       return (
         Math.round(
-          (Number(order?.taxTotal || hstAmount) / Number(order?.subTotal || 1)) * 1000,
+          (Number(order?.taxTotal || hstAmount) / taxableBase) * 1000,
+        ) / 10
+      );
+    }
+    if (
+      sub > 0 &&
+      (hstAmount > 0 || Number(order?.taxTotal || 0) > 0)
+    ) {
+      return (
+        Math.round(
+          (Number(order?.taxTotal || hstAmount) / sub) * 1000,
         ) / 10
       );
     }
@@ -910,10 +939,11 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
 
   e.line(divider('-'));
   e.bold(true).line(formatTwoColumnLine('ITEM', 'AMOUNT')).bold(false);
+  e.line(divider('-'));
 
   for (const item of regularItems) writeReceiptItem(e, item);
   if (offerItems.length) {
-    if (regularItems.length) e.line('');
+    if (regularItems.length) e.line(divider('-'));
     e.bold(true).line('OFFERS').bold(false);
     e.line(divider('-'));
     for (const item of offerItems) writeReceiptItem(e, item);
@@ -946,6 +976,11 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
     e.line(formatTwoColumnLine(tipLabel, money(tip)));
   }
 
+  e.line(divider('-'));
+  e.bold(true)
+    .line(formatTwoColumnLine('TOTAL', money(grandTotal)))
+    .bold(false);
+
   if (hasPaymentSplit) {
     e.line(divider('-'));
     e.bold(true).line('PAYMENT METHOD').bold(false);
@@ -954,15 +989,21 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
     }
     if (cash > 0) e.line(formatTwoColumnLine('Cash', money(cash)));
     if (card > 0) e.line(formatTwoColumnLine(cardLabel, money(card)));
-    if (giftUsed <= 0 && cash <= 0 && card <= 0 && order?.paymentMethod) {
-      e.line(formatTwoColumnLine('Paid via', toPrinterText(order.paymentMethod)));
+    if (giftUsed <= 0 && cash <= 0 && card <= 0 && methodStr) {
+      const displayAmount = grandTotal > 0 ? money(grandTotal) : money(orderTotal);
+      if (methodStr.includes('+')) {
+        e.line(formatTwoColumnLine(toPrinterText(methodStr), displayAmount));
+      } else if (/gift/i.test(methodStr)) {
+        e.line(formatTwoColumnLine('Gift Card', displayAmount));
+      } else if (/cash/i.test(methodStr)) {
+        e.line(formatTwoColumnLine('Cash', displayAmount));
+      } else if (/card/i.test(methodStr)) {
+        e.line(formatTwoColumnLine(cardLabel, displayAmount));
+      } else {
+        e.line(formatTwoColumnLine(toPrinterText(methodStr), displayAmount));
+      }
     }
   }
-
-  e.line('');
-  e.bold(true)
-    .line(formatTwoColumnLine('TOTAL', money(grandTotal)))
-    .bold(false);
 
   e.line(divider('-'));
   e.align(1).bold(true).line(toPrinterText(thankYou)).bold(false);

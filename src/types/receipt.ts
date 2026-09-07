@@ -36,6 +36,7 @@ export interface ReceiptOrder {
   guestName?: string;
   partyName?: string;
   guestCount?: number;
+  serverName?: string;
   createdAt?: string;
   specialNote?: string;
   items?: CartLineItem[];

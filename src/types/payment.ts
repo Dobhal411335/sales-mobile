@@ -19,16 +19,36 @@ export type PaymentUiStatus =
   | 'cancelled';
 
 export interface DiscountCoupon {
+  _id?: string;
   code: string;
   discountType: 'percent' | 'fixed';
   value: number;
   label?: string;
 }
 
+export interface GiftCardHistoryEntry {
+  usedAt: string;
+  amountUsed: number;
+  balanceAfter: number;
+  orderNumber?: string | null;
+  note?: string | null;
+}
+
 export interface GiftCardDetails {
+  _id?: string;
   code: string;
+  name?: string;
+  value?: number;
   balance: number;
   status?: string;
+  isIssued?: boolean;
+  recipientName?: string;
+  recipientEmail?: string;
+  recipientPhone?: string;
+  issueDate?: string | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  history?: GiftCardHistoryEntry[];
 }
 
 export interface ServiceTaxConfig {
@@ -51,6 +71,7 @@ export interface PaymentRequestPayload {
   splitAmount?: number;
   discountTotal?: number;
   discountCode?: string | null;
+  discountPercent?: number | null;
   guestName?: string;
   partyName?: string;
   guestCount?: number | null;

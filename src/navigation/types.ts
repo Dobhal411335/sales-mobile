@@ -40,7 +40,6 @@ export type SalesStackParamList = {
     printJobId?: string | null;
   };
   Orders: {filter?: 'ONLINE' | 'ALL'} | undefined;
-  OrderDetails: {sessionId?: string} | undefined;
   Reports: undefined;
   Notifications: undefined;
   PrintJobs: {jobId?: string} | undefined;

@@ -6,8 +6,8 @@ import {
   printTest,
 } from '../services/printJobService';
 import type {PrinterConfig} from '../types/printJob';
-import type {BillPrintPayload, KotPrintPayload} from '../types/receipt';
-import {buildTestTicket, buildTicketFromJob} from './escpos';
+import type {BillPrintPayload, KotPrintPayload, ReceiptOrder} from '../types/receipt';
+import {buildReceiptTicket, buildTestTicket, buildTicketFromJob} from './escpos';
 import {sendRawToNetworkPrinter} from './networkPrinter';
 
 export type PrintMode = 'backend' | 'mock' | 'native';
@@ -37,7 +37,10 @@ export function isNetworkPrinter(printer?: PrinterConfig | null): boolean {
  * Finds the configured network printer for the job's target, builds ESC/POS data,
  * transmits over TCP port 9100, and calls /complete API.
  */
-export async function printJobById(jobId: string): Promise<PrintJobActionResult> {
+export async function printJobById(
+  jobId: string,
+  fallbackOrder?: Partial<ReceiptOrder> | null,
+): Promise<PrintJobActionResult> {
   const mode = getPrintMode();
   if (mode === 'mock') {
     return {success: true, message: 'Mock mode — no physical printer.', mode};
@@ -53,6 +56,15 @@ export async function printJobById(jobId: string): Promise<PrintJobActionResult>
   }
 
   const {job, order, kotItems, restaurant, serverName, guestCount} = detailRes.data;
+  const rawMerged = order
+    ? {...job?.metadata, ...fallbackOrder, ...order}
+    : (fallbackOrder || job?.metadata ? {...job?.metadata, ...fallbackOrder} : null);
+  const mergedOrder: Partial<ReceiptOrder> | null = rawMerged
+    ? ({
+        ...rawMerged,
+        orderNumber: rawMerged.orderNumber != null ? String(rawMerged.orderNumber) : undefined,
+      } as Partial<ReceiptOrder>)
+    : null;
 
   const printersRes = await fetchPrinters();
   const printers = printersRes.data || [];
@@ -75,10 +87,10 @@ export async function printJobById(jobId: string): Promise<PrintJobActionResult>
       mode: 'backend',
     };
   }
-
+  
   const base64Data = buildTicketFromJob({
     job,
-    order,
+    order: mergedOrder,
     kotItems,
     restaurantName: restaurant?.name || job.metadata?.restaurantName,
     restaurantDetails: restaurant,
@@ -87,7 +99,7 @@ export async function printJobById(jobId: string): Promise<PrintJobActionResult>
   });
 
   const printResult = await sendRawToNetworkPrinter(
-    {host: targetPrinter.host, port: targetPrinter.port || 9100},
+    {host: targetPrinter.host, port: targetPrinter.port || config.DEFAULT_PRINTER_PORT},
     base64Data,
   );
 
@@ -148,7 +160,7 @@ export const printerService = {
   },
 
   printBill: async (
-    _payload: BillPrintPayload,
+    payload: BillPrintPayload,
     printJobId?: string | null,
   ): Promise<PrintJobActionResult> => {
     const mode = getPrintMode();
@@ -159,18 +171,73 @@ export const printerService = {
         mode,
       };
     }
-    if (!printJobId) {
-      return {
-        success: false,
-        message: 'No receipt print job. Payment may still be recorded.',
-        mode,
-      };
+
+    if (printJobId) {
+      try {
+        const jobResult = await printJobById(printJobId, payload.order);
+        if (jobResult.success) {
+          return jobResult;
+        }
+      } catch {
+        // Fall back to direct network printing using payload
+      }
     }
 
+    // Direct network print fallback using payload.order
     try {
-      return await printJobById(printJobId);
+      const printersRes = await fetchPrinters();
+      const printers = printersRes.data || [];
+      const targetPrinter = printers.find(
+        (p) =>
+          (p.target === 'RECEIPT' || p.target === 'COUNTER') &&
+          isNetworkPrinter(p),
+      );
+
+      if (targetPrinter && targetPrinter.host) {
+        const base64Data = buildReceiptTicket({
+          order:
+            payload.taxBreakdown && payload.order
+              ? {...payload.order, taxBreakdown: payload.taxBreakdown}
+              : payload.order,
+          restaurantName: payload.restaurantName,
+          serverName: payload.serverName,
+          guestCount: payload.guestCount,
+          isReprint: payload.isReprint,
+        });
+
+        const printResult = await sendRawToNetworkPrinter(
+          {
+            host: targetPrinter.host,
+            port: targetPrinter.port || config.DEFAULT_PRINTER_PORT,
+          },
+          base64Data,
+        );
+
+        if (printResult.success) {
+          if (printJobId) {
+            await completePrintJob(printJobId, true);
+          }
+          return {
+            success: true,
+            message: `Printed to ${targetPrinter.name} (${targetPrinter.host})`,
+            mode: 'native',
+          };
+        } else {
+          return {
+            success: false,
+            message: `Print failed (${targetPrinter.name}): ${printResult.error}`,
+            mode: 'native',
+          };
+        }
+      }
+
+      return {
+        success: true,
+        message: 'Receipt print queued for print bridge.',
+        mode: 'backend',
+      };
     } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : 'Network print error';
+      const errMsg = err instanceof Error ? err.message : 'Receipt print error';
       return {
         success: false,
         message: errMsg,
@@ -194,12 +261,12 @@ export const printerService = {
       name: printer.name,
       target: printer.target,
       host: printer.host,
-      port: printer.port || 9100,
+      port: printer.port || config.DEFAULT_PRINTER_PORT,
       connectionType: printer.connectionType || 'LAN',
     });
 
     const result = await sendRawToNetworkPrinter(
-      {host: printer.host, port: printer.port || 9100},
+      {host: printer.host, port: printer.port || config.DEFAULT_PRINTER_PORT},
       base64Data,
     );
 

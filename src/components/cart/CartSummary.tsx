@@ -9,14 +9,40 @@ interface CartSummaryProps {
 }
 
 export function CartSummary({totals}: CartSummaryProps) {
+  const taxable = Math.max(0, totals.subtotal - (totals.discountTotal || 0));
+  const rate =
+    taxable > 0 && totals.taxTotal > 0
+      ? Math.round((totals.taxTotal / taxable) * 1000) / 10
+      : null;
+  const hstLabel = rate != null && rate > 0 ? `HST (${rate}%)` : 'HST';
+
+  const discountRate =
+    totals.subtotal > 0 && (totals.discountTotal || 0) > 0
+      ? Math.round(((totals.discountTotal || 0) / totals.subtotal) * 1000) / 10
+      : null;
+  const discountLabel =
+    discountRate != null && discountRate > 0
+      ? `Discount (${discountRate}%)`
+      : 'Discount';
+
   return (
     <View style={styles.summary}>
       <View style={styles.row}>
         <Text style={styles.label}>Subtotal</Text>
         <Text style={styles.value}>{formatCurrency(totals.subtotal)}</Text>
       </View>
+      {(totals.discountTotal || 0) > 0 ? (
+        <View style={styles.row}>
+          <Text style={[styles.label, styles.discountText]}>
+            {discountLabel}
+          </Text>
+          <Text style={[styles.value, styles.discountText]}>
+            -{formatCurrency(totals.discountTotal)}
+          </Text>
+        </View>
+      ) : null}
       <View style={styles.row}>
-        <Text style={styles.label}>HST</Text>
+        <Text style={styles.label}>{hstLabel}</Text>
         <Text style={styles.value}>{formatCurrency(totals.taxTotal)}</Text>
       </View>
       <View style={[styles.row, styles.totalRow]}>
@@ -43,6 +69,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.textSecondary,
+  },
+  discountText: {
+    color: colors.success,
   },
   value: {
     fontSize: 14,

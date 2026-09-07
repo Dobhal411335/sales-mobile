@@ -13,6 +13,9 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {CardTypeSelector} from '../../../components/payment/CardTypeSelector';
+import {DiscountSelectorModal} from '../../../components/payment/DiscountSelectorModal';
+import {GiftCardDetailsModal} from '../../../components/payment/GiftCardDetailsModal';
+import {PayRemainingActions} from '../../../components/payment/PayRemainingActions';
 import {PaymentMethodSelector} from '../../../components/payment/PaymentMethodSelector';
 import {PaymentSummary} from '../../../components/payment/PaymentSummary';
 import {toast} from '../../../components/common/Toast';
@@ -34,14 +37,16 @@ import {useStaffEmployees, getStaffEmployeeName} from '../../../hooks/useStaffEm
 import type {PaymentApiOrder} from '../../../types/payment';
 import type {TaxBreakdownLine} from '../../../types/receipt';
 import type {ApiOrder} from '../../../types/order';
-import {formatServiceTaxRate} from '../../../utils/serviceCharge';
 import {STAFF_DISCOUNT_CODE, buildStaffDiscountState} from '../../../utils/staffDiscount';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {useCartStore} from '../../../store/cartStore';
 import type {
   AppliedPaymentDiscount,
   CardTypeName,
+  DiscountCoupon,
+  GiftCardDetails,
   PaymentMethodKey,
+  PaymentRequestPayload,
   PaymentUiStatus,
   ServiceTaxConfig,
 } from '../../../types/payment';
@@ -49,40 +54,12 @@ import {formatCurrency} from '../../../utils/currency';
 import {clearDirectOrderId, DIRECT_ORDER_STORAGE_KEYS} from '../../../utils/directOrderStorage';
 import {hydrateCartFromOrder} from '../../../utils/orderCartMapper';
 import {roundMoney} from '../../../utils/receiptFormat';
+import {SERVICE_CHARGE_NO_TIP_MESSAGE} from '../../../utils/serviceCharge';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'Payment'>;
 
 function mapPaidOrderFromApi(order: ApiOrder) {
   return mapPaymentResponseToSnapshot(order as PaymentApiOrder);
-}
-
-function buildPaymentMethodLabel(
-  method: PaymentMethodKey,
-  cardType?: CardTypeName | '',
-  hasGift?: boolean,
-  hasCash?: boolean,
-  hasCard?: boolean,
-): string {
-  const parts: string[] = [];
-  if (hasGift) {
-    parts.push('Gift Card');
-  }
-  if (hasCard) {
-    parts.push(cardType ? `Card - ${cardType}` : 'Card');
-  }
-  if (hasCash) {
-    parts.push('Cash');
-  }
-  if (parts.length === 0) {
-    if (method === 'GiftCard') {
-      return 'Gift Card';
-    }
-    if (method === 'Cash') {
-      return 'Cash';
-    }
-    return cardType ? `Card - ${cardType}` : 'Card';
-  }
-  return parts.join(' + ');
 }
 
 export function PaymentScreen({navigation, route}: Props) {
@@ -93,7 +70,7 @@ export function PaymentScreen({navigation, route}: Props) {
     orderNumber: routeOrderNumber,
     orderType,
     tableId,
-    partyName,
+    partyName: routePartyName,
     guestCount,
     tableNumber,
     floorName,
@@ -101,6 +78,7 @@ export function PaymentScreen({navigation, route}: Props) {
     taxTotal: routeTaxTotal,
   } = params;
 
+  const [partyName, setPartyName] = useState(routePartyName || '');
   const items = useCartStore((state) => state.items);
   const cartOrderNumber = useCartStore((state) => state.orderNumber);
   const activeOrderId = useCartStore((state) => state.activeOrderId);
@@ -113,12 +91,17 @@ export function PaymentScreen({navigation, route}: Props) {
   const resolvedOrderId = orderId ?? activeOrderId ?? '';
 
   const [serviceTax, setServiceTax] = useState<ServiceTaxConfig | null>(null);
-  const [availableDiscounts, setAvailableDiscounts] = useState<string[]>([]);
+  const [availableDiscounts, setAvailableDiscounts] = useState<DiscountCoupon[]>([]);
   const [isStaffOrder, setIsStaffOrder] = useState(orderType === 'staff');
   const [serverSubtotal, setServerSubtotal] = useState(routeSubtotal ?? 0);
   const [serverTaxTotal, setServerTaxTotal] = useState(routeTaxTotal ?? 0);
   const [hydrating, setHydrating] = useState(Boolean(resolvedOrderId));
   const [hydrateError, setHydrateError] = useState('');
+
+  const [giftCardDetails, setGiftCardDetails] = useState<GiftCardDetails | null>(null);
+  const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
+  const [isVerifyingGiftCard, setIsVerifyingGiftCard] = useState(false);
+  const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
 
   const navigateToReceipt = useCallback(
     (
@@ -203,6 +186,9 @@ export function PaymentScreen({navigation, route}: Props) {
 
           setServerSubtotal(order.subTotal);
           setServerTaxTotal(order.taxTotal);
+          if (order.partyName || order.guestName) {
+            setPartyName(order.partyName || order.guestName || '');
+          }
           setIsStaffOrder(order.source === 'STAFF');
           if (order.source === 'STAFF' && order.staffFor) {
             const emp = employees.find((e) => e.id === String(order.staffFor));
@@ -232,7 +218,7 @@ export function PaymentScreen({navigation, route}: Props) {
               productCode: '',
               category: 'ITEMS',
               price: item.price,
-              tax: 0,
+              tax: (item as unknown as {tax?: number}).tax ?? 0,
               serviceCharge: 0,
               qty: item.qty,
               size: item.size,
@@ -257,6 +243,9 @@ export function PaymentScreen({navigation, route}: Props) {
             });
             setServerSubtotal(match.subTotal ?? 0);
             setServerTaxTotal(match.taxTotal ?? 0);
+            if (match.partyName || match.guestName) {
+              setPartyName(match.partyName || match.guestName || '');
+            }
           }
         }
       } catch {
@@ -288,7 +277,12 @@ export function PaymentScreen({navigation, route}: Props) {
       if (isPaymentApiConfigured()) {
         const discounts = await fetchAvailableDiscounts();
         if (!cancelled) {
-          setAvailableDiscounts(discounts.map((d) => d.code));
+          setAvailableDiscounts(discounts);
+        }
+      } else {
+        const discounts = await fetchAvailableDiscounts();
+        if (!cancelled) {
+          setAvailableDiscounts(discounts);
         }
       }
     };
@@ -376,6 +370,26 @@ export function PaymentScreen({navigation, route}: Props) {
     ? Math.max(0, parsedCashAmount)
     : effectiveCashDue;
 
+  const cashSplitAmount =
+    paymentMethod === 'Card' &&
+    effectiveCardDue > 0 &&
+    cardPayAmount < effectiveCardDue
+      ? roundMoney(effectiveCardDue - Math.min(cardPayAmount, effectiveCardDue))
+      : 0;
+
+  const cardSplitFromCash =
+    paymentMethod === 'Cash' &&
+    effectiveCashDue > 0 &&
+    Number.isFinite(parsedCashAmount) &&
+    cashPayAmount < effectiveCashDue
+      ? roundMoney(effectiveCashDue - Math.min(cashPayAmount, effectiveCashDue))
+      : 0;
+
+  const remainingAfterGift =
+    paymentMethod === 'GiftCard' && giftCardBalance !== null
+      ? roundMoney(Math.max(0, totals.totalDue))
+      : totals.totalDue;
+
   const cardOverpay =
     paymentMethod === 'Card' &&
     Number.isFinite(parsedCardAmount) &&
@@ -400,22 +414,44 @@ export function PaymentScreen({navigation, route}: Props) {
     if (paymentStatus === 'processing') {
       return true;
     }
+    if (includeServiceCharge && autoTip > 0) {
+      return true;
+    }
     if (paymentMethod === 'GiftCard' && totals.totalDue > 0) {
       return giftUsedPreview < totals.totalDue;
     }
-    if (paymentMethod === 'Card' && cardPayAmount > 0 && !selectedCardType) {
+    if (paymentMethod === 'Card' && cashSplitAmount > 0) {
+      return true;
+    }
+    if (paymentMethod === 'Cash' && cardSplitFromCash > 0) {
+      return true;
+    }
+    const currentCardContribution =
+      paymentMethod === 'Card'
+        ? Number.isFinite(parsedCardAmount)
+          ? Math.min(cardPayAmount, effectiveCardDue)
+          : effectiveCardDue
+        : lockedCardAmount;
+    if (currentCardContribution > 0 && !selectedCardType) {
       return true;
     }
     return false;
   }, [
+    hydrating,
+    hydrateError,
     paymentStatus,
+    includeServiceCharge,
+    autoTip,
     paymentMethod,
     totals.totalDue,
     giftUsedPreview,
+    cashSplitAmount,
+    cardSplitFromCash,
+    parsedCardAmount,
     cardPayAmount,
+    effectiveCardDue,
+    lockedCardAmount,
     selectedCardType,
-    hydrating,
-    hydrateError,
   ]);
 
   const handleSelectMethod = (method: PaymentMethodKey) => {
@@ -426,37 +462,222 @@ export function PaymentScreen({navigation, route}: Props) {
     setStatusMessage('');
   };
 
-  const handleVerifyGiftCard = async () => {
-    setGiftCardError('');
-    const details = await verifyGiftCard(giftCardCode);
-    if (!details) {
-      setGiftCardError('Gift card not found or cannot be used.');
-      setGiftCardBalance(null);
-      return;
+  const handleSwitchForRemainder = (
+    method: PaymentMethodKey,
+    locks?: {lockCard?: number; lockCash?: number},
+  ) => {
+    if (locks?.lockCard != null) {
+      setLockedCardAmount(roundMoney(Math.max(0, locks.lockCard)));
     }
-    setGiftCardBalance(details.balance);
-    setGiftCardUseAmount(String(Math.min(details.balance, totals.totalDue)));
+    if (locks?.lockCash != null) {
+      setLockedCashAmount(roundMoney(Math.max(0, locks.lockCash)));
+    }
+    setPaymentMethod(method);
   };
 
-  const handleApplyDiscount = async () => {
+  const handleVerifyGiftCard = async () => {
+    if (!giftCardCode.trim()) {
+      return;
+    }
+    setIsVerifyingGiftCard(true);
+    setGiftCardError('');
+    try {
+      const details = await verifyGiftCard(giftCardCode);
+      if (!details) {
+        setGiftCardError('Gift card not found or cannot be used.');
+        setGiftCardBalance(null);
+        setGiftCardDetails(null);
+        return;
+      }
+      if (details.balance <= 0) {
+        setGiftCardError('Gift card balance is exhausted ($0.00).');
+        setGiftCardBalance(null);
+        setGiftCardDetails(null);
+        return;
+      }
+      setGiftCardDetails(details);
+      setIsGiftCardModalOpen(true);
+    } finally {
+      setIsVerifyingGiftCard(false);
+    }
+  };
+
+  const handleApplyGiftCardDetails = (details: GiftCardDetails) => {
+    setGiftCardBalance(details.balance);
+    const maxApplicable = roundMoney(
+      Math.min(details.balance, totals.totalDue),
+    );
+    setGiftCardUseAmount(String(maxApplicable));
+    setIsGiftCardModalOpen(false);
+  };
+
+  const handleRemoveGiftCard = () => {
+    setGiftCardBalance(null);
+    setGiftCardDetails(null);
+    setGiftCardCode('');
+    setGiftCardError('');
+    setGiftCardUseAmount('');
+  };
+
+  const handleApplyDiscount = async (codeToApply?: string) => {
+    const targetCode = (codeToApply ?? discountCode).trim().toUpperCase();
+    if (!targetCode) {
+      return;
+    }
     if (isStaffOrder) {
       Alert.alert('Staff order', 'Staff discount is applied automatically at payment.');
       return;
     }
-    const discount = await applyDiscountCode(discountCode);
+    const discount = await applyDiscountCode(targetCode);
     if (!discount) {
       Alert.alert('Invalid code', 'Discount code not found.');
       return;
     }
+
+    const nextTotals = calculatePaymentTotals({
+      items,
+      subTotal: baseSubtotal,
+      taxTotal: baseTaxTotal,
+      appliedDiscount: discount,
+      includeServiceCharge,
+      giftCardUsedAmount: giftUsedPreview,
+      serviceTax,
+    });
+
+    const oldCardDue = effectiveCardDue;
+    const newCardDue = roundMoney(
+      Math.max(0, nextTotals.totalDue - lockedCashAmount),
+    );
+    const oldCashDue = effectiveCashDue;
+    const newCashDue = roundMoney(
+      Math.max(0, nextTotals.totalDue - lockedCardAmount),
+    );
+    const discountDiff = roundMoney(totals.totalDue - nextTotals.totalDue);
+
+    if (cardAmountTendered !== '') {
+      const parsed = parseFloat(cardAmountTendered);
+      if (Number.isFinite(parsed)) {
+        if (Math.abs(parsed - oldCardDue) < 0.01 || parsed >= oldCardDue || parsed > newCardDue) {
+          setCardAmountTendered(newCardDue.toFixed(2));
+        } else {
+          const updated = roundMoney(Math.max(0, parsed - discountDiff));
+          setCardAmountTendered(Math.min(newCardDue, updated).toFixed(2));
+        }
+      }
+    }
+
+    if (cashAmountTendered !== '') {
+      const parsed = parseFloat(cashAmountTendered);
+      if (Number.isFinite(parsed)) {
+        if (Math.abs(parsed - oldCashDue) < 0.01 || parsed >= oldCashDue || parsed > newCashDue) {
+          setCashAmountTendered(newCashDue.toFixed(2));
+        } else {
+          const updated = roundMoney(Math.max(0, parsed - discountDiff));
+          setCashAmountTendered(Math.min(newCashDue, updated).toFixed(2));
+        }
+      }
+    }
+
+    if (giftCardBalance !== null && giftCardUseAmount !== '') {
+      const parsedGift = parseFloat(giftCardUseAmount);
+      const maxApplicable = roundMoney(
+        Math.min(giftCardBalance, nextTotals.totalDue),
+      );
+      if (Number.isFinite(parsedGift) && parsedGift > maxApplicable) {
+        setGiftCardUseAmount(String(maxApplicable));
+      }
+    }
+
     setAppliedDiscount(discount);
+    setDiscountCode(targetCode);
   };
 
   const handleRemoveDiscount = () => {
+    const nextTotals = calculatePaymentTotals({
+      items,
+      subTotal: baseSubtotal,
+      taxTotal: baseTaxTotal,
+      appliedDiscount: null,
+      includeServiceCharge,
+      giftCardUsedAmount: giftUsedPreview,
+      serviceTax,
+    });
+
+    const oldCardDue = effectiveCardDue;
+    const newCardDue = roundMoney(
+      Math.max(0, nextTotals.totalDue - lockedCashAmount),
+    );
+    const oldCashDue = effectiveCashDue;
+    const newCashDue = roundMoney(
+      Math.max(0, nextTotals.totalDue - lockedCardAmount),
+    );
+
+    if (cardAmountTendered !== '') {
+      const parsed = parseFloat(cardAmountTendered);
+      if (Number.isFinite(parsed) && Math.abs(parsed - oldCardDue) < 0.01) {
+        setCardAmountTendered(newCardDue.toFixed(2));
+      }
+    }
+
+    if (cashAmountTendered !== '') {
+      const parsed = parseFloat(cashAmountTendered);
+      if (Number.isFinite(parsed) && Math.abs(parsed - oldCashDue) < 0.01) {
+        setCashAmountTendered(newCashDue.toFixed(2));
+      }
+    }
+
     setAppliedDiscount(null);
     setDiscountCode('');
   };
 
+  const handleToggleServiceCharge = () => {
+    const nextInclude = !includeServiceCharge;
+    const nextTotals = calculatePaymentTotals({
+      items,
+      subTotal: baseSubtotal,
+      taxTotal: baseTaxTotal,
+      appliedDiscount,
+      includeServiceCharge: nextInclude,
+      giftCardUsedAmount: giftUsedPreview,
+      serviceTax,
+    });
+
+    const oldCardDue = effectiveCardDue;
+    const newCardDue = roundMoney(
+      Math.max(0, nextTotals.totalDue - lockedCashAmount),
+    );
+    const oldCashDue = effectiveCashDue;
+    const newCashDue = roundMoney(
+      Math.max(0, nextTotals.totalDue - lockedCardAmount),
+    );
+
+    if (cardAmountTendered !== '') {
+      const parsed = parseFloat(cardAmountTendered);
+      if (Number.isFinite(parsed) && Math.abs(parsed - oldCardDue) < 0.01) {
+        setCardAmountTendered(newCardDue.toFixed(2));
+      }
+    }
+
+    if (cashAmountTendered !== '') {
+      const parsed = parseFloat(cashAmountTendered);
+      if (Number.isFinite(parsed) && Math.abs(parsed - oldCashDue) < 0.01) {
+        setCashAmountTendered(newCashDue.toFixed(2));
+      }
+    }
+
+    setIncludeServiceCharge(nextInclude);
+  };
+
   const handleCompletePayment = useCallback(async () => {
+    if (includeServiceCharge && autoTip > 0) {
+      const exactDue =
+        paymentMethod === 'Cash' ? effectiveCashDue : effectiveCardDue;
+      toast.error(
+        `${SERVICE_CHARGE_NO_TIP_MESSAGE} Please enter the exact amount (${formatCurrency(exactDue)}).`,
+      );
+      return;
+    }
+
     if (completeDisabled) {
       return;
     }
@@ -464,21 +685,71 @@ export function PaymentScreen({navigation, route}: Props) {
     setPaymentStatus('processing');
     setStatusMessage('Processing payment...');
 
-    const hasGift = giftUsedPreview > 0;
-    const hasCard =
-      paymentMethod === 'Card' ||
-      (lockedCardAmount > 0 || cardPayAmount > 0);
-    const hasCash =
-      paymentMethod === 'Cash' ||
-      (lockedCashAmount > 0 || cashPayAmount > 0);
+    let resolvedCashAmount = lockedCashAmount;
+    let resolvedCardAmount = lockedCardAmount;
+    const parts: string[] = [];
 
-    const paymentMethodLabel = buildPaymentMethodLabel(
-      paymentMethod,
-      selectedCardType,
-      hasGift,
-      hasCash && paymentMethod === 'Cash' || cashPayAmount > 0,
-      hasCard && (paymentMethod === 'Card' || cardPayAmount > 0),
-    );
+    const giftUsedAmount = giftUsedPreview;
+    if (giftUsedAmount > 0) {
+      parts.push('Gift Card');
+    }
+
+    if (paymentMethod === 'Card') {
+      const cardPortion = Number.isFinite(parsedCardAmount)
+        ? roundMoney(Math.min(cardPayAmount, effectiveCardDue))
+        : roundMoney(effectiveCardDue);
+      resolvedCardAmount = roundMoney(lockedCardAmount + cardPortion);
+      if (resolvedCardAmount > 0) {
+        parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
+      }
+      if (lockedCashAmount > 0) {
+        parts.push('Cash');
+      }
+      if (autoTip > 0 && resolvedCardAmount > 0) {
+        resolvedCardAmount = roundMoney(resolvedCardAmount + autoTip);
+      } else if (autoTip > 0 && lockedCashAmount > 0) {
+        resolvedCashAmount = roundMoney(lockedCashAmount + autoTip);
+      }
+    } else if (paymentMethod === 'Cash') {
+      const cashPortion = Number.isFinite(parsedCashAmount)
+        ? roundMoney(Math.min(cashPayAmount, effectiveCashDue))
+        : roundMoney(effectiveCashDue);
+      resolvedCashAmount = roundMoney(lockedCashAmount + cashPortion);
+      if (resolvedCashAmount > 0 || giftUsedAmount <= 0) {
+        parts.push('Cash');
+      }
+      if (lockedCardAmount > 0) {
+        parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
+      }
+      if (autoTip > 0) {
+        resolvedCashAmount = roundMoney(resolvedCashAmount + autoTip);
+      }
+    } else if (paymentMethod === 'GiftCard') {
+      if (lockedCardAmount > 0) {
+        parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
+      }
+      if (lockedCashAmount > 0) {
+        parts.push('Cash');
+      }
+      if (remainingAfterGift > 0) {
+        resolvedCashAmount = roundMoney(lockedCashAmount + remainingAfterGift + autoTip);
+        if (!parts.includes('Cash')) {
+          parts.push('Cash');
+        }
+      } else if (autoTip > 0) {
+        if (lockedCashAmount > 0) {
+          resolvedCashAmount = roundMoney(lockedCashAmount + autoTip);
+        } else if (lockedCardAmount > 0) {
+          resolvedCardAmount = roundMoney(lockedCardAmount + autoTip);
+        } else {
+          resolvedCashAmount = autoTip;
+          parts.push('Cash');
+        }
+      }
+    }
+
+    const resolvedPaymentMethod =
+      parts.length > 0 ? parts.join(' + ') : paymentMethod;
 
     const serverAmount = roundMoney(
       totals.subTotal -
@@ -487,30 +758,44 @@ export function PaymentScreen({navigation, route}: Props) {
         totals.serviceChargeTotal,
     );
 
-    const payload = {
+    const payableTotalWithTip = roundMoney(serverAmount + autoTip);
+    if (resolvedCardAmount > 0) {
+      const maxCard = roundMoney(
+        Math.max(
+          0,
+          payableTotalWithTip - resolvedCashAmount - giftUsedAmount,
+        ),
+      );
+      resolvedCardAmount = Math.min(resolvedCardAmount, maxCard);
+    }
+
+    const finalTip = includeServiceCharge ? 0 : autoTip;
+    const finalTipMethod = finalTip > 0 ? (tipMethod ?? null) : null;
+
+    const payload: PaymentRequestPayload = {
       orderId: resolvedOrderId,
       amount: serverAmount,
-      method: paymentMethodLabel,
+      method: resolvedPaymentMethod,
       sessionId,
-      tipAmount: autoTip,
-      tipMethod: tipMethod ?? null,
+      tipAmount: finalTip,
+      tipMethod: finalTipMethod,
       discountTotal: totals.discountTotal,
       discountCode: appliedDiscount?.code ?? null,
-      guestName: partyName,
-      partyName,
-      guestCount: guestCount ?? null,
-      cashAmount:
-        paymentMethod === 'Cash' || cashPayAmount > 0
-          ? cashPayAmount + lockedCashAmount
-          : 0,
-      cardAmount:
-        paymentMethod === 'Card' || cardPayAmount > 0
-          ? cardPayAmount + lockedCardAmount
-          : 0,
+      discountPercent:
+        appliedDiscount?.type === 'percent'
+          ? appliedDiscount.value
+          : totals.subTotal > 0 && totals.discountTotal > 0
+            ? Math.round((totals.discountTotal / totals.subTotal) * 1000) / 10
+            : null,
+      guestName: partyName.trim() || undefined,
+      partyName: partyName.trim() || undefined,
+      guestCount: guestCount != null ? Number(guestCount) : null,
+      cashAmount: resolvedCashAmount,
+      cardAmount: resolvedCardAmount,
       applyServiceCharge: includeServiceCharge,
       serviceChargeTotal: totals.serviceChargeTotal,
       serviceChargeName: totals.serviceChargeName ?? null,
-      cardType: selectedCardType || undefined,
+      cardType: resolvedCardAmount > 0 ? selectedCardType || undefined : undefined,
       giftCardCode:
         giftUsedPreview > 0 ? giftCardCode.trim().toUpperCase() : undefined,
       giftCardUsedAmount: giftUsedPreview > 0 ? giftUsedPreview : undefined,
@@ -562,6 +847,8 @@ export function PaymentScreen({navigation, route}: Props) {
     cardPayAmount,
     cashPayAmount,
     completeDisabled,
+    effectiveCardDue,
+    effectiveCashDue,
     giftCardCode,
     giftUsedPreview,
     guestCount,
@@ -571,8 +858,11 @@ export function PaymentScreen({navigation, route}: Props) {
     lockedCashAmount,
     navigateToReceipt,
     orderType,
+    parsedCardAmount,
+    parsedCashAmount,
     partyName,
     paymentMethod,
+    remainingAfterGift,
     resolvedOrderId,
     selectedCardType,
     sessionId,
@@ -604,22 +894,75 @@ export function PaymentScreen({navigation, route}: Props) {
             selected={selectedCardType}
             onSelect={setSelectedCardType}
           />
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>CARD AMOUNT</Text>
-            <TextInput
-              style={styles.input}
-              value={cardAmountTendered}
-              onChangeText={setCardAmountTendered}
-              placeholder={formatCurrency(effectiveCardDue)}
-              keyboardType="decimal-pad"
-              accessibilityLabel="Card amount"
-            />
-            {autoTip > 0 && paymentMethod === 'Card' ? (
-              <Text style={styles.tipNote}>
-                Overpay treated as tip: {formatCurrency(autoTip)}
+          {selectedCardType ? (
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>CARD AMOUNT</Text>
+              <View style={styles.inputWithExactRow}>
+                <TextInput
+                  style={[styles.input, styles.inputFlex]}
+                  value={cardAmountTendered}
+                  onChangeText={setCardAmountTendered}
+                  placeholder={formatCurrency(effectiveCardDue)}
+                  keyboardType="decimal-pad"
+                  accessibilityLabel="Card amount"
+                />
+                <Pressable
+                  style={styles.exactButton}
+                  onPress={() => {
+                    setCardAmountTendered(effectiveCardDue.toFixed(2));
+                    setCashAmountTendered('');
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Set exact card amount">
+                  <Text style={styles.exactButtonText}>Exact</Text>
+                </Pressable>
+              </View>
+              <Text style={styles.fieldHelper}>
+                Enter less than the card due to pay the rest with another method.
               </Text>
-            ) : null}
-          </View>
+              {cardOverpay > 0 && paymentMethod === 'Card' ? (
+                includeServiceCharge ? (
+                  <View style={styles.serviceChargeErrorBox}>
+                    <Text style={styles.serviceChargeErrorText}>
+                      {SERVICE_CHARGE_NO_TIP_MESSAGE} Please enter the exact amount ({formatCurrency(effectiveCardDue)}) to complete payment.
+                    </Text>
+                    <Pressable
+                      style={styles.setExactButton}
+                      onPress={() => {
+                        setCardAmountTendered(effectiveCardDue.toFixed(2));
+                        setCashAmountTendered('');
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Set exact card amount">
+                      <Text style={styles.setExactButtonText}>
+                        Set Exact ({formatCurrency(effectiveCardDue)})
+                      </Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={styles.tipNote}>
+                    Overpay treated as tip: {formatCurrency(cardOverpay)}
+                  </Text>
+                )
+              ) : null}
+            </View>
+          ) : null}
+
+          {selectedCardType && cashSplitAmount > 0 ? (
+            <PayRemainingActions
+              remaining={cashSplitAmount}
+              currentMethod="Card"
+              onSwitch={(nextMethod) => {
+                const cardPortion = roundMoney(
+                  Math.min(cardPayAmount, effectiveCardDue),
+                );
+                if (nextMethod === 'Cash') {
+                  setCashAmountTendered(cashSplitAmount.toFixed(2));
+                }
+                handleSwitchForRemainder(nextMethod, {lockCard: cardPortion});
+              }}
+            />
+          ) : null}
         </View>
       ) : null}
 
@@ -628,20 +971,70 @@ export function PaymentScreen({navigation, route}: Props) {
           <Text style={styles.methodHeading}>CASH PAYMENT</Text>
           <View style={styles.field}>
             <Text style={styles.fieldLabel}>CASH RECEIVED</Text>
-            <TextInput
-              style={styles.input}
-              value={cashAmountTendered}
-              onChangeText={setCashAmountTendered}
-              placeholder={formatCurrency(effectiveCashDue)}
-              keyboardType="decimal-pad"
-              accessibilityLabel="Cash amount"
-            />
-            {autoTip > 0 && paymentMethod === 'Cash' ? (
-              <Text style={styles.tipNote}>
-                Overpay treated as tip: {formatCurrency(autoTip)}
-              </Text>
+            <View style={styles.inputWithExactRow}>
+              <TextInput
+                style={[styles.input, styles.inputFlex]}
+                value={cashAmountTendered}
+                onChangeText={setCashAmountTendered}
+                placeholder={formatCurrency(effectiveCashDue)}
+                keyboardType="decimal-pad"
+                accessibilityLabel="Cash amount"
+              />
+              <Pressable
+                style={styles.exactButton}
+                onPress={() => {
+                  setCashAmountTendered(effectiveCashDue.toFixed(2));
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Set exact cash amount">
+                <Text style={styles.exactButtonText}>Exact</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.fieldHelper}>
+              Enter less than the due amount to pay the rest with another method.
+            </Text>
+            {cashOverpay > 0 && paymentMethod === 'Cash' ? (
+              includeServiceCharge ? (
+                <View style={styles.serviceChargeErrorBox}>
+                  <Text style={styles.serviceChargeErrorText}>
+                    {SERVICE_CHARGE_NO_TIP_MESSAGE} Please enter the exact amount ({formatCurrency(effectiveCashDue)}) to complete payment.
+                  </Text>
+                  <Pressable
+                    style={styles.setExactButton}
+                    onPress={() => {
+                      setCashAmountTendered(effectiveCashDue.toFixed(2));
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Set exact cash amount">
+                    <Text style={styles.setExactButtonText}>
+                      Set Exact ({formatCurrency(effectiveCashDue)})
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : (
+                <Text style={styles.tipNote}>
+                  Overpay treated as tip: {formatCurrency(cashOverpay)}
+                </Text>
+              )
             ) : null}
           </View>
+
+          {cardSplitFromCash > 0 ? (
+            <PayRemainingActions
+              remaining={cardSplitFromCash}
+              currentMethod="Cash"
+              onSwitch={(nextMethod) => {
+                const cashPortion = roundMoney(
+                  Math.min(cashPayAmount, effectiveCashDue),
+                );
+                if (nextMethod === 'Card') {
+                  setCardAmountTendered(cardSplitFromCash.toFixed(2));
+                  setSelectedCardType('');
+                }
+                handleSwitchForRemainder(nextMethod, {lockCash: cashPortion});
+              }}
+            />
+          ) : null}
         </View>
       ) : null}
 
@@ -662,95 +1055,74 @@ export function PaymentScreen({navigation, route}: Props) {
               <Pressable
                 style={styles.verifyButton}
                 onPress={handleVerifyGiftCard}
+                disabled={isVerifyingGiftCard}
                 accessibilityRole="button"
                 accessibilityLabel="Verify gift card">
-                <Text style={styles.verifyText}>Verify</Text>
+                {isVerifyingGiftCard ? (
+                  <ActivityIndicator size="small" color={colors.surface} />
+                ) : (
+                  <Text style={styles.verifyText}>Verify</Text>
+                )}
               </Pressable>
             </View>
             {giftCardError ? (
               <Text style={styles.errorText}>{giftCardError}</Text>
             ) : null}
             {giftCardBalance !== null ? (
-              <Text style={styles.balanceText}>
-                Balance: {formatCurrency(giftCardBalance)}
-              </Text>
+              <View style={styles.giftCardBadgeRow}>
+                <Text style={styles.balanceText}>
+                  Balance: {formatCurrency(giftCardBalance)}
+                </Text>
+                <Pressable onPress={handleRemoveGiftCard}>
+                  <Text style={styles.removeTextSmall}>Remove</Text>
+                </Pressable>
+              </View>
             ) : null}
           </View>
+
           {giftCardBalance !== null ? (
             <View style={styles.field}>
               <Text style={styles.fieldLabel}>AMOUNT TO APPLY</Text>
-              <TextInput
-                style={styles.input}
-                value={giftCardUseAmount}
-                onChangeText={setGiftCardUseAmount}
-                keyboardType="decimal-pad"
-                accessibilityLabel="Gift card amount"
-              />
+              <View style={styles.inputWithExactRow}>
+                <TextInput
+                  style={[styles.input, styles.inputFlex]}
+                  value={giftCardUseAmount}
+                  onChangeText={setGiftCardUseAmount}
+                  keyboardType="decimal-pad"
+                  accessibilityLabel="Gift card amount"
+                />
+                <Pressable
+                  style={styles.exactButton}
+                  onPress={() => {
+                    const maxApplicable = roundMoney(
+                      Math.min(giftCardBalance, totals.totalDue),
+                    );
+                    setGiftCardUseAmount(String(maxApplicable));
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Use exact gift card amount">
+                  <Text style={styles.exactButtonText}>Exact</Text>
+                </Pressable>
+              </View>
             </View>
           ) : null}
+
+          {remainingAfterGift > 0 && giftCardBalance !== null ? (
+            <PayRemainingActions
+              remaining={remainingAfterGift}
+              currentMethod="GiftCard"
+              onSwitch={(nextMethod) => {
+                if (nextMethod === 'Card') {
+                  setCardAmountTendered(remainingAfterGift.toFixed(2));
+                  setSelectedCardType('');
+                } else if (nextMethod === 'Cash') {
+                  setCashAmountTendered(remainingAfterGift.toFixed(2));
+                }
+                setPaymentMethod(nextMethod);
+              }}
+            />
+          ) : null}
         </View>
-      ) : null}
-
-      <View style={styles.discountSection}>
-        <Text style={styles.methodHeading}>DISCOUNT</Text>
-        {appliedDiscount ? (
-          <View style={styles.appliedDiscount}>
-            <Text style={styles.appliedDiscountText}>
-              Applied: {appliedDiscount.code}
-            </Text>
-            <Pressable onPress={handleRemoveDiscount}>
-              <Text style={styles.removeText}>Remove</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <>
-            <View style={styles.giftRow}>
-              <TextInput
-                style={[styles.input, styles.giftInput]}
-                value={discountCode}
-                onChangeText={setDiscountCode}
-                placeholder="Discount code"
-                autoCapitalize="characters"
-                accessibilityLabel="Discount code"
-              />
-              <Pressable
-                style={styles.verifyButton}
-                onPress={handleApplyDiscount}
-                accessibilityRole="button"
-                accessibilityLabel="Apply discount">
-                <Text style={styles.verifyText}>Apply</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.hintText}>
-              {isPaymentApiConfigured() && availableDiscounts.length > 0
-                ? `Available: ${availableDiscounts.slice(0, 5).join(', ')}`
-                : !isPaymentApiConfigured()
-                  ? 'Offline discount codes available in dev mode.'
-                  : ''}
-            </Text>
-          </>
-        )}
-      </View>
-
-      {serviceTax ? (
-        <Pressable
-          style={styles.serviceChargeRow}
-          onPress={() => setIncludeServiceCharge((prev) => !prev)}
-          accessibilityRole="checkbox"
-          accessibilityState={{checked: includeServiceCharge}}>
-          <View
-            style={[
-              styles.checkbox,
-              includeServiceCharge && styles.checkboxChecked,
-            ]}>
-            {includeServiceCharge ? (
-              <Text style={styles.checkboxMark}>✓</Text>
-            ) : null}
-          </View>
-          <Text style={styles.serviceChargeText}>
-            Add {serviceTax.name} ({formatServiceTaxRate(serviceTax)})
-          </Text>
-        </Pressable>
       ) : null}
 
       {statusMessage ? (
@@ -801,15 +1173,37 @@ export function PaymentScreen({navigation, route}: Props) {
             floorName={floorName}
             guestCount={guestCount}
             partyName={partyName}
+            onChangePartyName={setPartyName}
             items={items}
             subtotal={totals.subTotal}
             taxTotal={totals.taxTotal}
             discountTotal={totals.discountTotal}
+            discountLabel={
+              appliedDiscount?.type === 'percent'
+                ? `Discount (${appliedDiscount.value}%)`
+                : totals.subTotal > 0 && totals.discountTotal > 0
+                  ? `Discount (${Math.round((totals.discountTotal / totals.subTotal) * 1000) / 10}%)`
+                  : 'Discount'
+            }
             serviceChargeTotal={totals.serviceChargeTotal}
             serviceChargeName={totals.serviceChargeName}
+            includeServiceCharge={includeServiceCharge}
+            onToggleServiceCharge={handleToggleServiceCharge}
+            serviceTax={serviceTax}
             giftCardUsed={giftUsedPreview}
             totalDue={totals.totalDue}
-            tipAmount={autoTip}
+            tipAmount={includeServiceCharge ? 0 : autoTip}
+            lockedCardAmount={lockedCardAmount}
+            lockedCashAmount={lockedCashAmount}
+            selectedCardType={selectedCardType || undefined}
+            availableDiscounts={availableDiscounts}
+            appliedDiscount={appliedDiscount}
+            discountCode={discountCode}
+            onChangeDiscountCode={(val) => setDiscountCode(val.toUpperCase())}
+            onApplyDiscount={handleApplyDiscount}
+            onRemoveDiscount={handleRemoveDiscount}
+            onOpenDiscountSelector={() => setIsDiscountModalOpen(true)}
+            isStaffOrder={isStaffOrder}
           />
         </View>
 
@@ -847,6 +1241,20 @@ export function PaymentScreen({navigation, route}: Props) {
           )}
         </Pressable>
       </View>
+
+      <GiftCardDetailsModal
+        visible={isGiftCardModalOpen}
+        details={giftCardDetails}
+        onClose={() => setIsGiftCardModalOpen(false)}
+        onApply={handleApplyGiftCardDetails}
+      />
+
+      <DiscountSelectorModal
+        visible={isDiscountModalOpen}
+        discounts={availableDiscounts}
+        onClose={() => setIsDiscountModalOpen(false)}
+        onSelect={(code) => handleApplyDiscount(code)}
+      />
     </SafeAreaView>
   );
 }
@@ -969,10 +1377,63 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.surface,
   },
+  inputWithExactRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  inputFlex: {
+    flex: 1,
+  },
+  exactButton: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    backgroundColor: '#18181B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exactButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  fieldHelper: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
   tipNote: {
     fontSize: 12,
     fontWeight: '600',
     color: colors.warning,
+  },
+  serviceChargeErrorBox: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 6,
+    gap: 8,
+  },
+  serviceChargeErrorText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.error,
+    lineHeight: 18,
+  },
+  setExactButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.error,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+  },
+  setExactButtonText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   giftRow: {
     flexDirection: 'row',
@@ -980,6 +1441,22 @@ const styles = StyleSheet.create({
   },
   giftInput: {
     flex: 1,
+  },
+  giftCardBadgeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  removeTextSmall: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.error,
   },
   verifyButton: {
     minHeight: 48,
@@ -1008,23 +1485,60 @@ const styles = StyleSheet.create({
   discountSection: {
     gap: 8,
   },
+  discountHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  selectDiscountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FFEDD5',
+  },
+  selectDiscountBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.primary,
+  },
   appliedDiscount: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
     borderRadius: 10,
-    backgroundColor: colors.cream,
+    backgroundColor: '#F0FDF4',
     borderWidth: 1,
-    borderColor: colors.primaryLight,
+    borderColor: '#BBF7D0',
   },
-  appliedDiscountText: {
+  appliedDiscountInfo: {
+    gap: 2,
+  },
+  appliedDiscountCode: {
     fontSize: 14,
+    fontWeight: '800',
+    color: '#166534',
+  },
+  appliedDiscountSavings: {
+    fontSize: 12,
     fontWeight: '700',
-    color: colors.text,
+    color: '#15803D',
+  },
+  removeDiscountButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   removeText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.error,
   },

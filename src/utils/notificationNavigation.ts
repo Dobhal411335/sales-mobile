@@ -2,7 +2,7 @@ import type {Notification} from '../types/notification';
 import type {NotificationNavigator} from '../components/notifications/NotificationBell';
 
 export type NotificationTarget =
-  | {screen: 'OrderDetails'; params: {sessionId: string}}
+  | {screen: 'CreateOrder'; params: {sessionId: string}}
   | {screen: 'PrintJobs'; params: {jobId: string}}
   | {screen: 'Floor'}
   | null;
@@ -18,7 +18,7 @@ export function getNotificationTarget(
   }
   if (notification.tableSessionId) {
     return {
-      screen: 'OrderDetails',
+      screen: 'CreateOrder',
       params: {sessionId: notification.tableSessionId},
     };
   }

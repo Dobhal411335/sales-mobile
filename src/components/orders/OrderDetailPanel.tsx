@@ -231,29 +231,35 @@ export function OrderDetailPanel({
       </ScrollView>
 
       <View style={styles.actions}>
-        {showPayNow ? (
-          <Pressable
-            style={({pressed}) => [
-              styles.payButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={onPayNow}
-            accessibilityRole="button"
-            accessibilityLabel="Pay Now">
-            <Text style={styles.payButtonText}>Pay Now</Text>
-          </Pressable>
-        ) : null}
-        {showWaive ? (
-          <Pressable
-            style={({pressed}) => [
-              styles.waiveButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={onWaiveOff}
-            accessibilityRole="button"
-            accessibilityLabel="Waive Off">
-            <Text style={styles.waiveButtonText}>Waive Off</Text>
-          </Pressable>
+        {showPayNow || showWaive ? (
+          <View style={styles.actionsRow}>
+            {showPayNow ? (
+              <Pressable
+                style={({pressed}) => [
+                  styles.payButton,
+                  styles.actionButtonFlex,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={onPayNow}
+                accessibilityRole="button"
+                accessibilityLabel="Pay Now">
+                <Text style={styles.payButtonText}>Pay Now</Text>
+              </Pressable>
+            ) : null}
+            {showWaive ? (
+              <Pressable
+                style={({pressed}) => [
+                  styles.waiveButton,
+                  styles.actionButtonFlex,
+                  pressed && styles.buttonPressed,
+                ]}
+                onPress={onWaiveOff}
+                accessibilityRole="button"
+                accessibilityLabel="Waive Off">
+                <Text style={styles.waiveButtonText}>Waive Off</Text>
+              </Pressable>
+            ) : null}
+          </View>
         ) : null}
         <Pressable
           style={({pressed}) => [
@@ -321,7 +327,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cream,
   },
   headerText: {
-    flex: 1,
+    gap: 2,
   },
   headerTop: {
     flexDirection: 'row',
@@ -556,15 +562,22 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: colors.surface,
   },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButtonFlex: {
+    flex: 1,
+  },
   payButton: {
-    minHeight: 52,
+    minHeight: 48,
     borderRadius: 12,
     backgroundColor: colors.error,
     alignItems: 'center',
     justifyContent: 'center',
   },
   payButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     color: colors.surface,
   },

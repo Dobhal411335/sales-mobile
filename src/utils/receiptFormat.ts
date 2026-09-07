@@ -1,5 +1,6 @@
 import type {CartLineItem, ChoiceSelection} from '../types/cart';
 import type {KotLineItem} from '../types/receipt';
+import {isOfferItem, getOfferDetailLines} from './offerDetails';
 
 export function formatReceiptDate(dateInput?: string): string {
   const date = dateInput ? new Date(dateInput) : new Date();
@@ -39,6 +40,18 @@ export function getReceiptModifierLines(
   item: KotLineItem | CartLineItem,
 ): Array<{kind: string; text: string}> {
   const lines: Array<{kind: string; text: string}> = [];
+
+  const style = String(item.preparationStyle || '').trim();
+  if (style) {
+    lines.push({kind: 'style', text: style});
+  }
+
+  if (isOfferItem(item)) {
+    for (const line of getOfferDetailLines(item)) {
+      lines.push({kind: 'offer', text: `${line.label}: ${line.value}`});
+    }
+    return lines;
+  }
 
   if (item.modifier) {
     lines.push({kind: 'modifier', text: item.modifier});

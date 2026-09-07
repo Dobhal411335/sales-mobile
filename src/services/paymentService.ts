@@ -24,6 +24,7 @@ import {
   computeDiscountAmount,
   computeServiceCharge,
   findMockDiscount,
+  MOCK_DISCOUNT_COUPONS,
   MOCK_SERVICE_TAX,
   verifyMockGiftCard,
 } from '../mocks/paymentMockData';
@@ -75,7 +76,6 @@ export function calculatePaymentTotals(
   input: PaymentCalculationInput,
 ): PaymentCalculationResult {
   const subTotal = roundMoney(input.subTotal);
-  const taxTotal = roundMoney(input.taxTotal);
 
   let discountTotal = 0;
   if (input.appliedDiscount) {
@@ -89,6 +89,25 @@ export function calculatePaymentTotals(
       );
     }
   }
+
+  const rawBaseTax =
+    Array.isArray(input.items) && input.items.length > 0
+      ? input.items.reduce(
+          (s, it) =>
+            s +
+            (Number(it.tax || 0) *
+              Number(it.qty ?? (it as unknown as {quantity?: number}).quantity ?? 1)),
+          0,
+        )
+      : input.taxTotal;
+  const effectiveBaseTax = rawBaseTax > 0 ? rawBaseTax : input.taxTotal;
+  const taxableRatio =
+    subTotal > 0 ? Math.max(0, subTotal - discountTotal) / subTotal : 1;
+  const taxTotal = roundMoney(
+    discountTotal > 0 && subTotal > 0
+      ? effectiveBaseTax * taxableRatio
+      : input.taxTotal,
+  );
 
   const effectiveServiceTax =
     input.serviceTax ?? (useLiveApi ? null : MOCK_SERVICE_TAX);
@@ -122,6 +141,12 @@ export function calculatePaymentTotals(
     ),
   );
 
+  const baseTaxableAmount = Math.max(0, subTotal - discountTotal);
+  const taxRate =
+    baseTaxableAmount > 0 && taxTotal > 0
+      ? Math.round((taxTotal / baseTaxableAmount) * 1000) / 10
+      : undefined;
+
   return {
     subTotal,
     taxTotal,
@@ -130,7 +155,7 @@ export function calculatePaymentTotals(
     serviceChargeName,
     giftCardUsed,
     totalDue,
-    taxBreakdown: [{name: 'Tax', amount: taxTotal}],
+    taxBreakdown: [{name: 'Tax', amount: taxTotal, rate: taxRate}],
   };
 }
 
@@ -149,13 +174,14 @@ function mapApiDiscountType(
 
 export async function fetchAvailableDiscounts(): Promise<DiscountCoupon[]> {
   if (!useLiveApi) {
-    return [];
+    return MOCK_DISCOUNT_COUPONS;
   }
 
   try {
     const response = await api.get<
       ApiEnvelope<
         Array<{
+          _id?: string;
           code: string;
           discountType: string;
           value: number;
@@ -168,6 +194,7 @@ export async function fetchAvailableDiscounts(): Promise<DiscountCoupon[]> {
     }
 
     return (response.data.data || []).map((row) => ({
+      _id: row._id,
       code: row.code,
       discountType:
         String(row.discountType).toLowerCase() === 'percent'
@@ -232,9 +259,26 @@ export async function verifyGiftCard(code: string): Promise<GiftCardDetails | nu
   try {
     const response = await api.get<
       ApiEnvelope<{
+        _id?: string;
         code: string;
+        name?: string;
+        value?: number;
         balance: number;
         status?: string;
+        isIssued?: boolean;
+        recipientName?: string;
+        recipientEmail?: string;
+        recipientPhone?: string;
+        issueDate?: string | null;
+        validFrom?: string | null;
+        validUntil?: string | null;
+        history?: Array<{
+          usedAt: string;
+          amountUsed: number;
+          balanceAfter: number;
+          orderNumber?: string | null;
+          note?: string | null;
+        }>;
       }>
     >(`/api/menu/giftcards?code=${encodeURIComponent(normalized)}`);
 
@@ -244,9 +288,20 @@ export async function verifyGiftCard(code: string): Promise<GiftCardDetails | nu
 
     const data = response.data.data;
     return {
+      _id: data._id,
       code: data.code,
-      balance: Number(data.balance) || 0,
+      name: data.name,
+      value: data.value,
+      balance: Number(data.balance ?? data.value ?? 0),
       status: data.status,
+      isIssued: data.isIssued,
+      recipientName: data.recipientName,
+      recipientEmail: data.recipientEmail,
+      recipientPhone: data.recipientPhone,
+      issueDate: data.issueDate,
+      validFrom: data.validFrom,
+      validUntil: data.validUntil,
+      history: data.history || [],
     };
   } catch {
     return null;
@@ -281,15 +336,23 @@ export async function fetchActiveServiceTax(): Promise<ServiceTaxConfig | null> 
 function mapTaxBreakdownFromApi(
   data: PaymentApiOrder,
 ): PaidOrderSnapshot['taxBreakdown'] {
-  const raw = (data as {taxBreakdown?: Array<{name?: string; amount?: number}>})
+  const raw = (data as {taxBreakdown?: Array<{name?: string; amount?: number; rate?: number}>})
     .taxBreakdown;
   if (!Array.isArray(raw) || raw.length === 0) {
     const taxTotal = Number(data.taxTotal) || 0;
-    return taxTotal > 0 ? [{name: 'Tax', amount: taxTotal}] : undefined;
+    const sub = Number(data.subTotal) || 0;
+    const disc = Number(data.discountTotal) || 0;
+    const base = Math.max(0, sub - disc);
+    const rate =
+      base > 0 && taxTotal > 0
+        ? Math.round((taxTotal / base) * 1000) / 10
+        : undefined;
+    return taxTotal > 0 ? [{name: 'Tax', amount: taxTotal, rate}] : undefined;
   }
   return raw.map((line) => ({
     name: String(line.name ?? 'Tax'),
     amount: roundMoney(Number(line.amount) || 0),
+    rate: line.rate != null ? Number(line.rate) : undefined,
   }));
 }
 
@@ -311,6 +374,10 @@ export function mapPaymentResponseToSnapshot(
     guestName: data.guestName,
     partyName: data.partyName,
     guestCount: data.guestCount,
+    serverName:
+      data.serverName ||
+      (data as {processedByName?: string}).processedByName ||
+      undefined,
     items: orderItems,
     subTotal: data.subTotal,
     taxTotal: data.taxTotal,

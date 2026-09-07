@@ -246,6 +246,25 @@ export async function submitOrder(
   }
 }
 
+function isBarCartItem(item: CartLineItem): boolean {
+  const pType = String(item.productType || '').toUpperCase();
+  if (pType === 'BAR') return true;
+  if (pType === 'KITCHEN') return false;
+  const cat = String(item.category || '').toUpperCase();
+  return [
+    'BAR',
+    'BEVERAGES',
+    'BEVERAGE',
+    'DRINKS',
+    'DRINK',
+    'COCKTAILS',
+    'WINE',
+    'BEER',
+    'LIQUOR',
+    'SPIRITS',
+  ].includes(cat);
+}
+
 let mockOrderSequence = 163;
 
 export async function submitOrderMock(
@@ -262,8 +281,7 @@ export async function submitOrderMock(
   const orderId = payload.orderId ?? `order-${Date.now()}`;
   const kotPayload = payload.items.map(cartLineToKotItem);
   const ticketType: TicketType =
-    payload.items.length > 0 &&
-    payload.items.every((item) => item.category?.toLowerCase().includes('bar'))
+    payload.items.length > 0 && payload.items.every(isBarCartItem)
       ? 'BAR_RECEIPT'
       : 'KOT';
 

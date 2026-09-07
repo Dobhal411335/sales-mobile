@@ -9,7 +9,6 @@ import {CreateOrderScreen} from '../screens/sales/create-order/CreateOrderScreen
 import {DayCloseScreen} from '../screens/sales/day-close/DayCloseScreen';
 import {FloorScreen} from '../screens/sales/floor/FloorScreen';
 import {NotificationsScreen} from '../screens/sales/notifications/NotificationsScreen';
-import {OrderDetailsScreen} from '../screens/sales/orders/OrderDetailsScreen';
 import {TodaySalesScreen} from '../screens/sales/today/TodaySales';
 import {PaymentScreen} from '../screens/sales/payment/PaymentScreen';
 import {ReceiptScreen} from '../screens/sales/payment/ReceiptScreen';
@@ -44,7 +43,6 @@ export function SalesNavigator() {
         options={{headerShown: false}}
       />
       <Stack.Screen name="Orders" component={TodaySalesScreen} />
-      <Stack.Screen name="OrderDetails" component={OrderDetailsScreen} />
       <Stack.Screen name="Reports" component={ReportsScreen} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} />
       <Stack.Screen name="PrintJobs" component={PrintJobsScreen} />

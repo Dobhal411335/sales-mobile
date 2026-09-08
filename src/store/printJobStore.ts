@@ -5,6 +5,7 @@ import {
   fetchPrinters,
   markPrintJobPrinted,
   printTest,
+  reprintJob,
   retryPrintJob,
 } from '../services/printJobService';
 import type {
@@ -12,6 +13,8 @@ import type {
   PrintJobDetailData,
   PrintJobEventPayload,
   PrintJobFilter,
+  PrintJobPagination,
+  PrintJobStats,
   PrinterConfig,
 } from '../types/printJob';
 
@@ -19,12 +22,21 @@ interface PrintJobState {
   jobs: PrintJob[];
   selectedJobId: string | null;
   filter: PrintJobFilter;
+  statusFilter: string;
+  typeFilter: string;
+  targetFilter: string;
+  reprintOnly: boolean;
+  searchQuery: string;
+  page: number;
+  pagination: PrintJobPagination | null;
+  serverStats: PrintJobStats | null;
   printers: PrinterConfig[];
   detail: PrintJobDetailData | null;
   loading: boolean;
   refreshing: boolean;
   detailLoading: boolean;
   actionBusy: boolean;
+  reprinting: boolean;
   error: string | null;
   detailError: string | null;
   actionMessage: string | null;
@@ -33,9 +45,17 @@ interface PrintJobState {
   fetchList: (options?: {silent?: boolean}) => Promise<void>;
   fetchPrintersList: () => Promise<void>;
   setFilter: (filter: PrintJobFilter) => Promise<void>;
+  setStatusFilter: (status: string) => Promise<void>;
+  setTypeFilter: (type: string) => Promise<void>;
+  setTargetFilter: (target: string) => Promise<void>;
+  setReprintOnly: (reprintOnly: boolean) => Promise<void>;
+  setSearchQuery: (query: string) => Promise<void>;
+  setPage: (page: number) => Promise<void>;
+  resetFilters: () => Promise<void>;
   selectJob: (id: string | null) => Promise<void>;
   fetchDetail: (id: string) => Promise<void>;
   retry: (id: string) => Promise<boolean>;
+  reprint: (id: string) => Promise<{success: boolean; job?: PrintJob}>;
   markPrinted: (id: string) => Promise<boolean>;
   runPrintTest: (id: string) => Promise<boolean>;
   patchJobFromEvent: (payload: PrintJobEventPayload) => void;
@@ -43,16 +63,27 @@ interface PrintJobState {
   clearActionMessage: () => void;
 }
 
+const VALID_STATUS_FILTERS = ['ALL', 'QUEUED', 'PRINTING', 'PRINTED', 'FAILED'] as const;
+
 export const usePrintJobStore = create<PrintJobState>((set, get) => ({
   jobs: [],
   selectedJobId: null,
   filter: 'ALL',
+  statusFilter: 'ALL',
+  typeFilter: 'ALL',
+  targetFilter: 'ALL',
+  reprintOnly: false,
+  searchQuery: '',
+  page: 1,
+  pagination: null,
+  serverStats: null,
   printers: [],
   detail: null,
   loading: false,
   refreshing: false,
   detailLoading: false,
   actionBusy: false,
+  reprinting: false,
   error: null,
   detailError: null,
   actionMessage: null,
@@ -60,7 +91,16 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
 
   fetchList: async (options = {}) => {
     const {silent = false} = options;
-    const {filter, listInFlight} = get();
+    const {
+      statusFilter,
+      typeFilter,
+      targetFilter,
+      reprintOnly,
+      searchQuery,
+      page,
+      listInFlight,
+    } = get();
+
     if (listInFlight) {
       return;
     }
@@ -72,7 +112,16 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
       error: null,
     });
 
-    const response = await fetchPrintJobs({filter});
+    const response = await fetchPrintJobs({
+      status: statusFilter,
+      printType: typeFilter,
+      printerTarget: targetFilter,
+      reprint: reprintOnly,
+      search: searchQuery,
+      page,
+      limit: 25,
+    });
+
     if (!response.success || !response.data) {
       set({
         loading: false,
@@ -85,6 +134,8 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
 
     set({
       jobs: response.data,
+      serverStats: response.stats ?? null,
+      pagination: response.pagination ?? null,
       loading: false,
       refreshing: false,
       listInFlight: false,
@@ -100,7 +151,82 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
   },
 
   setFilter: async (filter) => {
-    set({filter, selectedJobId: null, detail: null, detailError: null});
+    set({
+      filter,
+      statusFilter: filter,
+      reprintOnly: false,
+      page: 1,
+      selectedJobId: null,
+      detail: null,
+      detailError: null,
+    });
+    await get().fetchList();
+  },
+
+  setStatusFilter: async (statusFilter) => {
+    const isPrintJobFilter = (s: string): s is PrintJobFilter =>
+      (VALID_STATUS_FILTERS as readonly string[]).includes(s);
+
+    set({
+      statusFilter,
+      filter: isPrintJobFilter(statusFilter) ? statusFilter : 'ALL',
+      reprintOnly: false,
+      page: 1,
+    });
+    await get().fetchList();
+  },
+
+  setTypeFilter: async (typeFilter) => {
+    set({
+      typeFilter,
+      reprintOnly: false,
+      page: 1,
+    });
+    await get().fetchList();
+  },
+
+  setTargetFilter: async (targetFilter) => {
+    set({
+      targetFilter,
+      page: 1,
+    });
+    await get().fetchList();
+  },
+
+  setReprintOnly: async (reprintOnly) => {
+    set({
+      reprintOnly,
+      statusFilter: 'ALL',
+      typeFilter: 'ALL',
+      filter: 'ALL',
+      page: 1,
+    });
+    await get().fetchList();
+  },
+
+  setSearchQuery: async (searchQuery) => {
+    set({
+      searchQuery,
+      page: 1,
+    });
+    await get().fetchList();
+  },
+
+  setPage: async (page) => {
+    set({page});
+    await get().fetchList();
+  },
+
+  resetFilters: async () => {
+    set({
+      statusFilter: 'ALL',
+      typeFilter: 'ALL',
+      targetFilter: 'ALL',
+      filter: 'ALL',
+      reprintOnly: false,
+      searchQuery: '',
+      page: 1,
+    });
     await get().fetchList();
   },
 
@@ -147,9 +273,33 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
     }
     set({
       actionBusy: false,
-      actionMessage: response.message ?? 'Retry started',
+      actionMessage: response.message ?? 'Print job requeued.',
     });
     return true;
+  },
+
+  reprint: async (id) => {
+    if (get().reprinting || get().actionBusy) {
+      return {success: false};
+    }
+    set({reprinting: true, actionMessage: null});
+    const response = await reprintJob(id);
+    if (!response.success || !response.data?.job) {
+      set({
+        reprinting: false,
+        actionMessage: response.message ?? 'Failed to print again.',
+      });
+      return {success: false};
+    }
+
+    const newJob = response.data.job;
+    await get().fetchList({silent: true});
+    await get().selectJob(newJob._id);
+    set({
+      reprinting: false,
+      actionMessage: 'Print job queued.',
+    });
+    return {success: true, job: newJob};
   },
 
   markPrinted: async (id) => {
@@ -214,7 +364,7 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
     const {jobs, selectedJobId} = get();
     const index = jobs.findIndex((job) => String(job._id) === String(id));
     if (index === -1) {
-      void get().fetchList({silent: true});
+      get().fetchList({silent: true});
       return;
     }
     const next = [...jobs];
@@ -226,12 +376,12 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
     };
     set({jobs: next});
     if (selectedJobId && String(selectedJobId) === String(id)) {
-      void get().fetchDetail(id);
+      get().fetchDetail(id);
     }
   },
 
   handleNewJob: () => {
-    void get().fetchList({silent: true});
+    get().fetchList({silent: true});
   },
 
   clearActionMessage: () => set({actionMessage: null}),

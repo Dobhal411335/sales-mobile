@@ -1,27 +1,34 @@
 import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
+  FlatList,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
-  FlatList,
 } from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Printer,
+  RefreshCw,
+} from 'lucide-react-native';
 import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
 import {TabletModal} from '../../../components/common/TabletModal';
 import {PrintJobCard} from '../../../components/print-jobs/PrintJobCard';
 import {PrintJobDetailPanel} from '../../../components/print-jobs/PrintJobDetailPanel';
 import {PrintJobFilters} from '../../../components/print-jobs/PrintJobFilters';
+import {PrintJobKpiCards} from '../../../components/print-jobs/PrintJobKpiCards';
 import {PrintJobStatusBadge} from '../../../components/print-jobs/PrintJobStatusBadge';
+import {ReprintConfirmModal} from '../../../components/print-jobs/ReprintConfirmModal';
 import {colors} from '../../../constants/colors';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {usePrintJobStore} from '../../../store/printJobStore';
-import type {PrintJob, PrintJobFilter} from '../../../types/printJob';
-import {filterDisplayLabel} from '../../../types/printJob';
+import type {PrintJob} from '../../../types/printJob';
 import {
   buildReceiptOrderFromDetail,
   formatPrintJobDetailTime,
@@ -36,11 +43,10 @@ type Props = NativeStackScreenProps<SalesStackParamList, 'PrintJobs'>;
 
 const MASTER_DETAIL_BREAKPOINT = 720;
 
-function EmptyState({filter}: {filter: PrintJobFilter}) {
-  const message =
-    filter === 'ALL'
-      ? 'No print jobs found.'
-      : `No ${filterDisplayLabel(filter).toLowerCase()} print jobs.`;
+function EmptyState({hasFilters}: {hasFilters: boolean}) {
+  const message = hasFilters
+    ? 'No print jobs match your filters.'
+    : 'No print jobs found.';
   return (
     <View style={styles.emptyState}>
       <Text style={styles.emptyStateText}>{message}</Text>
@@ -55,25 +61,41 @@ export function PrintJobsScreen({navigation, route}: Props) {
 
   const jobs = usePrintJobStore((s) => s.jobs);
   const selectedJobId = usePrintJobStore((s) => s.selectedJobId);
-  const filter = usePrintJobStore((s) => s.filter);
+  const statusFilter = usePrintJobStore((s) => s.statusFilter);
+  const typeFilter = usePrintJobStore((s) => s.typeFilter);
+  const targetFilter = usePrintJobStore((s) => s.targetFilter);
+  const reprintOnly = usePrintJobStore((s) => s.reprintOnly);
+  const searchQuery = usePrintJobStore((s) => s.searchQuery);
+  const page = usePrintJobStore((s) => s.page);
+  const pagination = usePrintJobStore((s) => s.pagination);
+  const serverStats = usePrintJobStore((s) => s.serverStats);
   const printers = usePrintJobStore((s) => s.printers);
   const detail = usePrintJobStore((s) => s.detail);
   const loading = usePrintJobStore((s) => s.loading);
   const refreshing = usePrintJobStore((s) => s.refreshing);
   const detailLoading = usePrintJobStore((s) => s.detailLoading);
   const actionBusy = usePrintJobStore((s) => s.actionBusy);
+  const reprinting = usePrintJobStore((s) => s.reprinting);
   const error = usePrintJobStore((s) => s.error);
   const actionMessage = usePrintJobStore((s) => s.actionMessage);
+
   const fetchList = usePrintJobStore((s) => s.fetchList);
   const fetchPrintersList = usePrintJobStore((s) => s.fetchPrintersList);
-  const setFilter = usePrintJobStore((s) => s.setFilter);
+  const setStatusFilter = usePrintJobStore((s) => s.setStatusFilter);
+  const setTypeFilter = usePrintJobStore((s) => s.setTypeFilter);
+  const setTargetFilter = usePrintJobStore((s) => s.setTargetFilter);
+  const setReprintOnly = usePrintJobStore((s) => s.setReprintOnly);
+  const setSearchQuery = usePrintJobStore((s) => s.setSearchQuery);
+  const setPage = usePrintJobStore((s) => s.setPage);
+  const resetFilters = usePrintJobStore((s) => s.resetFilters);
   const selectJob = usePrintJobStore((s) => s.selectJob);
   const retry = usePrintJobStore((s) => s.retry);
-  const markPrinted = usePrintJobStore((s) => s.markPrinted);
-  const runPrintTest = usePrintJobStore((s) => s.runPrintTest);
+  const reprint = usePrintJobStore((s) => s.reprint);
   const clearActionMessage = usePrintJobStore((s) => s.clearActionMessage);
 
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [reprintTarget, setReprintTarget] = useState<PrintJob | null>(null);
+
   const deepLinkJobId = route.params?.jobId;
 
   const selectedJob = useMemo(
@@ -83,34 +105,33 @@ export function PrintJobsScreen({navigation, route}: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      void fetchList({silent: jobs.length > 0});
-      void fetchPrintersList();
+      fetchList({silent: jobs.length > 0});
+      fetchPrintersList();
     }, [fetchList, fetchPrintersList, jobs.length]),
   );
 
   useEffect(() => {
     if (deepLinkJobId) {
-      void selectJob(deepLinkJobId);
+      selectJob(deepLinkJobId);
     }
   }, [deepLinkJobId, selectJob]);
 
-  const onFilterChange = useCallback(
-    (next: PrintJobFilter) => {
-      clearActionMessage();
-      void setFilter(next);
-    },
-    [setFilter, clearActionMessage],
-  );
+  const hasActiveFilters =
+    statusFilter !== 'ALL' ||
+    typeFilter !== 'ALL' ||
+    targetFilter !== 'ALL' ||
+    reprintOnly ||
+    Boolean(searchQuery.trim());
 
   const onRefresh = useCallback(() => {
     clearActionMessage();
-    void fetchList({silent: true});
+    fetchList({silent: true});
   }, [fetchList, clearActionMessage]);
 
   const handleSelectJob = useCallback(
     (job: PrintJob) => {
       clearActionMessage();
-      void selectJob(job._id);
+      selectJob(job._id);
     },
     [selectJob, clearActionMessage],
   );
@@ -123,39 +144,35 @@ export function PrintJobsScreen({navigation, route}: Props) {
 
   const handleRetry = useCallback(
     (id: string) => {
-      void retry(id);
+      retry(id);
     },
     [retry],
   );
 
-  const handleMarkPrinted = useCallback(
-    (id: string) => {
-      void markPrinted(id);
-    },
-    [markPrinted],
-  );
-
-  const handlePrintTest = useCallback(
-    (id: string) => {
-      void runPrintTest(id);
-    },
-    [runPrintTest],
-  );
+  const handleConfirmReprint = useCallback(async () => {
+    if (!reprintTarget) return;
+    const targetId = reprintTarget._id;
+    const res = await reprint(targetId);
+    if (res.success) {
+      setReprintTarget(null);
+    }
+  }, [reprintTarget, reprint]);
 
   const renderItem = useCallback(
     ({item}: {item: PrintJob}) => (
       <PrintJobCard
         job={item}
         selected={item._id === selectedJobId}
-        actionBusy={actionBusy && item._id === selectedJobId}
+        actionBusy={(actionBusy || reprinting) && item._id === selectedJobId}
         onPress={handleSelectJob}
         onView={() => {
-          void selectJob(item._id).then(() => setPreviewOpen(true));
+          selectJob(item._id).then(() => setPreviewOpen(true));
         }}
         onRetry={(job) => handleRetry(job._id)}
+        onPrintAgain={(job) => setReprintTarget(job)}
       />
     ),
-    [selectedJobId, actionBusy, handleSelectJob, selectJob, handleRetry],
+    [selectedJobId, actionBusy, reprinting, handleSelectJob, selectJob, handleRetry],
   );
 
   const previewContent = useMemo(() => {
@@ -165,6 +182,12 @@ export function PrintJobsScreen({navigation, route}: Props) {
     const receiptOrder = buildReceiptOrderFromDetail(detail);
     const ticketItems = getTicketItems(detail);
     const mode = printTypeToReceiptMode(detail.job.printType);
+    const isReprint = Boolean(
+      detail.job.parentPrintJobId ||
+        detail.job.metadata?.isReprint ||
+        (detail.job.attemptCount && detail.job.attemptCount > 1),
+    );
+
     return {
       mode,
       order: receiptOrder,
@@ -174,12 +197,23 @@ export function PrintJobsScreen({navigation, route}: Props) {
       specialNote: detail.job.metadata?.specialNote,
       restaurantName:
         detail.restaurant?.name ?? detail.job.metadata?.restaurantName,
+      isReprint,
     };
   }, [detail]);
 
+  const totalCount = pagination?.total ?? jobs.length;
+
   const listSection = (
     <View style={[styles.listSection, isMasterDetail && styles.listSectionSplit]}>
-      <Text style={styles.sectionLabel}>PRINT JOBS</Text>
+      <View style={styles.listHeaderRow}>
+        <Text style={styles.sectionLabel}>PRINT JOBS</Text>
+        {totalCount > 0 && (
+          <View style={styles.countPill}>
+            <Text style={styles.countPillText}>{totalCount}</Text>
+          </View>
+        )}
+      </View>
+
       {loading && jobs.length === 0 ? (
         <View style={styles.loadingBox}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -197,8 +231,54 @@ export function PrintJobsScreen({navigation, route}: Props) {
                 tintColor={colors.primary}
               />
             }
-            ListEmptyComponent={!loading ? <EmptyState filter={filter} /> : undefined}
+            ListEmptyComponent={
+              !loading ? <EmptyState hasFilters={hasActiveFilters} /> : undefined
+            }
           />
+
+          {/* Server Pagination Bar */}
+          {pagination && pagination.totalPages > 1 && (
+            <View style={styles.paginationBar}>
+              <Text style={styles.paginationText}>
+                Page <Text style={styles.paginationBold}>{pagination.page}</Text>{' '}
+                of{' '}
+                <Text style={styles.paginationBold}>
+                  {pagination.totalPages}
+                </Text>{' '}
+                ({pagination.total} total)
+              </Text>
+
+              <View style={styles.paginationButtons}>
+                <Pressable
+                  style={({pressed}) => [
+                    styles.pageBtn,
+                    pressed && styles.pageBtnPressed,
+                    page <= 1 && styles.pageBtnDisabled,
+                  ]}
+                  disabled={page <= 1 || loading}
+                  onPress={() => setPage(Math.max(1, page - 1))}
+                  accessibilityRole="button"
+                  accessibilityLabel="Previous page">
+                  <ChevronLeft size={16} color={colors.text} />
+                  <Text style={styles.pageBtnText}>Prev</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({pressed}) => [
+                    styles.pageBtn,
+                    pressed && styles.pageBtnPressed,
+                    page >= pagination.totalPages && styles.pageBtnDisabled,
+                  ]}
+                  disabled={page >= pagination.totalPages || loading}
+                  onPress={() => setPage(page + 1)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Next page">
+                  <Text style={styles.pageBtnText}>Next</Text>
+                  <ChevronRight size={16} color={colors.text} />
+                </Pressable>
+              </View>
+            </View>
+          )}
         </View>
       )}
     </View>
@@ -217,23 +297,18 @@ export function PrintJobsScreen({navigation, route}: Props) {
         printers={printers}
         loading={detailLoading && Boolean(selectedJobId)}
         actionBusy={actionBusy}
+        reprinting={reprinting}
         actionMessage={actionMessage}
         onView={detail ? handleOpenPreview : undefined}
         onRetry={
-          selectedJob
+          selectedJob && selectedJob.status === 'FAILED'
             ? () => handleRetry(selectedJob._id)
             : undefined
         }
-        onMarkPrinted={
-          selectedJob
-            ? () => handleMarkPrinted(selectedJob._id)
-            : undefined
+        onPrintAgain={
+          selectedJob ? () => setReprintTarget(selectedJob) : undefined
         }
-        onPrintTest={
-          selectedJob
-            ? () => handlePrintTest(selectedJob._id)
-            : undefined
-        }
+        onSelectOriginalJob={(origId) => selectJob(origId)}
       />
     </View>
   );
@@ -241,6 +316,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
   return (
     <View style={styles.screen}>
       <View style={[styles.content, {width: contentWidth}, styles.contentFull]}>
+        {/* Page Header */}
         <View style={styles.pageHeader}>
           <View style={styles.pageHeaderLeft}>
             <Pressable
@@ -254,8 +330,16 @@ export function PrintJobsScreen({navigation, route}: Props) {
               <Text style={styles.backButtonText}>←</Text>
             </Pressable>
 
-            <View>
-              <Text style={styles.pageTitle}>Print Jobs</Text>
+            <View style={styles.titleWithIcon}>
+              <View style={styles.titleRow}>
+                <Printer size={22} color={colors.primary} strokeWidth={2.4} />
+                <Text style={styles.pageTitle}>Print Jobs</Text>
+                {totalCount > 0 && (
+                  <View style={styles.headerCountBadge}>
+                    <Text style={styles.headerCountText}>{totalCount}</Text>
+                  </View>
+                )}
+              </View>
               <Text style={styles.subtitle}>
                 Receipt & kitchen ticket queue
               </Text>
@@ -272,20 +356,92 @@ export function PrintJobsScreen({navigation, route}: Props) {
             disabled={refreshing}
             accessibilityRole="button"
             accessibilityLabel="Refresh print jobs">
+            <RefreshCw
+              size={14}
+              color={colors.text}
+              strokeWidth={2.2}
+              style={refreshing ? styles.rotatingIcon : undefined}
+            />
             <Text style={styles.refreshButtonText}>
               {refreshing ? 'Refreshing…' : 'Refresh'}
             </Text>
           </Pressable>
         </View>
 
-        <PrintJobFilters activeFilter={filter} onFilterChange={onFilterChange} />
+        {/* KPI Metric Cards */}
+        <PrintJobKpiCards
+          stats={serverStats}
+          jobsCount={totalCount}
+          loading={loading}
+          activeStatusFilter={statusFilter}
+          activeTypeFilter={typeFilter}
+          reprintOnly={reprintOnly}
+          onSelectTotal={() => {
+            clearActionMessage();
+            resetFilters();
+          }}
+          onSelectReceipt={() => {
+            clearActionMessage();
+            setTypeFilter(typeFilter === 'RECEIPT' ? 'ALL' : 'RECEIPT');
+          }}
+          onSelectKot={() => {
+            clearActionMessage();
+            setTypeFilter(typeFilter === 'KOT' ? 'ALL' : 'KOT');
+          }}
+          onSelectBar={() => {
+            clearActionMessage();
+            setTypeFilter(typeFilter === 'BAR_RECEIPT' ? 'ALL' : 'BAR_RECEIPT');
+          }}
+          onSelectReprint={() => {
+            clearActionMessage();
+            setReprintOnly(!reprintOnly);
+          }}
+          onSelectPrinted={() => {
+            clearActionMessage();
+            setStatusFilter(statusFilter === 'PRINTED' ? 'ALL' : 'PRINTED');
+          }}
+          onSelectFailed={() => {
+            clearActionMessage();
+            setStatusFilter(statusFilter === 'FAILED' ? 'ALL' : 'FAILED');
+          }}
+        />
+
+        {/* Multi-facet Filters with Search & Reset */}
+        <PrintJobFilters
+          searchQuery={searchQuery}
+          onSearchChange={(q) => {
+            clearActionMessage();
+            setSearchQuery(q);
+          }}
+          statusFilter={statusFilter}
+          onStatusChange={(s) => {
+            clearActionMessage();
+            setStatusFilter(s);
+          }}
+          typeFilter={typeFilter}
+          onTypeChange={(t) => {
+            clearActionMessage();
+            setTypeFilter(t);
+          }}
+          targetFilter={targetFilter}
+          onTargetChange={(tgt) => {
+            clearActionMessage();
+            setTargetFilter(tgt);
+          }}
+          reprintOnly={reprintOnly}
+          hasActiveFilters={hasActiveFilters}
+          onResetFilters={() => {
+            clearActionMessage();
+            resetFilters();
+          }}
+        />
 
         {error ? (
           <View style={styles.errorBox}>
             <Text style={styles.errorText}>Unable to load print jobs.</Text>
             <Pressable
               style={styles.retryButton}
-              onPress={() => void fetchList({silent: false})}
+              onPress={() => fetchList({silent: false})}
               accessibilityRole="button"
               accessibilityLabel="Retry">
               <Text style={styles.retryButtonText}>Retry</Text>
@@ -303,6 +459,18 @@ export function PrintJobsScreen({navigation, route}: Props) {
         </View>
       </View>
 
+      {/* Reprint Confirmation Modal */}
+      <ReprintConfirmModal
+        visible={Boolean(reprintTarget)}
+        job={reprintTarget}
+        reprinting={reprinting}
+        onConfirm={handleConfirmReprint}
+        onCancel={() => {
+          if (!reprinting) setReprintTarget(null);
+        }}
+      />
+
+      {/* Preview TabletModal */}
       <TabletModal
         visible={previewOpen}
         title="Print Job"
@@ -320,6 +488,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
                     guestCount={previewContent.guestCount}
                     specialNote={previewContent.specialNote}
                     restaurantName={previewContent.restaurantName}
+                    isReprint={previewContent.isReprint}
                   />
                 ),
                 right: (
@@ -377,11 +546,32 @@ export function PrintJobsScreen({navigation, route}: Props) {
                     ) : null}
 
                     <View style={styles.previewActions}>
-                      {(detail.job.status === 'FAILED' ||
-                        detail.job.status === 'QUEUED') && (
+                      <Pressable
+                        style={({pressed}) => [
+                          styles.previewActionButton,
+                          styles.previewActionPrimary,
+                          pressed && styles.previewActionPressed,
+                          (actionBusy || reprinting) &&
+                            styles.previewActionDisabled,
+                        ]}
+                        onPress={() => setReprintTarget(detail.job)}
+                        disabled={actionBusy || reprinting}
+                        accessibilityRole="button"
+                        accessibilityLabel="Print ticket again">
+                        <Text
+                          style={[
+                            styles.previewActionText,
+                            styles.previewActionTextPrimary,
+                          ]}>
+                          Print Again
+                        </Text>
+                      </Pressable>
+
+                      {detail.job.status === 'FAILED' && (
                         <Pressable
                           style={({pressed}) => [
                             styles.previewActionButton,
+                            styles.previewActionRetry,
                             pressed && styles.previewActionPressed,
                             actionBusy && styles.previewActionDisabled,
                           ]}
@@ -392,56 +582,14 @@ export function PrintJobsScreen({navigation, route}: Props) {
                           {actionBusy ? (
                             <ActivityIndicator
                               size="small"
-                              color={colors.primary}
+                              color={colors.error}
                             />
                           ) : (
-                            <Text style={styles.previewActionText}>Retry</Text>
+                            <Text style={styles.previewActionTextRetry}>Retry</Text>
                           )}
                         </Pressable>
                       )}
-                      {detail.job.status !== 'PRINTED' &&
-                        detail.job.status !== 'CANCELLED' && (
-                          <Pressable
-                            style={({pressed}) => [
-                              styles.previewActionButton,
-                              styles.previewActionSuccess,
-                              pressed && styles.previewActionPressed,
-                              actionBusy && styles.previewActionDisabled,
-                            ]}
-                            onPress={() => handleMarkPrinted(detail.job._id)}
-                            disabled={actionBusy}
-                            accessibilityRole="button"
-                            accessibilityLabel="Mark printed">
-                            <Text
-                              style={[
-                                styles.previewActionText,
-                                styles.previewActionTextSuccess,
-                              ]}>
-                              Mark Printed
-                            </Text>
-                          </Pressable>
-                        )}
-                      {detail.job.status === 'QUEUED' && (
-                        <Pressable
-                          style={({pressed}) => [
-                            styles.previewActionButton,
-                            styles.previewActionPrimary,
-                            pressed && styles.previewActionPressed,
-                            actionBusy && styles.previewActionDisabled,
-                          ]}
-                          onPress={() => handlePrintTest(detail.job._id)}
-                          disabled={actionBusy}
-                          accessibilityRole="button"
-                          accessibilityLabel="Print test">
-                          <Text
-                            style={[
-                              styles.previewActionText,
-                              styles.previewActionTextPrimary,
-                            ]}>
-                            Print Test
-                          </Text>
-                        </Pressable>
-                      )}
+
                       <Pressable
                         style={({pressed}) => [
                           styles.previewActionButton,
@@ -468,7 +616,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
     alignItems: 'center',
-    paddingVertical: 16,
+    paddingVertical: 12,
   },
   content: {
     flex: 1,
@@ -478,7 +626,7 @@ const styles = StyleSheet.create({
   },
   pageHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
     paddingHorizontal: 16,
@@ -486,13 +634,13 @@ const styles = StyleSheet.create({
   },
   pageHeaderLeft: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
+    alignItems: 'center',
+    gap: 10,
     flex: 1,
   },
   backButton: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
@@ -504,28 +652,52 @@ const styles = StyleSheet.create({
     backgroundColor: colors.cream,
   },
   backButtonText: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '700',
     color: colors.text,
   },
+  titleWithIcon: {
+    flex: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   pageTitle: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '800',
     color: colors.text,
   },
+  headerCountBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    borderRadius: 6,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  headerCountText: {
+    fontSize: 11,
+    fontFamily: 'monospace',
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
   subtitle: {
-    marginTop: 2,
+    marginTop: 1,
     fontSize: 12,
     color: colors.textSecondary,
   },
   refreshButton: {
-    minHeight: 44,
-    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 40,
+    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    alignItems: 'center',
     justifyContent: 'center',
   },
   refreshButtonPressed: {
@@ -535,9 +707,12 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   refreshButtonText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
     color: colors.text,
+  },
+  rotatingIcon: {
+    opacity: 0.7,
   },
   body: {
     flex: 1,
@@ -555,20 +730,41 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listSectionSplit: {
-    flex: 0.65,
+    flex: 0.62,
+  },
+  listHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+    marginLeft: 4,
+  },
+  countPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  countPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+    fontFamily: 'monospace',
+    color: colors.textSecondary,
   },
   detailSection: {
     flex: 1,
   },
   detailSectionSplit: {
-    flex: 0.35,
+    flex: 0.38,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: 'hidden',
   },
   detailSectionStacked: {
-    minHeight: 280,
+    minHeight: 320,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
@@ -579,8 +775,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.textSecondary,
     letterSpacing: 0.8,
-    marginBottom: 8,
-    marginLeft: 4,
   },
   listCard: {
     flex: 1,
@@ -602,36 +796,81 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   emptyStateText: {
-    fontSize: 14,
+    fontSize: 13,
     color: colors.textSecondary,
     fontWeight: '600',
+  },
+  paginationBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.background,
+  },
+  paginationText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  paginationBold: {
+    fontWeight: '700',
+    color: colors.text,
+  },
+  paginationButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: 2,
+  },
+  pageBtnPressed: {
+    backgroundColor: colors.cream,
+  },
+  pageBtnDisabled: {
+    opacity: 0.4,
+  },
+  pageBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.text,
   },
   errorBox: {
     marginHorizontal: 16,
     marginBottom: 8,
-    padding: 16,
+    padding: 14,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
   },
   errorText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   retryButton: {
-    minHeight: 44,
-    paddingHorizontal: 20,
-    borderRadius: 12,
+    minHeight: 38,
+    paddingHorizontal: 18,
+    borderRadius: 10,
     backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   retryButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.surface,
   },
@@ -700,7 +939,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   previewActionButton: {
-    minHeight: 48,
+    minHeight: 44,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
@@ -713,8 +952,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  previewActionSuccess: {
-    borderColor: colors.success,
+  previewActionRetry: {
+    borderColor: '#FECACA',
+    backgroundColor: '#FFF5F5',
   },
   previewActionPressed: {
     opacity: 0.9,
@@ -723,14 +963,14 @@ const styles = StyleSheet.create({
     opacity: 0.55,
   },
   previewActionText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.text,
   },
   previewActionTextPrimary: {
     color: colors.surface,
   },
-  previewActionTextSuccess: {
-    color: colors.success,
+  previewActionTextRetry: {
+    color: colors.error,
   },
 });

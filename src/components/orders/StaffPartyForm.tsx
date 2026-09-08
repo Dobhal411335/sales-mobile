@@ -90,28 +90,59 @@ export function StaffPartyForm({
         <Pressable
           style={styles.pickerBackdrop}
           onPress={() => setPickerOpen(false)}>
-          <View style={styles.pickerSheet}>
-            <Text style={styles.pickerTitle}>Select Employee</Text>
-            <ScrollView style={styles.pickerList}>
-              {employees.map((emp: SalesEmployee) => (
-                <Pressable
-                  key={emp.id}
-                  style={styles.pickerItem}
-                  onPress={() => {
-                    onStaffChange(emp.id);
-                    setPickerOpen(false);
-                  }}>
-                  <Text style={styles.pickerItemText}>
-                    {emp.name}
-                    {emp.role ? ` · ${emp.role}` : ''}
-                    {Number(emp.staffDiscount) > 0
-                      ? ` · ${emp.staffDiscount}% off`
-                      : ''}
-                  </Text>
-                </Pressable>
-              ))}
+          <Pressable
+            style={styles.pickerSheet}
+            onPress={(e) => e.stopPropagation?.()}>
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>Select Employee</Text>
+              <Pressable
+                style={styles.pickerCloseBtn}
+                onPress={() => setPickerOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close employee picker">
+                <Text style={styles.pickerCloseBtnText}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              style={styles.pickerList}
+              showsVerticalScrollIndicator={true}
+              persistentScrollbar={true}>
+              {employees.map((emp: SalesEmployee) => {
+                const isSelected = emp.id === selectedStaffId;
+                return (
+                  <Pressable
+                    key={emp.id}
+                    style={[
+                      styles.pickerItem,
+                      isSelected && styles.pickerItemSelected,
+                    ]}
+                    onPress={() => {
+                      onStaffChange(emp.id);
+                      setPickerOpen(false);
+                    }}>
+                    <View style={styles.pickerItemLeft}>
+                      <Text
+                        style={[
+                          styles.pickerItemText,
+                          isSelected && styles.pickerItemTextSelected,
+                        ]}>
+                        {emp.name}
+                        {emp.role ? ` · ${emp.role}` : ''}
+                      </Text>
+                      {Number(emp.staffDiscount) > 0 ? (
+                        <Text style={styles.pickerItemDiscount}>
+                          Staff discount: {emp.staffDiscount}% off
+                        </Text>
+                      ) : null}
+                    </View>
+                    {isSelected ? (
+                      <Text style={styles.pickerItemCheckmark}>✓</Text>
+                    ) : null}
+                  </Pressable>
+                );
+              })}
             </ScrollView>
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
     </View>
@@ -202,34 +233,93 @@ const styles = StyleSheet.create({
   },
   pickerBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
+    alignItems: 'center',
     padding: 24,
   },
   pickerSheet: {
+    width: '100%',
+    maxWidth: 380,
+    alignSelf: 'center',
     backgroundColor: colors.surface,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
     maxHeight: 400,
     padding: 16,
+    shadowColor: '#000',
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
   pickerTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: colors.text,
-    marginBottom: 12,
+  },
+  pickerCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pickerCloseBtnText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '700',
   },
   pickerList: {
     maxHeight: 320,
   },
   pickerItem: {
-    minHeight: 52,
-    justifyContent: 'center',
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    borderRadius: 8,
+  },
+  pickerItemSelected: {
+    backgroundColor: '#FFF7ED',
+  },
+  pickerItemLeft: {
+    flex: 1,
+    gap: 2,
   },
   pickerItemText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: colors.text,
+  },
+  pickerItemTextSelected: {
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  pickerItemDiscount: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  pickerItemCheckmark: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.primary,
+    marginLeft: 8,
   },
 });

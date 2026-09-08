@@ -143,9 +143,41 @@ export interface PrintJobTestData {
   note?: string;
 }
 
+export interface PrintJobStats {
+  total: number;
+  receiptCount: number;
+  kotCount: number;
+  barCount: number;
+  reprintCount: number;
+  printedCount: number;
+  failedCount: number;
+  queuedCount?: number;
+}
+
+export interface PrintJobPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
+export interface FetchPrintJobsParams {
+  filter?: PrintJobFilter;
+  status?: string;
+  printType?: string;
+  printerTarget?: string;
+  reprint?: boolean;
+  search?: string;
+  page?: number;
+  limit?: number;
+}
+
 export interface PrintJobsListResponse {
   success: boolean;
   data?: PrintJob[];
+  stats?: PrintJobStats;
+  pagination?: PrintJobPagination;
   message?: string;
 }
 

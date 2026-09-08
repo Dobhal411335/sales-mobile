@@ -1,8 +1,8 @@
 import type {
+  FetchPrintJobsParams,
   PrintJob,
   PrintJobActionResponse,
   PrintJobDetailResponse,
-  PrintJobFilter,
   PrintJobTestResponse,
   PrintersListResponse,
   PrintJobsListResponse,
@@ -32,24 +32,44 @@ export function isPrintJobApiConfigured(): boolean {
   return isApiConfigured();
 }
 
-export async function fetchPrintJobs(params: {
-  filter?: PrintJobFilter;
-  limit?: number;
-}): Promise<PrintJobsListResponse> {
+export async function fetchPrintJobs(
+  params: FetchPrintJobsParams = {},
+): Promise<PrintJobsListResponse> {
   if (!isApiConfigured()) {
     return {success: false, message: getApiNotConfiguredMessage()};
   }
 
-  const filter = params.filter ?? 'ALL';
-  const limit = params.limit ?? 50;
+  const limit = params.limit ?? 25;
 
   try {
     const qs = new URLSearchParams();
-    const status = filterToApiStatus(filter);
+
+    const status = params.status
+      ? (params.status !== 'ALL' ? params.status : undefined)
+      : params.filter
+      ? filterToApiStatus(params.filter)
+      : undefined;
+
     if (status) {
       qs.set('status', status);
     }
+    if (params.printType && params.printType !== 'ALL') {
+      qs.set('printType', params.printType);
+    }
+    if (params.printerTarget && params.printerTarget !== 'ALL') {
+      qs.set('printerTarget', params.printerTarget);
+    }
+    if (params.reprint) {
+      qs.set('reprint', 'true');
+    }
+    if (params.search && params.search.trim()) {
+      qs.set('search', params.search.trim());
+    }
+    if (params.page) {
+      qs.set('page', String(params.page));
+    }
     qs.set('limit', String(limit));
+
     const query = qs.toString();
     const res = await api.get<PrintJobsListResponse>(
       `/api/sales/print-jobs${query ? `?${query}` : ''}`,
@@ -63,10 +83,47 @@ export async function fetchPrintJobs(params: {
     return {
       success: true,
       data: (res.data.data || []).map(normalizePrintJob),
+      stats: res.data.stats,
+      pagination: res.data.pagination,
     };
   } catch (err: unknown) {
     const status = (err as {response?: {status?: number}})?.response?.status;
     return {success: false, message: mapApiError(status)};
+  }
+}
+
+export async function reprintJob(id: string): Promise<ReprintTicketResponse> {
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
+  }
+
+  const idempotencyKey = `reprint:${id}:${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+  try {
+    const res = await api.post<ReprintTicketResponse>(
+      `/api/sales/print-jobs/${id}/reprint`,
+      {idempotencyKey},
+    );
+    if (!res.data.success) {
+      return {
+        success: false,
+        message:
+          res.data.message ??
+          mapApiError(res.status, 'Failed to reprint print job.'),
+      };
+    }
+    return res.data;
+  } catch (err: unknown) {
+    const status = (err as {response?: {status?: number}})?.response?.status;
+    const serverMessage = (err as {
+      response?: {data?: {message?: string}};
+    })?.response?.data?.message;
+    return {
+      success: false,
+      message:
+        serverMessage ??
+        mapApiError(status, 'Failed to reprint print job.'),
+    };
   }
 }
 

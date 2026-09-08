@@ -359,10 +359,10 @@ export function PaymentScreen({navigation, route}: Props) {
   );
 
   const parsedCardAmount =
-    cardAmountTendered === '' ? NaN : parseFloat(cardAmountTendered);
+    cardAmountTendered.trim() === '' ? NaN : parseFloat(cardAmountTendered);
   const cardPayAmount = Number.isFinite(parsedCardAmount)
     ? Math.max(0, parsedCardAmount)
-    : effectiveCardDue;
+    : 0;
 
   const parsedCashAmount =
     cashAmountTendered === '' ? NaN : parseFloat(cashAmountTendered);
@@ -373,6 +373,8 @@ export function PaymentScreen({navigation, route}: Props) {
   const cashSplitAmount =
     paymentMethod === 'Card' &&
     effectiveCardDue > 0 &&
+    cardAmountTendered.trim() !== '' &&
+    Number.isFinite(parsedCardAmount) &&
     cardPayAmount < effectiveCardDue
       ? roundMoney(effectiveCardDue - Math.min(cardPayAmount, effectiveCardDue))
       : 0;
@@ -392,6 +394,7 @@ export function PaymentScreen({navigation, route}: Props) {
 
   const cardOverpay =
     paymentMethod === 'Card' &&
+    cardAmountTendered.trim() !== '' &&
     Number.isFinite(parsedCardAmount) &&
     cardPayAmount > effectiveCardDue
       ? roundMoney(cardPayAmount - effectiveCardDue)
@@ -420,20 +423,30 @@ export function PaymentScreen({navigation, route}: Props) {
     if (paymentMethod === 'GiftCard' && totals.totalDue > 0) {
       return giftUsedPreview < totals.totalDue;
     }
-    if (paymentMethod === 'Card' && cashSplitAmount > 0) {
-      return true;
+    if (paymentMethod === 'Card') {
+      if (effectiveCardDue > 0) {
+        if (!selectedCardType) {
+          return true;
+        }
+        if (
+          cardAmountTendered.trim() === '' ||
+          !Number.isFinite(parsedCardAmount) ||
+          parsedCardAmount <= 0
+        ) {
+          return true;
+        }
+      }
+      if (cashSplitAmount > 0) {
+        return true;
+      }
     }
-    if (paymentMethod === 'Cash' && cardSplitFromCash > 0) {
-      return true;
-    }
-    const currentCardContribution =
-      paymentMethod === 'Card'
-        ? Number.isFinite(parsedCardAmount)
-          ? Math.min(cardPayAmount, effectiveCardDue)
-          : effectiveCardDue
-        : lockedCardAmount;
-    if (currentCardContribution > 0 && !selectedCardType) {
-      return true;
+    if (paymentMethod === 'Cash') {
+      if (lockedCardAmount > 0 && !selectedCardType) {
+        return true;
+      }
+      if (cardSplitFromCash > 0) {
+        return true;
+      }
     }
     return false;
   }, [
@@ -447,8 +460,8 @@ export function PaymentScreen({navigation, route}: Props) {
     giftUsedPreview,
     cashSplitAmount,
     cardSplitFromCash,
+    cardAmountTendered,
     parsedCardAmount,
-    cardPayAmount,
     effectiveCardDue,
     lockedCardAmount,
     selectedCardType,
@@ -682,6 +695,21 @@ export function PaymentScreen({navigation, route}: Props) {
       return;
     }
 
+    if (paymentMethod === 'Card' && effectiveCardDue > 0) {
+      if (!selectedCardType) {
+        toast.error('Please select a card type.');
+        return;
+      }
+      if (
+        cardAmountTendered.trim() === '' ||
+        !Number.isFinite(parsedCardAmount) ||
+        parsedCardAmount <= 0
+      ) {
+        toast.error('Please enter the card amount or tap Exact.');
+        return;
+      }
+    }
+
     setPaymentStatus('processing');
     setStatusMessage('Processing payment...');
 
@@ -695,9 +723,7 @@ export function PaymentScreen({navigation, route}: Props) {
     }
 
     if (paymentMethod === 'Card') {
-      const cardPortion = Number.isFinite(parsedCardAmount)
-        ? roundMoney(Math.min(cardPayAmount, effectiveCardDue))
-        : roundMoney(effectiveCardDue);
+      const cardPortion = roundMoney(Math.min(cardPayAmount, effectiveCardDue));
       resolvedCardAmount = roundMoney(lockedCardAmount + cardPortion);
       if (resolvedCardAmount > 0) {
         parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
@@ -844,6 +870,7 @@ export function PaymentScreen({navigation, route}: Props) {
   }, [
     appliedDiscount,
     autoTip,
+    cardAmountTendered,
     cardPayAmount,
     cashPayAmount,
     completeDisabled,

@@ -744,7 +744,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
         visible={staffModalOpen}
         title="Staff Order"
         onClose={() => setStaffModalOpen(false)}
-        maxWidth={480}
+        maxWidth={420}
         footerActions={[
           {
             label: 'Cancel',

@@ -44,8 +44,14 @@ async function refreshEmployeeSession(): Promise<boolean> {
         );
         await persistCookiesFromResponse(response.headers as Record<string, unknown>);
         return response.status >= 200 && response.status < 300;
-      } catch {
-        await clearEmployeeSessionTokens();
+      } catch (error) {
+        if (
+          axios.isAxiosError(error) &&
+          error.response &&
+          (error.response.status === 401 || error.response.status === 403)
+        ) {
+          await clearEmployeeSessionTokens();
+        }
         return false;
       } finally {
         refreshPromise = null;

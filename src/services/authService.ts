@@ -1,3 +1,4 @@
+import axios from 'axios';
 import {api} from './api';
 import {getDeviceFingerprint} from '../utils/deviceFingerprint';
 import type {
@@ -98,7 +99,12 @@ export async function refreshSession(): Promise<boolean> {
       '/api/employee/auth/refresh',
     );
     return Boolean(response.data?.success);
-  } catch {
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        await clearEmployeeSessionTokens();
+      }
+    }
     return false;
   }
 }

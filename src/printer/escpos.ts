@@ -139,6 +139,8 @@ export function divider(char = '-', width = WIDTH): string {
 /** Keep thermal output ASCII-safe (avoids CP437 garbage like "Ca" from UTF-8 ellipsis). */
 export function toPrinterText(str: unknown): string {
   return String(str ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/\u2026/g, '...')
     .replace(/[×✕✖⨯]/g, 'x')
     .replace(/[–—−]/g, '-')

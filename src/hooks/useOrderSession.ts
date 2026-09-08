@@ -127,8 +127,17 @@ export function useOrderSession(params: UseOrderSessionParams) {
           const storedOrderId = await getDirectOrderId(storageKey);
           if (storedOrderId) {
             order = await fetchOrderById(storedOrderId);
-            if (!order) {
+            const isInactive =
+              !order ||
+              String(order.status || '').toUpperCase() === 'PAID' ||
+              String(order.paymentStatus || '').toUpperCase() === 'PAID' ||
+              ['COMPLETED', 'CANCELLED', 'WAIVED'].includes(
+                String(order.status || '').toUpperCase(),
+              );
+
+            if (isInactive) {
               await clearDirectOrderId(storageKey);
+              order = null;
             }
           }
         }
@@ -239,7 +248,17 @@ export function useOrderSession(params: UseOrderSessionParams) {
       }
 
       const order = await fetchOrderById(storedOrderId);
-      if (!order) {
+      const isInactive =
+        !order ||
+        String(order.status || '').toUpperCase() === 'PAID' ||
+        String(order.paymentStatus || '').toUpperCase() === 'PAID' ||
+        ['COMPLETED', 'CANCELLED', 'WAIVED'].includes(
+          String(order.status || '').toUpperCase(),
+        );
+
+      if (isInactive) {
+        await clearDirectOrderId(storageKey);
+        resetOrderState();
         return;
       }
 

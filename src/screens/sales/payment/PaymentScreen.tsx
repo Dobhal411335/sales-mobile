@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -31,7 +31,7 @@ import {
   processPayment,
   verifyGiftCard,
 } from '../../../services/paymentService';
-import {fetchOrderById} from '../../../services/orderService';
+import {fetchOrderById, fetchOrderBySession} from '../../../services/orderService';
 import {fetchTodayOrders} from '../../../services/todayOrdersService';
 import {useStaffEmployees, getStaffEmployeeName} from '../../../hooks/useStaffEmployees';
 import type {PaymentApiOrder} from '../../../types/payment';
@@ -102,6 +102,7 @@ export function PaymentScreen({navigation, route}: Props) {
   const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
   const [isVerifyingGiftCard, setIsVerifyingGiftCard] = useState(false);
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
+  const isPayingRef = useRef(false);
 
   const navigateToReceipt = useCallback(
     (
@@ -126,7 +127,19 @@ export function PaymentScreen({navigation, route}: Props) {
     let cancelled = false;
 
     const hydrateOrder = async () => {
-      if (!resolvedOrderId) {
+      let activeOrderId = resolvedOrderId;
+      if (!activeOrderId && sessionId) {
+        try {
+          const sessionOrder = await fetchOrderBySession(sessionId);
+          if (sessionOrder?._id) {
+            activeOrderId = sessionOrder._id;
+          }
+        } catch {
+          // Fall through
+        }
+      }
+
+      if (!activeOrderId) {
         setHydrating(false);
         setHydrateError('No order found. Send KOT or select an order first.');
         return;
@@ -137,13 +150,13 @@ export function PaymentScreen({navigation, route}: Props) {
 
       try {
         if (isPaymentApiConfigured()) {
-          const order = await fetchOrderById(resolvedOrderId);
+          const order = await fetchOrderById(activeOrderId);
           if (cancelled) {
             return;
           }
 
           if (!order) {
-            const recovery = await fetchPaymentRecoveryState(resolvedOrderId);
+            const recovery = await fetchPaymentRecoveryState(activeOrderId);
             if (cancelled) {
               return;
             }
@@ -682,6 +695,10 @@ export function PaymentScreen({navigation, route}: Props) {
   };
 
   const handleCompletePayment = useCallback(async () => {
+    if (isPayingRef.current) {
+      return;
+    }
+
     if (includeServiceCharge && autoTip > 0) {
       const exactDue =
         paymentMethod === 'Cash' ? effectiveCashDue : effectiveCardDue;
@@ -710,6 +727,7 @@ export function PaymentScreen({navigation, route}: Props) {
       }
     }
 
+    isPayingRef.current = true;
     setPaymentStatus('processing');
     setStatusMessage('Processing payment...');
 
@@ -831,42 +849,72 @@ export function PaymentScreen({navigation, route}: Props) {
           : undefined,
     };
 
-    const result = await processPayment(payload, items);
+    try {
+      const result = await processPayment(payload, items);
 
-    if (!result.success || !result.order) {
-      const recovery = await fetchPaymentRecoveryState(resolvedOrderId);
-      if (recovery.paid && recovery.order) {
-        if (orderType === 'walking') {
-          await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
-        } else if (orderType === 'staff') {
-          await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
+      if (!result.success || !result.order) {
+        const recovery = await fetchPaymentRecoveryState(resolvedOrderId);
+        let paidSnapshot = recovery.order;
+
+        if (!paidSnapshot && result.alreadyPaid) {
+          paidSnapshot = {
+            orderId: resolvedOrderId,
+            orderNumber: displayOrderNumber,
+            partyName,
+            guestCount,
+            tableNo: tableNumber,
+            floorName,
+            subTotal: totals.subTotal,
+            taxTotal: totals.taxTotal,
+            discountTotal: totals.discountTotal,
+            totalAmount: serverAmount,
+            paymentMethod,
+            paymentStatus: 'PAID',
+            paidAt: new Date().toISOString(),
+            items,
+            taxBreakdown: totals.taxBreakdown,
+          };
         }
-        navigateToReceipt(recovery.order, recovery.printJobId, recovery.order.taxBreakdown);
+
+        if (paidSnapshot) {
+          if (orderType === 'walking') {
+            await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
+          } else if (orderType === 'staff') {
+            await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
+          }
+          navigateToReceipt(
+            paidSnapshot,
+            recovery.printJobId,
+            paidSnapshot.taxBreakdown ?? totals.taxBreakdown,
+          );
+          return;
+        }
+
+        setPaymentStatus('failed');
+        setStatusMessage(
+          result.alreadyPaid
+            ? 'This order is already paid on the server.'
+            : result.message ?? 'Payment could not be completed. Try again.',
+        );
         return;
       }
 
-      setPaymentStatus('failed');
-      setStatusMessage(
-        result.alreadyPaid
-          ? 'This order is already paid on the server.'
-          : result.message ?? 'Payment could not be completed. Try again.',
+      if (orderType === 'walking') {
+        await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
+      } else if (orderType === 'staff') {
+        await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
+      }
+
+      setPaymentStatus('success');
+      toast.success('Payment collected successfully!');
+      navigateToReceipt(
+        result.order,
+        result.printJobId,
+        totals.taxBreakdown,
       );
-      return;
+    } finally {
+      isPayingRef.current = false;
     }
-
-    if (orderType === 'walking') {
-      await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
-    } else if (orderType === 'staff') {
-      await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
-    }
-
-    setPaymentStatus('success');
-    toast.success('Payment collected successfully!');
-    navigateToReceipt(
-      result.order,
-      result.printJobId,
-      totals.taxBreakdown,
-    );
   }, [
     appliedDiscount,
     autoTip,

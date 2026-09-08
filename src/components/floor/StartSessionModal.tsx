@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -44,6 +44,7 @@ export function StartSessionModal({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isStartingRef = useRef(false);
 
   useEffect(() => {
     if (visible && table) {
@@ -51,6 +52,7 @@ export function StartSessionModal({
       setSelectedLinkedTableIds([]);
       setError(null);
       setLoading(false);
+      isStartingRef.current = false;
     }
   }, [visible, table]);
 
@@ -86,9 +88,10 @@ export function StartSessionModal({
   };
 
   const handleConfirm = async () => {
-    if (!table) {
+    if (!table || isStartingRef.current) {
       return;
     }
+    isStartingRef.current = true;
 
     try {
       setLoading(true);
@@ -105,6 +108,7 @@ export function StartSessionModal({
         err instanceof Error ? err.message : 'Failed to assign table.',
       );
     } finally {
+      isStartingRef.current = false;
       setLoading(false);
     }
   };

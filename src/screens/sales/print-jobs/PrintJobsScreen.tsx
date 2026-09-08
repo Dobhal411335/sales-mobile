@@ -143,8 +143,12 @@ export function PrintJobsScreen({navigation, route}: Props) {
   }, [detail]);
 
   const handleRetry = useCallback(
-    (id: string) => {
-      retry(id);
+    async (id: string) => {
+      try {
+        await retry(id);
+      } catch {
+        // Handled by store actionMessage
+      }
     },
     [retry],
   );
@@ -166,9 +170,11 @@ export function PrintJobsScreen({navigation, route}: Props) {
         actionBusy={(actionBusy || reprinting) && item._id === selectedJobId}
         onPress={handleSelectJob}
         onView={() => {
-          selectJob(item._id).then(() => setPreviewOpen(true));
+          void selectJob(item._id).then(() => setPreviewOpen(true)).catch(() => {});
         }}
-        onRetry={(job) => handleRetry(job._id)}
+        onRetry={(job) => {
+          void handleRetry(job._id);
+        }}
         onPrintAgain={(job) => setReprintTarget(job)}
       />
     ),

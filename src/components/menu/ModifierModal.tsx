@@ -186,7 +186,7 @@ export function ModifierModal({
       });
     });
 
-    if (!hasVariants && addonEntries.length === 0) {
+    if (!hasVariants) {
       const price = product.price || 0;
       const tax = calculateItemTax(product, price, globalTaxes);
       const modifierParts = [
@@ -197,7 +197,7 @@ export function ModifierModal({
         ),
       ].filter(Boolean);
 
-      lines.push({
+      lines.unshift({
         cartId: nextCartId(),
         id: product.id,
         name: product.name,

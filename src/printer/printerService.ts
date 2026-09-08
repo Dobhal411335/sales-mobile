@@ -1,5 +1,6 @@
 import {config} from '../constants/config';
 import {
+  claimPrintJob,
   completePrintJob,
   fetchPrintJob,
   fetchPrinters,
@@ -56,6 +57,15 @@ export async function printJobById(
   }
 
   const {job, order, kotItems, restaurant, serverName, guestCount} = detailRes.data;
+
+  // Concurrency guard: Do not re-print jobs already marked printed or cancelled by another client
+  if (job?.status && job.status !== 'QUEUED') {
+    return {
+      success: true,
+      message: `Print job is already ${job.status.toLowerCase()}.`,
+      mode,
+    };
+  }
   const rawMerged = order
     ? {...job?.metadata, ...fallbackOrder, ...order}
     : (fallbackOrder || job?.metadata ? {...job?.metadata, ...fallbackOrder} : null);
@@ -88,6 +98,16 @@ export async function printJobById(
     };
   }
   
+  // Atomic claim to ensure only one device prints the job in multi-device setups
+  const claim = await claimPrintJob(jobId);
+  if (!claim.claimed) {
+    return {
+      success: true,
+      message: 'Print job already claimed or printed by another station.',
+      mode: 'native',
+    };
+  }
+
   const base64Data = buildTicketFromJob({
     job,
     order: mergedOrder,

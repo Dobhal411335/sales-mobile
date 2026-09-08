@@ -24,6 +24,29 @@ export function useOrderRealtime(
       onRemoteUpdateRef.current();
     };
 
+    const joinRoom = (socket: ReturnType<typeof socketClient.getInstance>) => {
+      if (!socket?.connected) {
+        return;
+      }
+      socket.emit('join', room);
+      for (const event of ORDER_EVENTS) {
+        socket.off(event, handleOrderEvent);
+        socket.on(event, handleOrderEvent);
+      }
+    };
+
+    const onConnect = () => {
+      if (cancelled) {
+        return;
+      }
+      const socket = socketClient.getInstance();
+      if (socket) {
+        joinRoom(socket);
+        // Sync any missed events upon reconnect
+        handleOrderEvent();
+      }
+    };
+
     const setup = async () => {
       await socketClient.connect();
       if (cancelled) {
@@ -31,13 +54,13 @@ export function useOrderRealtime(
       }
 
       const socket = socketClient.getInstance();
-      if (!socket?.connected) {
+      if (!socket) {
         return;
       }
 
-      socket.emit('join', room);
-      for (const event of ORDER_EVENTS) {
-        socket.on(event, handleOrderEvent);
+      socket.on('connect', onConnect);
+      if (socket.connected) {
+        joinRoom(socket);
       }
     };
 
@@ -47,6 +70,7 @@ export function useOrderRealtime(
       cancelled = true;
       const socket = socketClient.getInstance();
       if (socket) {
+        socket.off('connect', onConnect);
         for (const event of ORDER_EVENTS) {
           socket.off(event, handleOrderEvent);
         }

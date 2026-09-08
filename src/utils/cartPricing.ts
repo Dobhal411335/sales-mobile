@@ -32,26 +32,32 @@ export function buildCartTotals(
   _globalTaxes: TaxRate[] = [],
   discount?: AppliedDiscount | null,
 ): CartTotals {
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0);
+  const subtotal =
+    Math.round(
+      items.reduce((sum, item) => sum + item.price * item.qty, 0) * 100,
+    ) / 100;
   const rawTaxTotal = items.reduce((sum, item) => sum + item.tax * item.qty, 0);
 
   let discountTotal = 0;
   if (discount) {
-    discountTotal =
+    const rawDiscount =
       discount.type === 'percent'
         ? (subtotal * discount.value) / 100
         : Math.min(discount.value, subtotal);
+    discountTotal = Math.round(rawDiscount * 100) / 100;
   }
 
   const taxableRatio =
     subtotal > 0 ? Math.max(0, subtotal - discountTotal) / subtotal : 1;
   const taxTotal = Math.round(rawTaxTotal * taxableRatio * 100) / 100;
+  const total =
+    Math.round(Math.max(0, subtotal - discountTotal + taxTotal) * 100) / 100;
 
   return {
     subtotal,
     taxTotal,
     discountTotal,
-    total: Math.max(0, subtotal - discountTotal + taxTotal),
+    total,
   };
 }
 

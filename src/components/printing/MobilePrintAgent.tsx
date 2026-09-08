@@ -79,6 +79,10 @@ export function MobilePrintAgent() {
 
         processingRef.current.add(jobId);
         try {
+          // Stagger slightly (50-250ms) to prevent multi-device TCP port contention on the thermal printer
+          await new Promise<void>((resolve) =>
+            setTimeout(resolve, Math.floor(Math.random() * 200) + 50),
+          );
           await printJobById(jobId);
         } catch (err) {
           console.warn('[MobilePrintAgent] print failed:', err);

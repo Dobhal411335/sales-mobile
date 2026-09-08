@@ -1,4 +1,4 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -73,6 +73,7 @@ export function TableActionsSheet({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [adminReleaseOpen, setAdminReleaseOpen] = useState(false);
+  const actionBusyRef = useRef(false);
 
   const primaryTableId = session?.tableId ?? table?.id ?? '';
 
@@ -164,26 +165,32 @@ export function TableActionsSheet({
     action: 'RELEASE' | 'UPDATE_GUESTS' | 'TRANSFER' | 'RECONFIGURE',
     payload: UpdateTableSessionPayload = {},
   ) => {
-    if (!session) {
+    if (!session || actionBusyRef.current) {
       return;
     }
 
+    actionBusyRef.current = true;
     setLoading(true);
     setError(null);
-    const result = await updateTableSession(session.id, action, payload);
-    setLoading(false);
-
-    if (!result.success) {
-      if (result.requiresAdminOverride) {
-        setAdminReleaseOpen(true);
+    try {
+      const result = await updateTableSession(session.id, action, payload);
+      if (!result.success) {
+        if (result.requiresAdminOverride) {
+          setAdminReleaseOpen(true);
+          return;
+        }
+        setError(result.message || 'Action failed');
         return;
       }
-      setError(result.message || 'Action failed');
-      return;
-    }
 
-    onSessionUpdated();
-    onClose();
+      onSessionUpdated();
+      onClose();
+    } catch {
+      setError('Action failed');
+    } finally {
+      actionBusyRef.current = false;
+      setLoading(false);
+    }
   };
 
   const handleRelease = () => {
@@ -191,16 +198,16 @@ export function TableActionsSheet({
   };
 
   const handleAdminRelease = (reason: string) => {
-    if (!session) {
+    if (!session || actionBusyRef.current) {
       return;
     }
+    actionBusyRef.current = true;
     setLoading(true);
     updateTableSession(session.id, 'RELEASE', {
       adminOverride: true,
       releaseReason: reason,
     })
       .then((result) => {
-        setLoading(false);
         if (!result.success) {
           setError(result.message || 'Release failed');
           return;
@@ -210,8 +217,11 @@ export function TableActionsSheet({
         onClose();
       })
       .catch(() => {
-        setLoading(false);
         setError('Release failed');
+      })
+      .finally(() => {
+        actionBusyRef.current = false;
+        setLoading(false);
       });
   };
 

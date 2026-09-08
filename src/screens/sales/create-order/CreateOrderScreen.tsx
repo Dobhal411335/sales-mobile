@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -151,6 +151,9 @@ export function CreateOrderScreen({navigation, route}: Props) {
   const [isReprint, setIsReprint] = useState(false);
   const [reprinting, setReprinting] = useState(false);
 
+  const submittingRef = useRef(false);
+  const reprintingRef = useRef(false);
+
   const display = useOrderContextDisplay(orderNumber);
 
   const markDirty = useCallback(() => {
@@ -243,6 +246,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
         source?: string;
       } = {},
     ) => {
+      if (submittingRef.current) {
+        return;
+      }
+      submittingRef.current = true;
       setIsSubmitting(true);
       setSaving(true);
       try {
@@ -336,6 +343,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
         setPartyModalOpen(false);
         setStaffModalOpen(false);
       } finally {
+        submittingRef.current = false;
         setIsSubmitting(false);
         setSaving(false);
       }
@@ -474,6 +482,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
       toast.error('No order ID found to reprint');
       return;
     }
+    if (reprinting || reprintingRef.current) {
+      return;
+    }
+    reprintingRef.current = true;
     setReprinting(true);
     try {
       const printType = activePreviewMode === 'bar' ? 'BAR_RECEIPT' : 'KOT';
@@ -502,12 +514,14 @@ export function CreateOrderScreen({navigation, route}: Props) {
     } catch {
       toast.error('Network error reprinting ticket');
     } finally {
+      reprintingRef.current = false;
       setReprinting(false);
     }
   }, [
     kotReceiptOrder?.orderId,
     activeOrderId,
     ticketPrintJobId,
+    reprinting,
     activePreviewMode,
     resolvedKotItems,
     orderContext?.guestCount,

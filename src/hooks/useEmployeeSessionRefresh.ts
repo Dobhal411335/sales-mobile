@@ -1,11 +1,13 @@
 import {useEffect} from 'react';
 import {refreshSession} from '../services/authService';
 import {useAuthStore} from '../store/authStore';
+import {hasSessionTokens} from '../utils/secureStorage';
 
 const REFRESH_INTERVAL_MS = 45 * 60 * 1000;
 
 /**
  * Proactively refresh the employee session every 45 minutes (matches web).
+ * Fails safely: transient network drops do not log out active floor staff.
  */
 export function useEmployeeSessionRefresh(enabled = true): void {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -17,9 +19,22 @@ export function useEmployeeSessionRefresh(enabled = true): void {
     }
 
     const refresh = async () => {
-      const ok = await refreshSession();
-      if (!ok) {
-        await logout();
+      try {
+        const hasSession = await hasSessionTokens();
+        if (!hasSession) {
+          await logout();
+          return;
+        }
+
+        const ok = await refreshSession();
+        if (!ok) {
+          const stillHasTokens = await hasSessionTokens();
+          if (!stillHasTokens) {
+            await logout();
+          }
+        }
+      } catch {
+        // Network errors during proactive background refresh should not evict the user
       }
     };
 

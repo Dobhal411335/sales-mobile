@@ -6,9 +6,18 @@ import type {
   ProductHeadMapping,
   TaxRate,
 } from '../types/product';
-import {fetchMenuData} from '../services/menuService';
+import {fetchMenuData, type MenuData} from '../services/menuService';
 import {useCartStore} from '../store/cartStore';
 import {scoreMenuSearch} from '../utils/menuSearch';
+
+let cachedMenuData: MenuData | null = null;
+let cacheTimestamp = 0;
+const MENU_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
+
+export function invalidateMenuCache(): void {
+  cachedMenuData = null;
+  cacheTimestamp = 0;
+}
 
 interface UseMenuDataResult {
   categories: string[];
@@ -43,23 +52,46 @@ export function useMenuData(): UseMenuDataResult {
   const [error, setError] = useState<string | null>(null);
   const setGlobalTaxes = useCartStore((state) => state.setGlobalTaxes);
 
-  const loadMenu = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await fetchMenuData();
-      setCategories(data.categoryNames);
-      setProducts(data.products);
-      setHeads(data.heads);
-      setProductHeads(data.productHeads);
-      setGlobalTaxesState(data.globalTaxes);
-      setGlobalTaxes(data.globalTaxes);
-    } catch {
-      setError('Unable to load menu. Check your connection and try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [setGlobalTaxes]);
+  const loadMenu = useCallback(
+    async (force = false) => {
+      const isFresh =
+        cachedMenuData && Date.now() - cacheTimestamp < MENU_CACHE_TTL_MS;
+      if (!force && isFresh) {
+        const data = cachedMenuData!;
+        setCategories(data.categoryNames);
+        setProducts(data.products);
+        setHeads(data.heads);
+        setProductHeads(data.productHeads);
+        setGlobalTaxesState(data.globalTaxes);
+        setGlobalTaxes(data.globalTaxes);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        if (!cachedMenuData) {
+          setLoading(true);
+        }
+        setError(null);
+        const data = await fetchMenuData();
+        cachedMenuData = data;
+        cacheTimestamp = Date.now();
+        setCategories(data.categoryNames);
+        setProducts(data.products);
+        setHeads(data.heads);
+        setProductHeads(data.productHeads);
+        setGlobalTaxesState(data.globalTaxes);
+        setGlobalTaxes(data.globalTaxes);
+      } catch {
+        if (!cachedMenuData) {
+          setError('Unable to load menu. Check your connection and try again.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    },
+    [setGlobalTaxes],
+  );
 
   useEffect(() => {
     loadMenu();
@@ -158,6 +190,8 @@ export function useMenuData(): UseMenuDataResult {
     setActiveHead,
     setViewMode,
     setSearchQuery,
-    reload: loadMenu,
+    reload: () => {
+      void loadMenu(true);
+    },
   };
 }

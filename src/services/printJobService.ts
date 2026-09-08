@@ -248,6 +248,27 @@ export async function printTest(
   }
 }
 
+export async function claimPrintJob(
+  id: string,
+): Promise<{ success: boolean; claimed: boolean; message?: string }> {
+  if (!isApiConfigured()) {
+    return { success: false, claimed: false, message: getApiNotConfiguredMessage() };
+  }
+  try {
+    const res = await api.patch<{ success: boolean; data?: { claimed: boolean }; message?: string }>(
+      `/api/sales/print-jobs/${id}`,
+      { action: 'claim' },
+    );
+    return {
+      success: !!res.data.success,
+      claimed: !!res.data.data?.claimed,
+      message: res.data.message,
+    };
+  } catch {
+    return { success: false, claimed: false };
+  }
+}
+
 export async function fetchPrinters(): Promise<PrintersListResponse> {
   if (!isApiConfigured()) {
     return {success: false, message: getApiNotConfiguredMessage()};

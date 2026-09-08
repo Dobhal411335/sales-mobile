@@ -20,13 +20,29 @@ async function createSocket(): Promise<Socket | null> {
   }
 
   const cookie = await buildCookieHeader();
-  return io(config.API_BASE_URL, {
+  const socket = io(config.API_BASE_URL, {
     transports: ['websocket', 'polling'],
     autoConnect: false,
-    reconnectionAttempts: 5,
+    reconnection: true,
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    randomizationFactor: 0.5,
     extraHeaders: cookie ? {Cookie: cookie} : undefined,
   });
+
+  socket.io.on('reconnect_attempt', async () => {
+    try {
+      const freshCookie = await buildCookieHeader();
+      if (freshCookie && socket.io.opts.extraHeaders) {
+        socket.io.opts.extraHeaders.Cookie = freshCookie;
+      }
+    } catch {
+      // Keep existing header if build fails
+    }
+  });
+
+  return socket;
 }
 
 function refetchAfterReconnect(): void {

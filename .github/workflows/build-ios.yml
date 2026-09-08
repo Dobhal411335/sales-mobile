@@ -1,0 +1,130 @@
+name: Build iOS App
+
+on:
+  push:
+    branches: [ "main", "master" ]
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Backend API URL (injected into .env)'
+        required: true
+        default: 'https://sales.tastybitesrestaurant.com'
+      build_configuration:
+        description: 'Build Configuration'
+        required: true
+        default: 'Release'
+        type: choice
+        options:
+          - Release
+          - Debug
+
+jobs:
+  build-ios:
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Create .env Configuration
+        run: |
+          API_URL="${{ github.event.inputs.api_base_url || 'https://sales.tastybitesrestaurant.com' }}"
+          echo "Setting up .env with API_BASE_URL: $API_URL"
+          cat <<EOF > .env
+          API_BASE_URL=$API_URL
+          APP_NAME=Tasty Bites
+          APP_SUBTITLE=SALES POS
+          DEFAULT_PRINTER_PORT=9100
+          EOF
+          cat .env
+
+      - name: Install Node Dependencies
+        run: npm ci || npm install
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: ios/Pods
+          key: ${{ runner.os }}-pods-${{ hashFiles('ios/Podfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pods-
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update || pod install
+          cd ..
+
+      - name: Build iOS Device Binary (Unsigned .ipa)
+        run: |
+          CONFIG="${{ github.event.inputs.build_configuration || 'Release' }}"
+          cd ios
+          mkdir -p build/DerivedData
+
+          xcodebuild clean build \
+            -workspace TastyBitesMobile.xcworkspace \
+            -scheme TastyBitesMobile \
+            -configuration "$CONFIG" \
+            -sdk iphoneos \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+          # Package into .ipa
+          mkdir -p build/Payload
+          APP_PATH=$(find build/DerivedData/Build/Products -name "TastyBitesMobile.app" | head -n 1)
+          if [ -d "$APP_PATH" ]; then
+            cp -R "$APP_PATH" build/Payload/
+            cd build
+            zip -qr TastyBitesMobile.ipa Payload
+            rm -rf Payload
+            echo "Successfully generated TastyBitesMobile.ipa"
+          else
+            echo "TastyBitesMobile.app not found for device!"
+            exit 1
+          fi
+
+      - name: Build iOS Simulator Binary (.zip)
+        run: |
+          CONFIG="${{ github.event.inputs.build_configuration || 'Release' }}"
+          cd ios
+          mkdir -p build/SimulatorDerivedData
+
+          xcodebuild build \
+            -workspace TastyBitesMobile.xcworkspace \
+            -scheme TastyBitesMobile \
+            -configuration "$CONFIG" \
+            -sdk iphonesimulator \
+            -derivedDataPath build/SimulatorDerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+          SIM_APP_PATH=$(find build/SimulatorDerivedData/Build/Products -name "TastyBitesMobile.app" | head -n 1)
+          if [ -d "$SIM_APP_PATH" ]; then
+            cd "$(dirname "$SIM_APP_PATH")"
+            zip -qr "${GITHUB_WORKSPACE}/ios/build/TastyBitesMobile-Simulator.zip" "TastyBitesMobile.app"
+            echo "Successfully generated TastyBitesMobile-Simulator.zip"
+          else
+            echo "TastyBitesMobile.app not found for simulator!"
+          fi
+
+      - name: Upload iOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TastyBites-iOS-Build
+          path: |
+            ios/build/TastyBitesMobile.ipa
+            ios/build/TastyBitesMobile-Simulator.zip
+          retention-days: 14

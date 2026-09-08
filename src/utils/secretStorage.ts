@@ -16,8 +16,9 @@ function isKeychainAvailable(): boolean {
 }
 
 /**
- * Stores a secret value securely when Keychain is linked; otherwise falls back
- * to AsyncStorage so auth works before a native rebuild (less secure).
+ * Stores a secret value securely when Keychain is linked and functional;
+ * otherwise gracefully falls back to AsyncStorage so auth, session, and
+ * fingerprint storage continue working on sideloaded/unsigned devices (e.g. Sideloadly/AltStore/Simulator).
  */
 export async function getSecret(service: string): Promise<string | null> {
   if (isKeychainAvailable()) {
@@ -26,9 +27,10 @@ export async function getSecret(service: string): Promise<string | null> {
       if (credentials && typeof credentials.password === 'string') {
         return credentials.password;
       }
-      return null;
     } catch {
-      return null;
+      // Missing entitlement (errSecMissingEntitlement -34018) occurs on sideloaded iOS apps.
+      // Mark keychain unavailable for this session and fall back to AsyncStorage.
+      keychainAvailability = false;
     }
   }
 
@@ -41,11 +43,18 @@ export async function getSecret(service: string): Promise<string | null> {
 
 export async function setSecret(service: string, value: string): Promise<void> {
   if (isKeychainAvailable()) {
-    await Keychain.setGenericPassword('secret', value, {
-      service,
-      accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
-    });
-    return;
+    try {
+      await Keychain.setGenericPassword('secret', value, {
+        service,
+        accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+      });
+      return;
+    } catch {
+      // Sideloaded iOS apps (Sideloadly / free Apple ID / unsigned) lack keychain access entitlements
+      // causing Keychain.setGenericPassword to fail with errSecMissingEntitlement (-34018).
+      // Mark Keychain as unavailable and fall back to AsyncStorage so login and session never fail.
+      keychainAvailability = false;
+    }
   }
 
   await AsyncStorage.setItem(service, value);
@@ -56,9 +65,8 @@ export async function removeSecret(service: string): Promise<void> {
     try {
       await Keychain.resetGenericPassword({service});
     } catch {
-      // Ignore missing entries.
+      keychainAvailability = false;
     }
-    return;
   }
 
   try {
@@ -69,5 +77,5 @@ export async function removeSecret(service: string): Promise<void> {
 }
 
 export function usesKeychainStorage(): boolean {
-  return isKeychainAvailable();
+  return Boolean(isKeychainAvailable());
 }

@@ -11,7 +11,7 @@ on:
       api_base_url:
         description: 'Backend API URL (injected into .env)'
         required: true
-        default: 'https://sales.tastybitesrestaurant.com'
+        default: 'https://pos.tastybitesrestaurant.com'
       build_configuration:
         description: 'Build Configuration'
         required: true
@@ -23,12 +23,17 @@ on:
 
 jobs:
   build-ios:
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 60
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -36,9 +41,15 @@ jobs:
           node-version: 22
           cache: 'npm'
 
+      - name: Configure Xcode Node Environment
+        run: |
+          mkdir -p ios
+          echo "export NODE_BINARY=$(which node)" > ios/.xcode.env.local
+          cat ios/.xcode.env.local
+
       - name: Create .env Configuration
         run: |
-          API_URL="${{ github.event.inputs.api_base_url || 'https://sales.tastybitesrestaurant.com' }}"
+          API_URL="${{ github.event.inputs.api_base_url || 'https://pos.tastybitesrestaurant.com' }}"
           echo "Setting up .env with API_BASE_URL: $API_URL"
           cat <<EOF > .env
           API_BASE_URL=$API_URL

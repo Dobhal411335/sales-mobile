@@ -26,12 +26,12 @@ Both will be available to download directly from the **Actions** tab on your Git
 2. Click on the **Actions** tab at the top.
 3. In the left sidebar, click on **Build iOS App**.
 4. Click the **Run workflow** dropdown on the right:
-   - **Backend API URL**: Enter your live backend URL (e.g. `https://sales.tastybitesrestaurant.com` or your Vercel URL).
+   - **Backend API URL**: Enter your live backend URL (e.g. `https://pos.tastybitesrestaurant.com` or your Vercel URL).
    - **Build Configuration**: Choose `Release` (recommended) or `Debug`.
 5. Click the green **Run workflow** button.
 
 ### Option 2: Automatic Trigger on Git Push
-Whenever you push commits to the `main` or `master` branch of `sales-mobile`, the workflow triggers automatically and defaults to `https://sales.tastybitesrestaurant.com`.
+Whenever you push commits to the `main` or `master` branch of `sales-mobile`, the workflow triggers automatically and defaults to `https://pos.tastybitesrestaurant.com`.
 
 ---
 

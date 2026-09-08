@@ -7,7 +7,7 @@
  * - Android emulator: http://10.0.2.2:3000
  * - iOS simulator:    http://localhost:3000
  * - Physical device:  http://<your-lan-ip>:3000
- * - Production:       https://sales.tastybitesrestaurant.com
+ * - Production:       https://pos.tastybitesrestaurant.com
  *
  * Leave empty in .env to use mock data in services that support it.
  */

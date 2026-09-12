@@ -158,3 +158,93 @@ export async function sendRawToNetworkPrinter(
     }
   });
 }
+
+const DEFAULT_PROBE_TIMEOUT_MS = 5000;
+
+/**
+ * TCP connect-only reachability check (no ESC/POS bytes / no paper).
+ */
+export async function probeNetworkPrinter(
+  target: PrintTarget,
+  timeoutMs: number = DEFAULT_PROBE_TIMEOUT_MS,
+): Promise<NetworkPrintResult> {
+  let validated: {host: string; port: number};
+  try {
+    validated = validatePrintTarget(target);
+  } catch (err: unknown) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Invalid printer target',
+    };
+  }
+
+  const {host, port} = validated;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let client: ReturnType<typeof TcpSocket.createConnection> | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      if (client) {
+        try {
+          client.destroy();
+        } catch {
+          // ignore
+        }
+        client = null;
+      }
+    };
+
+    const finish = (result: NetworkPrintResult) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    };
+
+    timer = setTimeout(() => {
+      finish({
+        success: false,
+        host,
+        port,
+        error: `Printer connection timed out (${host}:${port})`,
+      });
+    }, timeoutMs);
+
+    try {
+      client = TcpSocket.createConnection({host, port}, () => {
+        finish({success: true, host, port});
+      });
+
+      client.on('error', (err: {message?: string}) => {
+        finish({
+          success: false,
+          host,
+          port,
+          error: err?.message || 'Printer connection failed',
+        });
+      });
+
+      client.on('timeout', () => {
+        finish({
+          success: false,
+          host,
+          port,
+          error: `Printer connection timed out (${host}:${port})`,
+        });
+      });
+    } catch (err: unknown) {
+      finish({
+        success: false,
+        host,
+        port,
+        error: err instanceof Error ? err.message : 'Failed to create TCP socket',
+      });
+    }
+  });
+}

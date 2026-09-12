@@ -6,7 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import {Eye, Printer, RotateCcw} from 'lucide-react-native';
+import {Eye, Printer, RotateCcw, X} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {PrintJob, PrintType} from '../../types/printJob';
 import {
@@ -26,6 +26,7 @@ interface PrintJobCardProps {
   onPress: (job: PrintJob) => void;
   onView?: (job: PrintJob) => void;
   onRetry?: (job: PrintJob) => void;
+  onCancel?: (job: PrintJob) => void;
   onPrintAgain?: (job: PrintJob) => void;
 }
 
@@ -60,12 +61,14 @@ export function PrintJobCard({
   onPress,
   onView,
   onRetry,
+  onCancel,
   onPrintAgain,
 }: PrintJobCardProps) {
   const orderNo = orderLabel(job);
   const table = tableLabel(job);
   const employee = employeeLabel(job.requestedBy);
   const isFailed = job.status === 'FAILED';
+  const isQueued = job.status === 'QUEUED';
 
   const isReprint = Boolean(
     job.parentPrintJobId ||
@@ -233,6 +236,34 @@ export function PrintJobCard({
               <>
                 <RotateCcw size={13} color={colors.error} strokeWidth={2.4} />
                 <Text style={styles.retryButtonText}>Retry</Text>
+              </>
+            )}
+          </Pressable>
+        ) : null}
+
+        {isQueued && onCancel ? (
+          <Pressable
+            style={({pressed}) => [
+              styles.actionButton,
+              styles.cancelButton,
+              pressed && styles.actionButtonPressed,
+              actionBusy && styles.actionButtonDisabled,
+            ]}
+            onPress={(event) => {
+              event.stopPropagation();
+              if (!actionBusy) {
+                onCancel(job);
+              }
+            }}
+            disabled={actionBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel queued print job">
+            {actionBusy ? (
+              <ActivityIndicator size="small" color={colors.textSecondary} />
+            ) : (
+              <>
+                <X size={13} color={colors.textSecondary} strokeWidth={2.4} />
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </>
             )}
           </Pressable>
@@ -411,6 +442,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: colors.error,
+  },
+  cancelButton: {
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  cancelButtonText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
   printAgainButton: {
     borderColor: '#FED7AA',

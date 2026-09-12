@@ -90,6 +90,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
   const resetFilters = usePrintJobStore((s) => s.resetFilters);
   const selectJob = usePrintJobStore((s) => s.selectJob);
   const retry = usePrintJobStore((s) => s.retry);
+  const cancel = usePrintJobStore((s) => s.cancel);
   const reprint = usePrintJobStore((s) => s.reprint);
   const clearActionMessage = usePrintJobStore((s) => s.clearActionMessage);
 
@@ -153,6 +154,17 @@ export function PrintJobsScreen({navigation, route}: Props) {
     [retry],
   );
 
+  const handleCancel = useCallback(
+    async (id: string) => {
+      try {
+        await cancel(id);
+      } catch {
+        // Handled by store actionMessage
+      }
+    },
+    [cancel],
+  );
+
   const handleConfirmReprint = useCallback(async () => {
     if (!reprintTarget) return;
     const targetId = reprintTarget._id;
@@ -175,10 +187,21 @@ export function PrintJobsScreen({navigation, route}: Props) {
         onRetry={(job) => {
           void handleRetry(job._id);
         }}
+        onCancel={(job) => {
+          void handleCancel(job._id);
+        }}
         onPrintAgain={(job) => setReprintTarget(job)}
       />
     ),
-    [selectedJobId, actionBusy, reprinting, handleSelectJob, selectJob, handleRetry],
+    [
+      selectedJobId,
+      actionBusy,
+      reprinting,
+      handleSelectJob,
+      selectJob,
+      handleRetry,
+      handleCancel,
+    ],
   );
 
   const previewContent = useMemo(() => {
@@ -309,6 +332,11 @@ export function PrintJobsScreen({navigation, route}: Props) {
         onRetry={
           selectedJob && selectedJob.status === 'FAILED'
             ? () => handleRetry(selectedJob._id)
+            : undefined
+        }
+        onCancel={
+          selectedJob && selectedJob.status === 'QUEUED'
+            ? () => handleCancel(selectedJob._id)
             : undefined
         }
         onPrintAgain={
@@ -592,6 +620,28 @@ export function PrintJobsScreen({navigation, route}: Props) {
                             />
                           ) : (
                             <Text style={styles.previewActionTextRetry}>Retry</Text>
+                          )}
+                        </Pressable>
+                      )}
+
+                      {detail.job.status === 'QUEUED' && (
+                        <Pressable
+                          style={({pressed}) => [
+                            styles.previewActionButton,
+                            pressed && styles.previewActionPressed,
+                            actionBusy && styles.previewActionDisabled,
+                          ]}
+                          onPress={() => handleCancel(detail.job._id)}
+                          disabled={actionBusy}
+                          accessibilityRole="button"
+                          accessibilityLabel="Cancel queued print job">
+                          {actionBusy ? (
+                            <ActivityIndicator
+                              size="small"
+                              color={colors.textSecondary}
+                            />
+                          ) : (
+                            <Text style={styles.previewActionText}>Cancel</Text>
                           )}
                         </Pressable>
                       )}

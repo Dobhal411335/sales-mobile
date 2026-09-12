@@ -3,6 +3,7 @@ import {
   fetchPrintJob,
   fetchPrintJobs,
   fetchPrinters,
+  cancelPrintJob,
   markPrintJobPrinted,
   printTest,
   reprintJob,
@@ -55,6 +56,7 @@ interface PrintJobState {
   selectJob: (id: string | null) => Promise<void>;
   fetchDetail: (id: string) => Promise<void>;
   retry: (id: string) => Promise<boolean>;
+  cancel: (id: string) => Promise<boolean>;
   reprint: (id: string) => Promise<{success: boolean; job?: PrintJob}>;
   markPrinted: (id: string) => Promise<boolean>;
   runPrintTest: (id: string) => Promise<boolean>;
@@ -274,6 +276,31 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
     set({
       actionBusy: false,
       actionMessage: response.message ?? 'Print job requeued.',
+    });
+    return true;
+  },
+
+  cancel: async (id) => {
+    if (get().actionBusy) {
+      return false;
+    }
+    set({actionBusy: true, actionMessage: null});
+    const response = await cancelPrintJob(id);
+    if (!response.success) {
+      set({
+        actionBusy: false,
+        actionMessage:
+          response.message ?? 'Unable to cancel this print job. Try again.',
+      });
+      return false;
+    }
+    await get().fetchList({silent: true});
+    if (get().selectedJobId === id) {
+      await get().fetchDetail(id);
+    }
+    set({
+      actionBusy: false,
+      actionMessage: response.message ?? 'Print job cancelled.',
     });
     return true;
   },

@@ -12,9 +12,10 @@ export type TastyBitesLogoVariant = 'full' | 'compact' | 'app-icon';
 export interface TastyBitesLogoProps {
   /**
    * Logo presentation variant.
-   * - 'full': Full vector branding with "RESTAURANT POS" (intended for Login, Splash, Auth screens)
-   * - 'compact': Compact badge logo without subtitle text (for headers and toolbars)
-   * - 'app-icon': Full app icon squircle badge (same asset as OS launcher)
+   * All variants use the same tastybites-mobile branding asset.
+   * - 'full': Large mark for Login, Splash, Auth screens
+   * - 'compact': Compact badge for headers and toolbars
+   * - 'app-icon': App icon squircle badge (same asset as OS launcher)
    * @default 'full'
    */
   variant?: TastyBitesLogoVariant;
@@ -45,8 +46,7 @@ export interface TastyBitesLogoProps {
   testID?: string;
 }
 
-const FULL_LOGO_SOURCE = require('../../assets/branding/tasty-bites-logo.png');
-const APP_ICON_SOURCE = require('../../assets/branding/tastybites-logo.png');
+const BRAND_LOGO_SOURCE = require('../../assets/branding/tastybites-mobile.png');
 
 const PRESET_SIZES: Record<Exclude<TastyBitesLogoSize, number>, number> = {
   small: 36,
@@ -75,11 +75,10 @@ export function TastyBitesLogo({
   testID = 'tasty-bites-logo',
 }: TastyBitesLogoProps) {
   const dimension = resolveDimension(size, variant);
-  const source = variant === 'full' ? FULL_LOGO_SOURCE : APP_ICON_SOURCE;
 
   return (
     <Image
-      source={source}
+      source={BRAND_LOGO_SOURCE}
       style={[
         styles.logo,
         {

@@ -1,12 +1,16 @@
 import {useEffect, useRef} from 'react';
 import {config} from '../../constants/config';
 import {socketClient} from '../../socket/socket';
-import {fetchPrinters} from '../../services/printJobService';
+import {
+  fetchPrinters,
+  reportPrinterProbeResult,
+} from '../../services/printJobService';
 import {
   isNetworkPrinter,
   printJobById,
   printerService,
 } from '../../printer/printerService';
+import {probeNetworkPrinter} from '../../printer/networkPrinter';
 import type {PrintJobEventPayload, PrinterConfig} from '../../types/printJob';
 
 /**
@@ -18,6 +22,7 @@ import type {PrintJobEventPayload, PrinterConfig} from '../../types/printJob';
 export function MobilePrintAgent() {
   const printersRef = useRef<PrinterConfig[]>([]);
   const processingRef = useRef<Set<string>>(new Set());
+  const probingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     let cancelled = false;
@@ -64,17 +69,28 @@ export function MobilePrintAgent() {
 
         if (processingRef.current.has(jobId)) return;
 
+        // Refresh so Turn Off/On is respected promptly
+        try {
+          const res = await fetchPrinters();
+          if (res.success && res.data) {
+            printersRef.current = res.data;
+          }
+        } catch {
+          // keep cached list
+        }
+
         // Check if we have an enabled network printer configured
         const target = payload?.printerTarget;
         const targetPrinter = printersRef.current.find(
           (p) =>
+            p.enabled !== false &&
             isNetworkPrinter(p) &&
             (p.target === target ||
               (payload?.printerId && String(p._id) === String(payload.printerId))),
         );
 
         if (!targetPrinter || !targetPrinter.host) {
-          return;
+          return; // turned off / missing — leave QUEUED
         }
 
         processingRef.current.add(jobId);
@@ -126,12 +142,74 @@ export function MobilePrintAgent() {
         }
       };
 
+      const onPrinterProbe = async (payload: {
+        printerId?: string;
+        host?: string;
+        port?: number;
+        connectionType?: string;
+        requestId?: string;
+      }) => {
+        const conn = String(payload?.connectionType || '').toUpperCase();
+        if (conn === 'USB') return;
+
+        const printerId = payload?.printerId;
+        if (!printerId) return;
+
+        const probeKey = payload.requestId || printerId;
+        if (probingRef.current.has(probeKey)) return;
+        probingRef.current.add(probeKey);
+
+        try {
+          const cached = printersRef.current.find(
+            (p) => String(p._id) === String(printerId),
+          );
+          const host = payload.host || cached?.host;
+          const port =
+            payload.port || cached?.port || config.DEFAULT_PRINTER_PORT;
+
+          if (!host) {
+            await reportPrinterProbeResult(printerId, {
+              reachable: false,
+              error: 'No host configured for probe',
+              source: 'mobile',
+              requestId: payload.requestId,
+            });
+            return;
+          }
+
+          const result = await probeNetworkPrinter({host, port});
+          await reportPrinterProbeResult(printerId, {
+            reachable: !!result.success,
+            error: result.error,
+            source: 'mobile',
+            requestId: payload.requestId,
+          });
+        } catch (err) {
+          console.warn('[MobilePrintAgent] probe failed:', err);
+          try {
+            await reportPrinterProbeResult(printerId, {
+              reachable: false,
+              error:
+                err instanceof Error ? err.message : 'Probe failed on mobile',
+              source: 'mobile',
+              requestId: payload.requestId,
+            });
+          } catch {
+            // ignore
+          }
+        } finally {
+          probingRef.current.delete(probeKey);
+        }
+      };
+
       socket.on('NEW_PRINT_JOB', onNewJob);
       socket.on('PRINTER_TEST', onPrinterTest);
+      socket.on('PRINTER_PROBE', onPrinterProbe);
 
       cleanupSocket = () => {
         socket.off('NEW_PRINT_JOB', onNewJob);
         socket.off('PRINTER_TEST', onPrinterTest);
+        socket.off('PRINTER_PROBE', onPrinterProbe);
         cleanupSocket = null;
       };
     };

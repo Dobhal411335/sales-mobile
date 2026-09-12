@@ -184,6 +184,32 @@ export async function retryPrintJob(id: string): Promise<PrintJobActionResponse>
   }
 }
 
+export async function cancelPrintJob(id: string): Promise<PrintJobActionResponse> {
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
+  }
+
+  try {
+    const res = await api.patch<PrintJobActionResponse>(
+      `/api/sales/print-jobs/${id}`,
+      {action: 'cancel'},
+    );
+    if (!res.data.success) {
+      return {
+        success: false,
+        message: res.data.message ?? 'Unable to cancel this print job.',
+      };
+    }
+    return res.data;
+  } catch (err: unknown) {
+    const status = (err as {response?: {status?: number}})?.response?.status;
+    return {
+      success: false,
+      message: mapApiError(status, 'Unable to cancel this print job.'),
+    };
+  }
+}
+
 export async function markPrintJobPrinted(
   id: string,
 ): Promise<PrintJobActionResponse> {
@@ -380,6 +406,54 @@ export async function completePrintJob(
     return {
       success: false,
       message: mapApiError(status, 'Unable to complete print job.'),
+    };
+  }
+}
+
+export interface ProbeResultResponse {
+  success: boolean;
+  data?: {
+    printerId?: string;
+    lastReachability?: unknown;
+    ignored?: boolean;
+    reason?: string;
+  };
+  message?: string;
+}
+
+export async function reportPrinterProbeResult(
+  printerId: string,
+  payload: {
+    reachable: boolean;
+    error?: string;
+    source?: 'mobile' | 'electron' | 'print-bridge';
+    requestId?: string;
+  },
+): Promise<ProbeResultResponse> {
+  if (!isApiConfigured()) {
+    return {success: false, message: getApiNotConfiguredMessage()};
+  }
+
+  try {
+    const res = await api.post<ProbeResultResponse>(
+      `/api/admin/printers/${printerId}/probe-result`,
+      {
+        reachable: !!payload.reachable,
+        error: payload.error || undefined,
+        source: payload.source || 'mobile',
+        requestId: payload.requestId || undefined,
+      },
+    );
+    return {
+      success: !!res.data.success,
+      data: res.data.data,
+      message: res.data.message,
+    };
+  } catch (err: unknown) {
+    const status = (err as {response?: {status?: number}})?.response?.status;
+    return {
+      success: false,
+      message: mapApiError(status, 'Unable to report printer probe result.'),
     };
   }
 }

@@ -13,6 +13,7 @@ import {
   Printer,
   RotateCcw,
   TriangleAlert,
+  X,
 } from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {
@@ -43,12 +44,17 @@ interface PrintJobDetailPanelProps {
   actionMessage?: string | null;
   onView?: () => void;
   onRetry?: () => void;
+  onCancel?: () => void;
   onPrintAgain?: () => void;
   onSelectOriginalJob?: (jobId: string) => void;
 }
 
 function canShowRetry(status: PrintJobStatus): boolean {
   return status === 'FAILED';
+}
+
+function canShowCancel(status: PrintJobStatus): boolean {
+  return status === 'QUEUED';
 }
 
 function DetailRow({
@@ -82,6 +88,7 @@ export function PrintJobDetailPanel({
   actionMessage,
   onView,
   onRetry,
+  onCancel,
   onPrintAgain,
   onSelectOriginalJob,
 }: PrintJobDetailPanelProps) {
@@ -269,6 +276,29 @@ export function PrintJobDetailPanel({
                 <View style={styles.btnRow}>
                   <RotateCcw size={15} color={colors.error} strokeWidth={2.4} />
                   <Text style={styles.btnRetryText}>Retry</Text>
+                </View>
+              )}
+            </Pressable>
+          )}
+
+          {canShowCancel(job.status) && onCancel && (
+            <Pressable
+              style={({pressed}) => [
+                styles.btnBase,
+                styles.btnCancel,
+                pressed && !actionBusy && styles.btnPressed,
+                actionBusy && styles.btnDisabled,
+              ]}
+              onPress={onCancel}
+              disabled={actionBusy || reprinting}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel queued print job">
+              {actionBusy ? (
+                <ActivityIndicator size="small" color={colors.textSecondary} />
+              ) : (
+                <View style={styles.btnRow}>
+                  <X size={15} color={colors.textSecondary} strokeWidth={2.4} />
+                  <Text style={styles.btnCancelText}>Cancel</Text>
                 </View>
               )}
             </Pressable>
@@ -639,6 +669,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.error,
+  },
+  btnCancel: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  btnCancelText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
   btnRow: {
     flexDirection: 'row',

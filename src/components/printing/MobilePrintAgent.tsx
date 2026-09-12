@@ -7,6 +7,7 @@ import {
 } from '../../services/printJobService';
 import {
   isNetworkPrinter,
+  pickNetworkPrinter,
   printJobById,
   printerService,
 } from '../../printer/printerService';
@@ -80,14 +81,10 @@ export function MobilePrintAgent() {
         }
 
         // Check if we have an enabled network printer configured
-        const target = payload?.printerTarget;
-        const targetPrinter = printersRef.current.find(
-          (p) =>
-            p.enabled !== false &&
-            isNetworkPrinter(p) &&
-            (p.target === target ||
-              (payload?.printerId && String(p._id) === String(payload.printerId))),
-        );
+        const targetPrinter = pickNetworkPrinter(printersRef.current, {
+          printerId: payload?.printerId,
+          printerTarget: payload?.printerTarget,
+        });
 
         if (!targetPrinter || !targetPrinter.host) {
           return; // turned off / missing — leave QUEUED

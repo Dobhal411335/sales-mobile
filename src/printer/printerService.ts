@@ -34,6 +34,42 @@ export function isNetworkPrinter(printer?: PrinterConfig | null): boolean {
 }
 
 /**
+ * Pick network printer for a job:
+ * - Prefer job.printerId when still enabled/printable
+ * - Exactly one enabled network printer → use it for any target
+ * - Multiple → match by printerTarget
+ */
+export function pickNetworkPrinter(
+  printers: PrinterConfig[],
+  opts: {
+    printerId?: string | null;
+    printerTarget?: PrinterConfig['target'] | string | null;
+  } = {},
+): PrinterConfig | null {
+  const enabledNet = (printers || []).filter((p) => isNetworkPrinter(p));
+  if (!enabledNet.length) return null;
+
+  const {printerId, printerTarget} = opts;
+
+  if (printerId) {
+    const byId = enabledNet.find((p) => String(p._id) === String(printerId));
+    if (byId) return byId;
+  }
+
+  if (enabledNet.length === 1) {
+    return enabledNet[0];
+  }
+
+  if (printerTarget) {
+    return (
+      enabledNet.find((p) => p.target === printerTarget) || null
+    );
+  }
+
+  return null;
+}
+
+/**
  * Executes direct network printing for a specific PrintJob ID.
  * Finds the configured network printer for the job's target, builds ESC/POS data,
  * transmits over TCP port 9100, and calls /complete API.
@@ -79,15 +115,10 @@ export async function printJobById(
   const printersRes = await fetchPrinters();
   const printers = printersRes.data || [];
 
-  // Match printer by job.printerId first, or by target
-  let targetPrinter = printers.find(
-    (p) => String(p._id) === String(job.printerId) && isNetworkPrinter(p),
-  );
-  if (!targetPrinter) {
-    targetPrinter = printers.find(
-      (p) => p.target === job.printerTarget && isNetworkPrinter(p),
-    );
-  }
+  const targetPrinter = pickNetworkPrinter(printers, {
+    printerId: job.printerId,
+    printerTarget: job.printerTarget,
+  });
 
   // If no network printer, it may be handled by Windows USB bridge
   if (!targetPrinter || !targetPrinter.host) {
@@ -207,11 +238,9 @@ export const printerService = {
     try {
       const printersRes = await fetchPrinters();
       const printers = printersRes.data || [];
-      const targetPrinter = printers.find(
-        (p) =>
-          (p.target === 'RECEIPT' || p.target === 'COUNTER') &&
-          isNetworkPrinter(p),
-      );
+      const targetPrinter =
+        pickNetworkPrinter(printers, {printerTarget: 'RECEIPT'}) ||
+        pickNetworkPrinter(printers, {printerTarget: 'COUNTER'});
 
       if (targetPrinter && targetPrinter.host) {
         const base64Data = buildReceiptTicket({

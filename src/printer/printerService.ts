@@ -3,12 +3,13 @@ import {
   claimPrintJob,
   completePrintJob,
   fetchPrintJob,
+  fetchPrintJobs,
   fetchPrinters,
   printTest,
 } from '../services/printJobService';
-import type {PrinterConfig} from '../types/printJob';
+import type {PrintJob, PrinterConfig} from '../types/printJob';
 import type {BillPrintPayload, KotPrintPayload, ReceiptOrder} from '../types/receipt';
-import {buildReceiptTicket, buildTestTicket, buildTicketFromJob} from './escpos';
+import {buildTestTicket, buildTicketFromJob} from './escpos';
 import {sendRawToNetworkPrinter} from './networkPrinter';
 
 export type PrintMode = 'backend' | 'mock' | 'native';
@@ -67,6 +68,59 @@ export function pickNetworkPrinter(
   }
 
   return null;
+}
+
+/**
+ * Drain QUEUED network print jobs (startup / resume / printer-back-online).
+ * Uses claim inside printJobById — safe for multi-device. Skips USB-only shops.
+ */
+export async function drainQueuedNetworkJobs(
+  processing?: Set<string>,
+): Promise<{attempted: number; printed: number}> {
+  const printersRes = await fetchPrinters();
+  const printers = printersRes.data || [];
+  const hasNetwork = printers.some((p) => isNetworkPrinter(p));
+  if (!hasNetwork) {
+    return {attempted: 0, printed: 0};
+  }
+
+  const listRes = await fetchPrintJobs({status: 'QUEUED', limit: 20});
+  const jobs: PrintJob[] = listRes.data || [];
+  if (!jobs.length) {
+    return {attempted: 0, printed: 0};
+  }
+
+  let attempted = 0;
+  let printed = 0;
+
+  for (const job of jobs) {
+    const jobId = String(job._id);
+    if (processing?.has(jobId)) continue;
+
+    const targetPrinter = pickNetworkPrinter(printers, {
+      printerId: job.printerId,
+      printerTarget: job.printerTarget,
+    });
+    if (!targetPrinter?.host) continue;
+
+    attempted += 1;
+    processing?.add(jobId);
+    try {
+      await new Promise<void>((resolve) =>
+        setTimeout(resolve, Math.floor(Math.random() * 200) + 50),
+      );
+      const result = await printJobById(jobId);
+      if (result.success && result.mode === 'native') {
+        printed += 1;
+      }
+    } catch (err) {
+      console.warn('[drainQueuedNetworkJobs] failed:', jobId, err);
+    } finally {
+      processing?.delete(jobId);
+    }
+  }
+
+  return {attempted, printed};
 }
 
 /**
@@ -178,6 +232,8 @@ export const printerService = {
 
   printJobById,
 
+  drainQueuedNetworkJobs,
+
   printKOT: async (
     _payload: KotPrintPayload,
     printJobId?: string | null,
@@ -223,68 +279,19 @@ export const printerService = {
       };
     }
 
-    if (printJobId) {
-      try {
-        const jobResult = await printJobById(printJobId, payload.order);
-        if (jobResult.success) {
-          return jobResult;
-        }
-      } catch {
-        // Fall back to direct network printing using payload
-      }
+    // Prefer the queued print-job path only (claim + complete). Do not
+    // bypass the queue with a direct ESC/POS write — that risks duplicates.
+    if (!printJobId) {
+      return {
+        success: false,
+        message:
+          'No print job ID. Use Reprint from Print Jobs or wait for the receipt job to queue.',
+        mode,
+      };
     }
 
-    // Direct network print fallback using payload.order
     try {
-      const printersRes = await fetchPrinters();
-      const printers = printersRes.data || [];
-      const targetPrinter =
-        pickNetworkPrinter(printers, {printerTarget: 'RECEIPT'}) ||
-        pickNetworkPrinter(printers, {printerTarget: 'COUNTER'});
-
-      if (targetPrinter && targetPrinter.host) {
-        const base64Data = buildReceiptTicket({
-          order:
-            payload.taxBreakdown && payload.order
-              ? {...payload.order, taxBreakdown: payload.taxBreakdown}
-              : payload.order,
-          restaurantName: payload.restaurantName,
-          serverName: payload.serverName,
-          guestCount: payload.guestCount,
-          isReprint: payload.isReprint,
-        });
-
-        const printResult = await sendRawToNetworkPrinter(
-          {
-            host: targetPrinter.host,
-            port: targetPrinter.port || config.DEFAULT_PRINTER_PORT,
-          },
-          base64Data,
-        );
-
-        if (printResult.success) {
-          if (printJobId) {
-            await completePrintJob(printJobId, true);
-          }
-          return {
-            success: true,
-            message: `Printed to ${targetPrinter.name} (${targetPrinter.host})`,
-            mode: 'native',
-          };
-        } else {
-          return {
-            success: false,
-            message: `Print failed (${targetPrinter.name}): ${printResult.error}`,
-            mode: 'native',
-          };
-        }
-      }
-
-      return {
-        success: true,
-        message: 'Receipt print queued for print bridge.',
-        mode: 'backend',
-      };
+      return await printJobById(printJobId, payload.order);
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : 'Receipt print error';
       return {

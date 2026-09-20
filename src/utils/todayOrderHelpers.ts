@@ -28,6 +28,21 @@ export function isOrderPaid(order: TodayOrder): boolean {
   return order?.paymentStatus === 'PAID' || order?.status === 'PAID';
 }
 
+const OPEN_ORDER_STATUSES = new Set(['PENDING', 'CONFIRMED']);
+
+/** Open unpaid order (same rules as Web walk-in/staff hubs + floor attention). */
+export function isOrderOpen(order: TodayOrder): boolean {
+  const status = String(order?.status || '').toUpperCase();
+  return OPEN_ORDER_STATUSES.has(status) && !isOrderPaid(order);
+}
+
+export function getOrderItemCount(order: TodayOrder): number {
+  return (order?.items || []).reduce(
+    (sum, item) => sum + (Number(item.qty) || 0),
+    0,
+  );
+}
+
 export interface PaymentTypeInfo {
   label: string;
   variant: 'unpaid' | 'waived' | 'card' | 'cash' | 'gift' | 'combo' | 'other';
@@ -331,18 +346,120 @@ export function getOrderTypeBadgeColors(variant: string) {
   }
 }
 
-export function canPayTodayOrder(order: TodayOrder): boolean {
-  const isOnline = order?.source === 'ONLINE';
+export function isOnlineOrder(order?: TodayOrder | null): boolean {
+  return order?.source === 'ONLINE';
+}
+
+export function canApproveOnline(order: TodayOrder): boolean {
   const orderStatusUpper = String(order?.status || '').toUpperCase();
   return (
-    !isOnline &&
+    isOnlineOrder(order) &&
+    orderStatusUpper === 'PENDING' &&
+    !isOrderPaid(order)
+  );
+}
+
+export function canSendOnlineKot(order: TodayOrder): boolean {
+  const orderStatusUpper = String(order?.status || '').toUpperCase();
+  return (
+    isOnlineOrder(order) &&
+    orderStatusUpper === 'CONFIRMED' &&
+    !order?.onlineKotSentAt &&
+    !isOrderPaid(order)
+  );
+}
+
+export function canMarkOnlineReady(order: TodayOrder): boolean {
+  const orderStatusUpper = String(order?.status || '').toUpperCase();
+  return (
+    isOnlineOrder(order) &&
+    orderStatusUpper === 'CONFIRMED' &&
+    Boolean(order?.onlineKotSentAt) &&
+    !order?.onlineReadyAt &&
+    !isOrderPaid(order)
+  );
+}
+
+export function canReprintOnlineKot(order: TodayOrder): boolean {
+  const orderStatusUpper = String(order?.status || '').toUpperCase();
+  return (
+    isOnlineOrder(order) &&
+    Boolean(order?.onlineKotSentAt) &&
+    !['CANCELLED', 'WAIVED'].includes(orderStatusUpper)
+  );
+}
+
+export function canPayOnline(order: TodayOrder): boolean {
+  const orderStatusUpper = String(order?.status || '').toUpperCase();
+  return (
+    isOnlineOrder(order) &&
+    (orderStatusUpper === 'COMPLETED' || Boolean(order?.onlineReadyAt)) &&
+    !isOrderPaid(order) &&
+    !['CANCELLED', 'WAIVED'].includes(orderStatusUpper)
+  );
+}
+
+export function canPayTodayOrder(order: TodayOrder): boolean {
+  if (isOnlineOrder(order)) {
+    return canPayOnline(order);
+  }
+  const orderStatusUpper = String(order?.status || '').toUpperCase();
+  return (
     !isOrderPaid(order) &&
     ['PENDING', 'CONFIRMED'].includes(orderStatusUpper)
   );
 }
 
 export function canWaiveOrder(order: TodayOrder): boolean {
+  if (isOnlineOrder(order)) {
+    return false;
+  }
   return canPayTodayOrder(order);
+}
+
+export interface OnlinePickupInfo {
+  date: string;
+  time: string;
+  label: string;
+  note: string;
+}
+
+export function parseOnlinePickup(
+  specialNote?: string | null,
+): OnlinePickupInfo | null {
+  if (!specialNote) {
+    return null;
+  }
+  const m = String(specialNote).match(
+    /\[PICKUP\s+(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2})\]/i,
+  );
+  if (!m) {
+    return null;
+  }
+  const [, date, time] = m;
+  const [hh, mm] = time.split(':').map(Number);
+  const period = hh >= 12 ? 'PM' : 'AM';
+  const h12 = hh % 12 || 12;
+  return {
+    date,
+    time,
+    label: `${h12}:${String(mm).padStart(2, '0')} ${period}`,
+    note: String(specialNote)
+      .replace(/\[PICKUP\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/i, '')
+      .trim(),
+  };
+}
+
+export function formatOnlinePhone(order: TodayOrder): string | null {
+  const phone = String(order.contactNumber || '').trim();
+  if (!phone) {
+    return null;
+  }
+  const code = String(order.guestCountryCode || '').trim();
+  if (code && !phone.startsWith('+')) {
+    return `${code} ${phone}`;
+  }
+  return phone;
 }
 
 export function getEmptyFilterMessage(filter: string): string {

@@ -2,15 +2,18 @@ import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {
   Bell,
+  CalendarDays,
   FileText,
   Lock,
   LogOut,
   Printer,
+  Settings2,
   TrendingUp,
 } from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import {useAuth} from '../../hooks/useAuth';
 import type {SalesStackParamList} from '../../navigation/types';
+import {canManagePrinters} from '../../utils/floorRoles';
 import {Popover} from './Popover';
 
 interface ProfileMenuProps {
@@ -24,10 +27,13 @@ const MENU_ITEMS: {
   label: string;
   screen: keyof SalesStackParamList;
   Icon: React.ComponentType<{size?: number; color?: string}>;
+  adminOnly?: boolean;
 }[] = [
   {label: 'EOD / Reports', screen: 'Reports', Icon: FileText},
   {label: 'Today Sales', screen: 'TodaySales', Icon: TrendingUp},
+  {label: 'Table Bookings', screen: 'Booking', Icon: CalendarDays},
   {label: 'Print Jobs', screen: 'PrintJobs', Icon: Printer},
+  {label: 'Printers', screen: 'PrintersSettings', Icon: Settings2},
   {label: 'Notifications', screen: 'Notifications', Icon: Bell},
   {label: 'Day Close', screen: 'DayClose', Icon: Lock},
 ];
@@ -38,17 +44,23 @@ export function ProfileMenu({
   employeeName,
   onNavigate,
 }: ProfileMenuProps) {
-  const {logout} = useAuth();
+  const {logout, user} = useAuth();
+  const role = user?.role;
+  const showPrinters = true; // status visible to all; edit gated in screen
 
   return (
     <Popover visible={visible} onClose={onClose} align="end" contentStyle={styles.menu}>
       <View style={styles.header}>
         <Text style={styles.name}>{employeeName}</Text>
-        <Text style={styles.role}>STAFF</Text>
+        <Text style={styles.role}>{String(role || 'STAFF').toUpperCase()}</Text>
       </View>
 
       <View style={styles.actions}>
-        {MENU_ITEMS.map((item) => {
+        {MENU_ITEMS.filter((item) => {
+          if (item.screen === 'PrintersSettings') return showPrinters;
+          if (item.adminOnly) return canManagePrinters(role);
+          return true;
+        }).map((item) => {
           const ItemIcon = item.Icon;
           return (
             <Pressable

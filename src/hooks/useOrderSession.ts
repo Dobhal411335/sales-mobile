@@ -20,11 +20,15 @@ import {
 } from '../utils/orderCartMapper';
 import {fetchOrderById, fetchOrderBySession} from '../services/orderService';
 import {fetchTableSession} from '../services/sessionService';
+import type {ApiOrder} from '../types/order';
 
 interface UseOrderSessionParams {
   orderType?: OrderType;
   tableId?: string;
   sessionId?: string;
+  orderId?: string;
+  staffId?: string;
+  fresh?: boolean;
 }
 
 function buildScopeKey(params: UseOrderSessionParams): string {
@@ -32,14 +36,65 @@ function buildScopeKey(params: UseOrderSessionParams): string {
     params.orderType ?? 'table',
     params.sessionId ?? '',
     params.tableId ?? '',
+    params.orderId ?? '',
+    params.staffId ?? '',
+    params.fresh ? 'fresh' : '',
   ].join(':');
+}
+
+function isInactiveDirectOrder(order: ApiOrder | null): boolean {
+  if (!order) {
+    return true;
+  }
+  const status = String(order.status || '').toUpperCase();
+  return (
+    status === 'PAID' ||
+    String(order.paymentStatus || '').toUpperCase() === 'PAID' ||
+    ['COMPLETED', 'CANCELLED', 'WAIVED'].includes(status)
+  );
+}
+
+function applyHydratedOrder(
+  order: ApiOrder,
+  hydrateFromOrder: ReturnType<typeof useCartStore.getState>['hydrateFromOrder'],
+) {
+  const hydrated = hydrateCartFromOrder(order);
+  hydrateFromOrder({
+    items: hydrated.items,
+    orderNumber: order.orderNumber,
+    orderId: order._id,
+    orderStatus: order.status,
+    orderNote: order.specialNote,
+    partyName: order.partyName,
+    guestName: order.guestName,
+    guestPhone: order.contactNumber ?? '',
+    guestCountryCode: order.guestCountryCode ?? '+1',
+    guestEmail: order.guestEmail ?? '',
+    staffForId: order.staffFor ? String(order.staffFor) : '',
+    staffOrderReason: order.staffOrderReason ?? '',
+    hasSentKot: hydrated.hasSentKot,
+    kotCartFingerprint: hydrated.kotCartFingerprint,
+    persistedTotals: hydrated.persistedTotals,
+    appliedDiscount: hydrated.appliedDiscount,
+    serverName: order.processedByName,
+  });
 }
 
 export function useOrderSession(params: UseOrderSessionParams) {
   const orderType = params.orderType;
   const tableId = params.tableId;
   const sessionId = params.sessionId;
-  const scopeKey = buildScopeKey({orderType, tableId, sessionId});
+  const resumeOrderId = params.orderId;
+  const staffId = params.staffId;
+  const fresh = Boolean(params.fresh);
+  const scopeKey = buildScopeKey({
+    orderType,
+    tableId,
+    sessionId,
+    orderId: resumeOrderId,
+    staffId,
+    fresh,
+  });
   const scopeRef = useRef<string | null>(null);
 
   const setOrderContext = useOrderStore((s) => s.setOrderContext);
@@ -51,6 +106,7 @@ export function useOrderSession(params: UseOrderSessionParams) {
 
   const resetOrderState = useCartStore((s) => s.resetOrderState);
   const hydrateFromOrder = useCartStore((s) => s.hydrateFromOrder);
+  const setPartyFields = useCartStore((s) => s.setPartyFields);
 
   const loadSession = useCallback(async () => {
     const routeParams = {orderType, tableId, sessionId};
@@ -58,6 +114,9 @@ export function useOrderSession(params: UseOrderSessionParams) {
     if (!config.API_BASE_URL) {
       const base = buildBaseOrderContext(routeParams);
       setOrderContext(base);
+      if (staffId) {
+        setPartyFields({staffForId: staffId});
+      }
       setLoading(false);
       return;
     }
@@ -91,24 +150,7 @@ export function useOrderSession(params: UseOrderSessionParams) {
 
         const order = await fetchOrderBySession(sessionId);
         if (order) {
-          const hydrated = hydrateCartFromOrder(order);
-          hydrateFromOrder({
-            items: hydrated.items,
-            orderNumber: order.orderNumber,
-            orderId: order._id,
-            orderStatus: order.status,
-            orderNote: order.specialNote,
-            partyName: order.partyName,
-            guestName: order.guestName,
-            guestPhone: order.contactNumber ?? '',
-            guestCountryCode: order.guestCountryCode ?? '+1',
-            guestEmail: order.guestEmail ?? '',
-            hasSentKot: hydrated.hasSentKot,
-            kotCartFingerprint: hydrated.kotCartFingerprint,
-            persistedTotals: hydrated.persistedTotals,
-            appliedDiscount: hydrated.appliedDiscount,
-            serverName: order.processedByName,
-          });
+          applyHydratedOrder(order, hydrateFromOrder);
           context.orderId = order._id;
         } else {
           resetOrderState();
@@ -121,21 +163,47 @@ export function useOrderSession(params: UseOrderSessionParams) {
 
       if (orderType === 'walking' || orderType === 'staff') {
         const storageKey = getDirectOrderStorageKey(orderType);
-        let order = null;
 
-        if (storageKey) {
+        if (fresh) {
+          if (storageKey) {
+            await clearDirectOrderId(storageKey);
+          }
+          resetOrderState();
+          if (staffId) {
+            setPartyFields({staffForId: staffId});
+          }
+          setOrderContext(base);
+          setDirty(false);
+          // Settle scope without fresh so clearing the route param does not re-wipe.
+          scopeRef.current = buildScopeKey({
+            orderType,
+            tableId,
+            sessionId,
+            orderId: resumeOrderId,
+            staffId,
+            fresh: false,
+          });
+          return;
+        }
+
+        let order: ApiOrder | null = null;
+        const preferredId = resumeOrderId || null;
+
+        if (preferredId) {
+          order = await fetchOrderById(preferredId);
+          if (isInactiveDirectOrder(order)) {
+            if (storageKey) {
+              await clearDirectOrderId(storageKey);
+            }
+            order = null;
+          } else if (order && storageKey) {
+            await setDirectOrderId(storageKey, order._id);
+          }
+        } else if (storageKey) {
           const storedOrderId = await getDirectOrderId(storageKey);
           if (storedOrderId) {
             order = await fetchOrderById(storedOrderId);
-            const isInactive =
-              !order ||
-              String(order.status || '').toUpperCase() === 'PAID' ||
-              String(order.paymentStatus || '').toUpperCase() === 'PAID' ||
-              ['COMPLETED', 'CANCELLED', 'WAIVED'].includes(
-                String(order.status || '').toUpperCase(),
-              );
-
-            if (isInactive) {
+            if (isInactiveDirectOrder(order)) {
               await clearDirectOrderId(storageKey);
               order = null;
             }
@@ -143,27 +211,13 @@ export function useOrderSession(params: UseOrderSessionParams) {
         }
 
         if (order) {
-          const hydrated = hydrateCartFromOrder(order);
-          hydrateFromOrder({
-            items: hydrated.items,
-            orderNumber: order.orderNumber,
-            orderId: order._id,
-            orderStatus: order.status,
-            orderNote: order.specialNote,
-            partyName: order.partyName,
-            guestName: order.guestName,
-            guestPhone: order.contactNumber ?? '',
-            guestCountryCode: order.guestCountryCode ?? '+1',
-            guestEmail: order.guestEmail ?? '',
-            hasSentKot: hydrated.hasSentKot,
-            kotCartFingerprint: hydrated.kotCartFingerprint,
-            persistedTotals: hydrated.persistedTotals,
-            appliedDiscount: hydrated.appliedDiscount,
-            serverName: order.processedByName,
-          });
+          applyHydratedOrder(order, hydrateFromOrder);
           base.orderId = order._id;
         } else {
           resetOrderState();
+          if (staffId) {
+            setPartyFields({staffForId: staffId});
+          }
         }
 
         setOrderContext(base);
@@ -188,6 +242,9 @@ export function useOrderSession(params: UseOrderSessionParams) {
     orderType,
     tableId,
     sessionId,
+    resumeOrderId,
+    staffId,
+    fresh,
     scopeKey,
     hydrateFromOrder,
     resetOrderState,
@@ -195,6 +252,7 @@ export function useOrderSession(params: UseOrderSessionParams) {
     setError,
     setLoading,
     setOrderContext,
+    setPartyFields,
     setRemoteUpdatePending,
     setSessionScopeKey,
   ]);
@@ -216,24 +274,7 @@ export function useOrderSession(params: UseOrderSessionParams) {
         if (!order) {
           return;
         }
-        const hydrated = hydrateCartFromOrder(order);
-        hydrateFromOrder({
-          items: hydrated.items,
-          orderNumber: order.orderNumber,
-          orderId: order._id,
-          orderStatus: order.status,
-          orderNote: order.specialNote,
-          partyName: order.partyName,
-          guestName: order.guestName,
-          guestPhone: order.contactNumber ?? '',
-          guestCountryCode: order.guestCountryCode ?? '+1',
-          guestEmail: order.guestEmail ?? '',
-          hasSentKot: hydrated.hasSentKot,
-          kotCartFingerprint: hydrated.kotCartFingerprint,
-          persistedTotals: hydrated.persistedTotals,
-          appliedDiscount: hydrated.appliedDiscount,
-          serverName: order.processedByName,
-        });
+        applyHydratedOrder(order, hydrateFromOrder);
         return;
       }
 
@@ -242,48 +283,31 @@ export function useOrderSession(params: UseOrderSessionParams) {
         return;
       }
 
-      const storedOrderId = await getDirectOrderId(storageKey);
+      const storedOrderId =
+        resumeOrderId || (await getDirectOrderId(storageKey));
       if (!storedOrderId) {
         return;
       }
 
       const order = await fetchOrderById(storedOrderId);
-      const isInactive =
-        !order ||
-        String(order.status || '').toUpperCase() === 'PAID' ||
-        String(order.paymentStatus || '').toUpperCase() === 'PAID' ||
-        ['COMPLETED', 'CANCELLED', 'WAIVED'].includes(
-          String(order.status || '').toUpperCase(),
-        );
-
-      if (isInactive) {
+      if (isInactiveDirectOrder(order)) {
         await clearDirectOrderId(storageKey);
         resetOrderState();
         return;
       }
 
-      const hydrated = hydrateCartFromOrder(order);
-      hydrateFromOrder({
-        items: hydrated.items,
-        orderNumber: order.orderNumber,
-        orderId: order._id,
-        orderStatus: order.status,
-        orderNote: order.specialNote,
-        partyName: order.partyName,
-        guestName: order.guestName,
-        guestPhone: order.contactNumber ?? '',
-        guestCountryCode: order.guestCountryCode ?? '+1',
-        guestEmail: order.guestEmail ?? '',
-        hasSentKot: hydrated.hasSentKot,
-        kotCartFingerprint: hydrated.kotCartFingerprint,
-        persistedTotals: hydrated.persistedTotals,
-        appliedDiscount: hydrated.appliedDiscount,
-        serverName: order.processedByName,
-      });
+      applyHydratedOrder(order!, hydrateFromOrder);
     } catch {
       // Silent refresh failure — employee can retry manually
     }
-  }, [orderType, sessionId, hydrateFromOrder, setRemoteUpdatePending]);
+  }, [
+    orderType,
+    sessionId,
+    resumeOrderId,
+    hydrateFromOrder,
+    resetOrderState,
+    setRemoteUpdatePending,
+  ]);
 
   const persistDirectOrderId = useCallback(
     async (orderId: string) => {

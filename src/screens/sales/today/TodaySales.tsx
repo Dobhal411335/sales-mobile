@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,13 +28,18 @@ import {
 } from 'lucide-react-native';
 import {SalesMetricCard} from '../../../components/common/SalesMetricCard';
 import {TabletModal} from '../../../components/common/TabletModal';
+import {toast} from '../../../components/common/Toast';
 import {OrderDetailPanel} from '../../../components/orders/OrderDetailPanel';
 import {OrderFilterChips} from '../../../components/orders/OrderFilterChips';
 import {TodayOrderCard} from '../../../components/orders/TodayOrderCard';
+import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
+import {PrintJobStatusStrip} from '../../../components/printing/PrintJobStatusStrip';
 import {colors} from '../../../constants/colors';
 import {useTodayOrders} from '../../../hooks/useTodayOrders';
 import type {SalesStackParamList, OrderType} from '../../../navigation/types';
+import {socketClient} from '../../../socket/socket';
 import type {TodayOrder, TodayOrderFilter} from '../../../types/todayOrder';
+import type {KotLineItem, ReceiptOrder} from '../../../types/receipt';
 import {
   getOrderLocationLabel,
   getOrderSessionId,
@@ -44,6 +49,7 @@ import {
 import {computeTodaySalesMetrics} from '../../../utils/todayOrderStats';
 import {
   getEmptyFilterMessage,
+  parseOnlinePickup,
   STATUS_RANK,
 } from '../../../utils/todayOrderHelpers';
 
@@ -72,6 +78,15 @@ function mapSourceToOrderType(source?: string): OrderType {
   }
 }
 
+function routeFilterToActive(
+  filter?: 'ONLINE' | 'ALL',
+): TodayOrderFilter {
+  if (filter === 'ONLINE') {
+    return 'ONLINE';
+  }
+  return 'All';
+}
+
 function filterOrders(
   orders: TodayOrder[],
   activeFilter: TodayOrderFilter,
@@ -98,7 +113,7 @@ function filterOrders(
 
       const placer = getPlacerName(order) || '';
       const typeLabel = getOrderTypeLabel(order);
-      const searchString = `${order.orderNumber || ''} ${order.tableNo || ''} ${order.guestName || ''} ${order.partyName || ''} ${order.source || ''} ${typeLabel} ${placer}`.toLowerCase();
+      const searchString = `${order.orderNumber || ''} ${order.tableNo || ''} ${order.guestName || ''} ${order.partyName || ''} ${order.source || ''} ${typeLabel} ${placer} ${order.contactNumber || ''} ${order.guestEmail || ''}`.toLowerCase();
       return searchString.includes(query);
     })
     .sort((a, b) => {
@@ -111,29 +126,120 @@ function filterOrders(
     });
 }
 
+function todayOrderToReceipt(order: TodayOrder): ReceiptOrder {
+  return {
+    orderNumber: order.orderNumber,
+    orderId: order._id,
+    tableNo: order.tableNo,
+    floorName: order.floorName,
+    guestName: order.guestName,
+    partyName: order.partyName,
+    guestCount: order.guestCount,
+    createdAt: order.createdAt,
+    specialNote: order.specialNote,
+    items: (order.items || []).map((item, index) => ({
+      cartId: `online-${order._id}-${index}`,
+      id: `online-${order._id}-${index}`,
+      name: item.name,
+      category: item.category || 'General',
+      price: item.price,
+      tax: 0,
+      qty: item.qty,
+      size: item.size,
+      preparationStyle: item.preparationStyle,
+      options: item.options,
+      productType: (item.productType as 'KITCHEN' | 'BAR' | undefined) || 'KITCHEN',
+    })),
+    subTotal: order.subTotal,
+    taxTotal: order.taxTotal,
+    discountTotal: order.discountTotal,
+    discountCode: order.discountCode,
+    totalAmount: order.totalAmount,
+    tipAmount: order.tipAmount,
+    source: order.source,
+    restaurantName: order.restaurantName,
+  };
+}
+
+function todayOrderToKotItems(order: TodayOrder): KotLineItem[] {
+  return (order.items || []).map((item) => ({
+    name: item.name,
+    qty: item.qty,
+    category: item.category,
+    size: item.size,
+    options: item.options,
+    preparationStyle: item.preparationStyle,
+  }));
+}
+
 function ListSeparator() {
   return <View style={styles.separator} />;
 }
 
-export function TodaySalesScreen({navigation}: Props) {
+export function TodaySalesScreen({navigation, route}: Props) {
   const {width} = useWindowDimensions();
   const isWide = width >= 900;
 
-  const {orders, loading, refreshing, error, refresh, waiveOrder} =
-    useTodayOrders();
+  const {
+    orders,
+    loading,
+    refreshing,
+    error,
+    actionOrderId,
+    refresh,
+    waiveOrder,
+    approveOnline,
+    sendKot,
+    markReady,
+  } = useTodayOrders();
 
-  const [activeFilter, setActiveFilter] = useState<TodayOrderFilter>('All');
+  const [activeFilter, setActiveFilter] = useState<TodayOrderFilter>(() =>
+    routeFilterToActive(route.params?.filter),
+  );
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [waiveModalVisible, setWaiveModalVisible] = useState(false);
   const [waiveReason, setWaiveReason] = useState('');
   const [waiving, setWaiving] = useState(false);
+  const [kotPreviewOpen, setKotPreviewOpen] = useState(false);
+  const [kotReceiptOrder, setKotReceiptOrder] = useState<ReceiptOrder | null>(
+    null,
+  );
+  const [kotItems, setKotItems] = useState<KotLineItem[]>([]);
+  const [kotPrintJobId, setKotPrintJobId] = useState<string | null>(null);
+  const [kotIsReprint, setKotIsReprint] = useState(false);
+
+  useEffect(() => {
+    setActiveFilter(routeFilterToActive(route.params?.filter));
+  }, [route.params?.filter]);
 
   useFocusEffect(
     useCallback(() => {
-      refresh({silent: true});
-    }, [refresh]),
+      setActiveFilter(routeFilterToActive(route.params?.filter));
+      void refresh({silent: true});
+    }, [refresh, route.params?.filter]),
   );
+
+  useEffect(() => {
+    const socket = socketClient.getInstance();
+    if (!socket) {
+      return;
+    }
+
+    const onOrderOrPaymentChange = () => {
+      refresh({silent: true});
+    };
+
+    socket.on('order:created', onOrderOrPaymentChange);
+    socket.on('order:updated', onOrderOrPaymentChange);
+    socket.on('payment:completed', onOrderOrPaymentChange);
+
+    return () => {
+      socket.off('order:created', onOrderOrPaymentChange);
+      socket.off('order:updated', onOrderOrPaymentChange);
+      socket.off('payment:completed', onOrderOrPaymentChange);
+    };
+  }, [refresh]);
 
   const filteredOrders = useMemo(
     () => filterOrders(orders, activeFilter, searchQuery),
@@ -148,6 +254,17 @@ export function TodaySalesScreen({navigation}: Props) {
   const metrics = useMemo(
     () => computeTodaySalesMetrics(orders, loading),
     [orders, loading],
+  );
+
+  const openKotPreview = useCallback(
+    (order: TodayOrder, printJobId?: string | null, isReprint = false) => {
+      setKotReceiptOrder(todayOrderToReceipt(order));
+      setKotItems(todayOrderToKotItems(order));
+      setKotPrintJobId(printJobId ?? null);
+      setKotIsReprint(isReprint);
+      setKotPreviewOpen(true);
+    },
+    [],
   );
 
   const handlePayNow = useCallback(() => {
@@ -167,8 +284,78 @@ export function TodaySalesScreen({navigation}: Props) {
       tableNumber: selectedOrder.tableNo,
       floorName: selectedOrder.floorName,
       orderNumber: selectedOrder.orderNumber,
+      paymentSeed: {
+        source: selectedOrder.source,
+        status: selectedOrder.status,
+        paymentStatus: selectedOrder.paymentStatus,
+        specialNote: selectedOrder.specialNote,
+        guestName: selectedOrder.guestName,
+        partyName: selectedOrder.partyName,
+        contactNumber: selectedOrder.contactNumber,
+        guestCountryCode: selectedOrder.guestCountryCode,
+        guestEmail: selectedOrder.guestEmail,
+        discountTotal: selectedOrder.discountTotal,
+        discountCode: selectedOrder.discountCode,
+        processedByName: selectedOrder.processedByName,
+        onlineKotSentAt: selectedOrder.onlineKotSentAt,
+        items: selectedOrder.items,
+      },
     });
   }, [navigation, selectedOrder]);
+
+  const handleApproveOnline = useCallback(async () => {
+    if (!selectedOrder) {
+      return;
+    }
+    const result = await approveOnline(selectedOrder._id);
+    if (!result.success) {
+      Alert.alert(
+        'Approve Failed',
+        result.message ?? 'Failed to approve online order.',
+      );
+      return;
+    }
+    toast.success('Online order approved. You can send KOT next.');
+  }, [approveOnline, selectedOrder]);
+
+  const handleSendOnlineKot = useCallback(async () => {
+    if (!selectedOrder) {
+      return;
+    }
+    const result = await sendKot(selectedOrder._id);
+    if (!result.success || !result.data) {
+      Alert.alert(
+        'KOT Failed',
+        result.message ?? 'Failed to create kitchen ticket.',
+      );
+      return;
+    }
+    toast.success('Kitchen ticket created. Mark ready when food is done.');
+    openKotPreview(result.data, result.data.kotJobId ?? null, false);
+    await refresh({silent: true});
+  }, [openKotPreview, refresh, selectedOrder, sendKot]);
+
+  const handleMarkOnlineReady = useCallback(async () => {
+    if (!selectedOrder) {
+      return;
+    }
+    const result = await markReady(selectedOrder._id);
+    if (!result.success) {
+      Alert.alert(
+        'Ready Failed',
+        result.message ?? 'Failed to mark order ready for pickup.',
+      );
+      return;
+    }
+    toast.success('Order marked ready for pickup.');
+  }, [markReady, selectedOrder]);
+
+  const handleReprintOnlineKot = useCallback(() => {
+    if (!selectedOrder) {
+      return;
+    }
+    openKotPreview(selectedOrder, null, true);
+  }, [openKotPreview, selectedOrder]);
 
   const handleWaiveConfirm = useCallback(async () => {
     if (!selectedOrder) {
@@ -193,6 +380,26 @@ export function TodaySalesScreen({navigation}: Props) {
         : 'Bill waived successfully.',
     );
   }, [selectedOrder, waiveOrder, waiveReason]);
+
+  const actionBusy =
+    Boolean(selectedOrder) && actionOrderId === selectedOrder?._id;
+
+  const detailPanel = selectedOrder ? (
+    <OrderDetailPanel
+      order={selectedOrder}
+      actionBusy={actionBusy}
+      onPayNow={handlePayNow}
+      onWaiveOff={() => {
+        setWaiveReason('');
+        setWaiveModalVisible(true);
+      }}
+      onApproveOnline={handleApproveOnline}
+      onSendOnlineKot={handleSendOnlineKot}
+      onMarkOnlineReady={handleMarkOnlineReady}
+      onReprintOnlineKot={handleReprintOnlineKot}
+      onClose={() => setSelectedOrderId(null)}
+    />
+  ) : null;
 
   const renderListContent = () => {
     if (loading) {
@@ -262,6 +469,11 @@ export function TodaySalesScreen({navigation}: Props) {
   };
 
   const cardsRowWidth = Math.max(width - 32, 820);
+  const kotGuestNote =
+    kotReceiptOrder?.specialNote != null
+      ? parseOnlinePickup(kotReceiptOrder.specialNote)?.note ||
+        kotReceiptOrder.specialNote
+      : undefined;
 
   return (
     <View style={styles.screen}>
@@ -350,17 +562,7 @@ export function TodaySalesScreen({navigation}: Props) {
 
         {isWide ? (
           <View style={styles.detailPane}>
-            {selectedOrder ? (
-              <OrderDetailPanel
-                order={selectedOrder}
-                onPayNow={handlePayNow}
-                onWaiveOff={() => {
-                  setWaiveReason('');
-                  setWaiveModalVisible(true);
-                }}
-                onClose={() => setSelectedOrderId(null)}
-              />
-            ) : (
+            {detailPanel ?? (
               <View style={styles.detailPlaceholder}>
                 <Text style={styles.detailPlaceholderTitle}>
                   Select an order
@@ -373,17 +575,7 @@ export function TodaySalesScreen({navigation}: Props) {
             )}
           </View>
         ) : selectedOrder ? (
-          <View style={styles.detailPaneNarrow}>
-            <OrderDetailPanel
-              order={selectedOrder}
-              onPayNow={handlePayNow}
-              onWaiveOff={() => {
-                setWaiveReason('');
-                setWaiveModalVisible(true);
-              }}
-              onClose={() => setSelectedOrderId(null)}
-            />
-          </View>
+          <View style={styles.detailPaneNarrow}>{detailPanel}</View>
         ) : null}
       </View>
 
@@ -436,6 +628,55 @@ export function TodaySalesScreen({navigation}: Props) {
           editable={!waiving}
         />
       </TabletModal>
+
+      <TabletModal
+        visible={kotPreviewOpen}
+        title={kotIsReprint ? 'Reprint Kitchen Ticket' : 'Kitchen Ticket'}
+        onClose={() => setKotPreviewOpen(false)}
+        maxWidth={920}
+        splitContent={
+          kotReceiptOrder
+            ? {
+                left: (
+                  <ReceiptPreview
+                    mode="kot"
+                    order={kotReceiptOrder}
+                    kotItems={kotItems}
+                    guestCount={kotReceiptOrder.guestCount}
+                    specialNote={kotGuestNote}
+                    isReprint={kotIsReprint}
+                  />
+                ),
+                right: (
+                  <View style={styles.kotActions}>
+                    <Text style={styles.kotActionsTitle}>KOT ACTIONS</Text>
+                    {kotReceiptOrder.orderNumber ? (
+                      <Text style={styles.kotMeta}>
+                        Order #{kotReceiptOrder.orderNumber}
+                      </Text>
+                    ) : null}
+                    {kotPrintJobId ? (
+                      <PrintJobStatusStrip
+                        printJobId={kotPrintJobId}
+                        label="Kitchen ticket print job"
+                      />
+                    ) : null}
+                    <Pressable
+                      style={({pressed}) => [
+                        styles.kotCloseButton,
+                        pressed && styles.buttonPressed,
+                      ]}
+                      onPress={() => setKotPreviewOpen(false)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Close KOT preview">
+                      <Text style={styles.kotCloseButtonText}>Close</Text>
+                    </Pressable>
+                  </View>
+                ),
+              }
+            : undefined
+        }
+      />
     </View>
   );
 }
@@ -664,5 +905,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: colors.text,
+  },
+  kotActions: {
+    flex: 1,
+    padding: 16,
+    gap: 12,
+  },
+  kotActionsTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    letterSpacing: 0.6,
+  },
+  kotMeta: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  kotCloseButton: {
+    marginTop: 24,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kotCloseButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.surface,
   },
 });

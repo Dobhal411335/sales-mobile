@@ -62,13 +62,25 @@ type Props = NativeStackScreenProps<SalesStackParamList, 'CreateOrder'>;
 
 export function CreateOrderScreen({navigation, route}: Props) {
   const {user: currentUser} = useAuth();
-  const {orderType, tableId, sessionId} = route.params ?? {};
+  const {orderType, tableId, sessionId, orderId, staffId, fresh} =
+    route.params ?? {};
 
   const {refetchOrder, persistDirectOrderId} = useOrderSession({
     orderType,
     tableId,
     sessionId,
+    orderId,
+    staffId,
+    fresh,
   });
+
+  useEffect(() => {
+    if (!fresh) {
+      return;
+    }
+    // Match web: drop fresh after the one-shot clear so remounts do not re-wipe.
+    navigation.setParams({fresh: undefined});
+  }, [fresh, navigation]);
 
   const {
     loading: sessionLoading,

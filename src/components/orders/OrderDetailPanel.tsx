@@ -1,5 +1,12 @@
 import React from 'react';
-import {Pressable, StyleSheet, Text, View, ScrollView} from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+} from 'react-native';
 import {colors} from '../../constants/colors';
 import type {TodayOrder, TodayOrderItem} from '../../types/todayOrder';
 import {formatCurrency} from '../../utils/currency';
@@ -12,18 +19,31 @@ import {
   shouldShowTable,
 } from '../../utils/orderDisplay';
 import {
+  canApproveOnline,
+  canMarkOnlineReady,
+  canPayOnline,
   canPayTodayOrder,
+  canReprintOnlineKot,
+  canSendOnlineKot,
   canWaiveOrder,
+  formatOnlinePhone,
   getOrderGrandTotal,
   getOrderTypeBadgeColors,
   getPaymentStatusColors,
   getStatusColors,
+  isOnlineOrder,
+  parseOnlinePickup,
 } from '../../utils/todayOrderHelpers';
 
 interface OrderDetailPanelProps {
   order: TodayOrder;
+  actionBusy?: boolean;
   onPayNow: () => void;
   onWaiveOff: () => void;
+  onApproveOnline?: () => void;
+  onSendOnlineKot?: () => void;
+  onMarkOnlineReady?: () => void;
+  onReprintOnlineKot?: () => void;
   onClose: () => void;
 }
 
@@ -45,14 +65,30 @@ function filterItemOptions(item: TodayOrderItem) {
 
 export function OrderDetailPanel({
   order,
+  actionBusy = false,
   onPayNow,
   onWaiveOff,
+  onApproveOnline,
+  onSendOnlineKot,
+  onMarkOnlineReady,
+  onReprintOnlineKot,
   onClose,
 }: OrderDetailPanelProps) {
   const placerName = getPlacerName(order);
   const orderStatusUpper = String(order.status || '').toUpperCase();
+  const online = isOnlineOrder(order);
+  const showApprove = canApproveOnline(order);
+  const showSendKot = canSendOnlineKot(order);
+  const showMarkReady = canMarkOnlineReady(order);
+  const showReprintKot = canReprintOnlineKot(order);
   const showPayNow = canPayTodayOrder(order);
   const showWaive = canWaiveOrder(order);
+  const payLabel = canPayOnline(order) ? 'Pay / Print Bill' : 'Pay Now';
+  const onlinePickup = online ? parseOnlinePickup(order.specialNote) : null;
+  const guestNote = online
+    ? onlinePickup?.note || null
+    : order.specialNote || null;
+  const phoneLabel = formatOnlinePhone(order);
   const statusColors = getStatusColors(order.status);
   const typeVariant = getOrderTypeBadgeVariant(order);
   const typeColors = getOrderTypeBadgeColors(typeVariant);
@@ -123,6 +159,19 @@ export function OrderDetailPanel({
               bold
             />
           )}
+          {online && phoneLabel ? (
+            <InfoRow label="Phone" value={phoneLabel} />
+          ) : null}
+          {online && order.guestEmail ? (
+            <InfoRow label="Email" value={order.guestEmail} />
+          ) : null}
+          {onlinePickup ? (
+            <InfoRow
+              label="Pickup"
+              value={`${onlinePickup.label} · ${onlinePickup.date}`}
+              bold
+            />
+          ) : null}
         </View>
 
         {order.source === 'STAFF' && order.staffOrderReason ? (
@@ -193,11 +242,11 @@ export function OrderDetailPanel({
           </View>
         ))}
 
-        {order.specialNote ? (
+        {guestNote ? (
           <>
             <View style={styles.divider} />
             <Text style={styles.sectionTitle}>Note</Text>
-            <Text style={styles.noteText}>{order.specialNote}</Text>
+            <Text style={styles.noteText}>{guestNote}</Text>
           </>
         ) : null}
 
@@ -231,6 +280,72 @@ export function OrderDetailPanel({
       </ScrollView>
 
       <View style={styles.actions}>
+        {showApprove ? (
+          <Pressable
+            style={({pressed}) => [
+              styles.approveButton,
+              pressed && styles.buttonPressed,
+              actionBusy && styles.buttonDisabled,
+            ]}
+            onPress={onApproveOnline}
+            disabled={actionBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Approve Online Order">
+            {actionBusy ? (
+              <ActivityIndicator color={colors.surface} />
+            ) : (
+              <Text style={styles.primaryActionText}>Approve Online Order</Text>
+            )}
+          </Pressable>
+        ) : null}
+        {showSendKot ? (
+          <Pressable
+            style={({pressed}) => [
+              styles.kotButton,
+              pressed && styles.buttonPressed,
+              actionBusy && styles.buttonDisabled,
+            ]}
+            onPress={onSendOnlineKot}
+            disabled={actionBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Create Kitchen KOT">
+            {actionBusy ? (
+              <ActivityIndicator color={colors.surface} />
+            ) : (
+              <Text style={styles.primaryActionText}>Create Kitchen / KOT</Text>
+            )}
+          </Pressable>
+        ) : null}
+        {showMarkReady ? (
+          <Pressable
+            style={({pressed}) => [
+              styles.readyButton,
+              pressed && styles.buttonPressed,
+              actionBusy && styles.buttonDisabled,
+            ]}
+            onPress={onMarkOnlineReady}
+            disabled={actionBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Mark Ready for Pickup">
+            {actionBusy ? (
+              <ActivityIndicator color={colors.surface} />
+            ) : (
+              <Text style={styles.primaryActionText}>Mark Ready for Pickup</Text>
+            )}
+          </Pressable>
+        ) : null}
+        {showReprintKot ? (
+          <Pressable
+            style={({pressed}) => [
+              styles.reprintButton,
+              pressed && styles.buttonPressed,
+            ]}
+            onPress={onReprintOnlineKot}
+            accessibilityRole="button"
+            accessibilityLabel="Reprint KOT">
+            <Text style={styles.reprintButtonText}>Reprint KOT</Text>
+          </Pressable>
+        ) : null}
         {showPayNow || showWaive ? (
           <View style={styles.actionsRow}>
             {showPayNow ? (
@@ -242,8 +357,8 @@ export function OrderDetailPanel({
                 ]}
                 onPress={onPayNow}
                 accessibilityRole="button"
-                accessibilityLabel="Pay Now">
-                <Text style={styles.payButtonText}>Pay Now</Text>
+                accessibilityLabel={payLabel}>
+                <Text style={styles.payButtonText}>{payLabel}</Text>
               </Pressable>
             ) : null}
             {showWaive ? (
@@ -569,6 +684,46 @@ const styles = StyleSheet.create({
   actionButtonFlex: {
     flex: 1,
   },
+  approveButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#059669',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kotButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  readyButton: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#0284C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reprintButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#93C5FD',
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reprintButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1E40AF',
+  },
+  primaryActionText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.surface,
+  },
   payButton: {
     minHeight: 48,
     borderRadius: 12,
@@ -607,5 +762,8 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.9,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
   },
 });

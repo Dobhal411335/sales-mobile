@@ -88,14 +88,26 @@ export interface PrintJob {
   updatedAt?: string;
 }
 
+export interface PrinterReachability {
+  status?: 'reachable' | 'unreachable' | 'unknown' | string | null;
+  checkedAt?: string | null;
+  error?: string | null;
+  source?: 'mobile' | 'electron' | 'print-bridge' | string | null;
+  requestId?: string | null;
+}
+
 export interface PrinterConfig {
   _id: string;
   name: string;
   target: PrinterTarget;
-  host?: string;
-  port?: number;
-  connectionType?: string;
+  type?: string;
+  host?: string | null;
+  port?: number | null;
+  connectionType?: string | null;
+  systemPrinterName?: string | null;
+  location?: string | null;
   enabled?: boolean;
+  lastReachability?: PrinterReachability | null;
 }
 
 export interface PrintJobRestaurant {

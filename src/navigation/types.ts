@@ -8,11 +8,16 @@ export type AuthStackParamList = {
 
 export type SalesStackParamList = {
   Floor: undefined;
+  WalkInHub: undefined;
+  StaffHub: undefined;
   CreateOrder:
     | {
         orderType?: OrderType;
         tableId?: string;
         sessionId?: string;
+        orderId?: string;
+        staffId?: string;
+        fresh?: boolean;
       }
     | undefined;
   Payment:
@@ -29,6 +34,32 @@ export type SalesStackParamList = {
         guestCount?: number;
         tableNumber?: string;
         floorName?: string;
+        /** Seed from Orders list so payment works even if orderId GET lags/excludes ONLINE */
+        paymentSeed?: {
+          source?: string;
+          status?: string;
+          paymentStatus?: string;
+          specialNote?: string;
+          guestName?: string;
+          partyName?: string;
+          contactNumber?: string;
+          guestCountryCode?: string;
+          guestEmail?: string;
+          discountTotal?: number;
+          discountCode?: string;
+          processedByName?: string;
+          onlineKotSentAt?: string;
+          items?: Array<{
+            name: string;
+            qty: number;
+            price: number;
+            size?: string;
+            preparationStyle?: string;
+            options?: string[];
+            productType?: string;
+            category?: string;
+          }>;
+        };
       }
     | undefined;
   Receipt: {
@@ -40,9 +71,11 @@ export type SalesStackParamList = {
     printJobId?: string | null;
   };
   Orders: {filter?: 'ONLINE' | 'ALL'} | undefined;
+  Booking: undefined;
   TodaySales: undefined;
   Reports: undefined;
   Notifications: undefined;
   PrintJobs: {jobId?: string} | undefined;
+  PrintersSettings: undefined;
   DayClose: undefined;
 };

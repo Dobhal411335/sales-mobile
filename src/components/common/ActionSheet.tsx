@@ -11,6 +11,7 @@ import {colors} from '../../constants/colors';
 interface ActionSheetOption {
   label: string;
   onPress: () => void;
+  badge?: number;
 }
 
 interface ActionSheetProps {
@@ -36,22 +37,36 @@ export function ActionSheet({
         <View style={styles.sheetWrap}>
           <Pressable style={styles.sheet} onPress={(event) => event.stopPropagation()}>
             <Text style={styles.title}>{title}</Text>
-            {options.map((option) => (
-              <Pressable
-                key={option.label}
-                style={({pressed}) => [
-                  styles.option,
-                  pressed && styles.optionPressed,
-                ]}
-                onPress={() => {
-                  onClose();
-                  option.onPress();
-                }}
-                accessibilityRole="button"
-                accessibilityLabel={option.label}>
-                <Text style={styles.optionText}>{option.label}</Text>
-              </Pressable>
-            ))}
+            {options.map((option) => {
+              const badge =
+                option.badge != null && option.badge > 0 ? option.badge : 0;
+              const badgeLabel = badge > 99 ? '99+' : String(badge);
+              return (
+                <Pressable
+                  key={option.label}
+                  style={({pressed}) => [
+                    styles.option,
+                    pressed && styles.optionPressed,
+                  ]}
+                  onPress={() => {
+                    onClose();
+                    option.onPress();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    badge > 0
+                      ? `${option.label}, ${badge} needing attention`
+                      : option.label
+                  }>
+                  <Text style={styles.optionText}>{option.label}</Text>
+                  {badge > 0 ? (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{badgeLabel}</Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              );
+            })}
             <Pressable
               style={({pressed}) => [
                 styles.cancelButton,
@@ -102,9 +117,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.cream,
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
     marginBottom: 10,
+    gap: 8,
   },
   optionPressed: {
     borderColor: colors.primary,
@@ -115,6 +133,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
     textAlign: 'center',
+  },
+  badge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.surface,
   },
   cancelButton: {
     minHeight: 52,

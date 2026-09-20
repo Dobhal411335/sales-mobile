@@ -101,8 +101,15 @@ export async function sendRawToNetworkPrinter(
     }, timeoutMs);
 
     try {
-      client = TcpSocket.createConnection({host, port}, () => {
+      client = TcpSocket.createConnection(
+        {host, port, connectTimeout: Math.min(timeoutMs, 8000)},
+        () => {
         if (!client || settled) return;
+        try {
+          client.setTimeout(timeoutMs);
+        } catch {
+          // ignore
+        }
         const writeCallback = (writeErr?: Error) => {
           if (writeErr) {
             finish({
@@ -129,7 +136,8 @@ export async function sendRawToNetworkPrinter(
         } else {
           client.write(data, undefined, writeCallback);
         }
-      });
+      },
+      );
 
       client.on('error', (err: {message?: string}) => {
         finish({
@@ -217,9 +225,12 @@ export async function probeNetworkPrinter(
     }, timeoutMs);
 
     try {
-      client = TcpSocket.createConnection({host, port}, () => {
+      client = TcpSocket.createConnection(
+        {host, port, connectTimeout: Math.min(timeoutMs, 5000)},
+        () => {
         finish({success: true, host, port});
-      });
+      },
+      );
 
       client.on('error', (err: {message?: string}) => {
         finish({

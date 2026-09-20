@@ -8,6 +8,7 @@ export const NOTIFICATION_TYPES = [
   'REFUND',
   'KOT_CREATED',
   'KOT_READY',
+  'NEW_RESERVATION',
   'TABLE_ASSIGNED',
   'TABLE_RELEASED',
   'TABLE_TRANSFERRED',
@@ -144,6 +145,7 @@ export function categorizeNotificationType(
       'TABLE_RELEASED',
       'TABLE_TRANSFERRED',
       'TABLE_REASSIGNED',
+      'NEW_RESERVATION',
     ].includes(type)
   ) {
     return 'Tables';

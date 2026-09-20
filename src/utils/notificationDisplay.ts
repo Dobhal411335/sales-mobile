@@ -27,6 +27,16 @@ export function notificationMetaLine(n: Notification): string {
     const table = String(n.metadata.tableNo).trim();
     parts.push(/^tables?\b/i.test(table) ? table : `Table ${table}`);
   }
+  if (n.type === 'NEW_RESERVATION') {
+    if (n.metadata?.guests) {
+      parts.push(
+        `${n.metadata.guests} guest${Number(n.metadata.guests) === 1 ? '' : 's'}`,
+      );
+    }
+    if (n.metadata?.time) {
+      parts.push(String(n.metadata.time));
+    }
+  }
   return parts.join(' • ');
 }
 

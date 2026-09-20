@@ -68,6 +68,8 @@ interface CartState extends PartyFields {
     guestPhone?: string;
     guestCountryCode?: string;
     guestEmail?: string;
+    staffForId?: string;
+    staffOrderReason?: string;
     hasSentKot: boolean;
     kotCartFingerprint: string | null;
     persistedTotals: CartTotals;
@@ -200,6 +202,8 @@ export const useCartStore = create<CartState>((set, get) => ({
       guestPhone: input.guestPhone ?? '',
       guestCountryCode: input.guestCountryCode ?? '+1',
       guestEmail: input.guestEmail ?? '',
+      staffForId: input.staffForId ?? '',
+      staffOrderReason: input.staffOrderReason ?? '',
       activeOrderId: input.orderId,
       orderNumber: input.orderNumber,
       orderStatus: input.orderStatus,

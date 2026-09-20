@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -16,8 +16,16 @@ import {config} from '../../constants/config';
 import {TastyBitesLogo} from '../branding/TastyBitesLogo';
 import {useAuth} from '../../hooks/useAuth';
 import type {SalesStackParamList} from '../../navigation/types';
+import {fetchPendingReservationCount} from '../../services/reservationService';
+import {fetchUnpaidOrderCount} from '../../services/todayOrdersService';
+import {socketClient} from '../../socket/socket';
 import {formatHeaderDateTime} from '../../utils/date';
-import {ChevronDown, Grid2X2, ShoppingBag} from 'lucide-react-native';
+import {
+  CalendarDays,
+  ChevronDown,
+  Grid2X2,
+  ShoppingBag,
+} from 'lucide-react-native';
 import {ProfileMenu} from './ProfileMenu';
 
 type SalesRouteName = keyof SalesStackParamList;
@@ -29,17 +37,64 @@ const PRIMARY_TABS: {
 }[] = [
   {label: 'Floor', route: 'Floor', Icon: Grid2X2},
   {label: 'Orders', route: 'Orders', Icon: ShoppingBag},
+  {label: 'Booking', route: 'Booking', Icon: CalendarDays},
 ];
 
 export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
   const {user} = useAuth();
   const [now, setNow] = useState(() => new Date());
   const [profileOpen, setProfileOpen] = useState(false);
+  const [pendingBookings, setPendingBookings] = useState(0);
+  const [unpaidOrders, setUnpaidOrders] = useState(0);
+
+  const refreshPendingCount = useCallback(async () => {
+    const result = await fetchPendingReservationCount();
+    if (result.success && result.data) {
+      setPendingBookings(Number(result.data.pendingCount) || 0);
+    }
+  }, []);
+
+  const refreshUnpaidCount = useCallback(async () => {
+    const result = await fetchUnpaidOrderCount();
+    if (result.success) {
+      setUnpaidOrders(Number(result.unpaidCount) || 0);
+    }
+  }, []);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    void refreshPendingCount();
+    void refreshUnpaidCount();
+  }, [refreshPendingCount, refreshUnpaidCount, route.name]);
+
+  useEffect(() => {
+    const socket = socketClient.getInstance();
+    if (!socket) {
+      return;
+    }
+    const onReservationChange = () => {
+      void refreshPendingCount();
+    };
+    const onOrderChange = () => {
+      void refreshUnpaidCount();
+    };
+    socket.on('reservation:created', onReservationChange);
+    socket.on('reservation:updated', onReservationChange);
+    socket.on('order:created', onOrderChange);
+    socket.on('order:updated', onOrderChange);
+    socket.on('payment:completed', onOrderChange);
+    return () => {
+      socket.off('reservation:created', onReservationChange);
+      socket.off('reservation:updated', onReservationChange);
+      socket.off('order:created', onOrderChange);
+      socket.off('order:updated', onOrderChange);
+      socket.off('payment:completed', onOrderChange);
+    };
+  }, [refreshPendingCount, refreshUnpaidCount]);
 
   const activeRoute = route.name as SalesRouteName;
 
@@ -63,6 +118,14 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
               const active = activeRoute === tab.route;
               const iconColor = active ? colors.surface : colors.textSecondary;
               const TabIcon = tab.Icon;
+              const bookingBadge =
+                tab.route === 'Booking' && pendingBookings > 0;
+              const ordersBadge =
+                tab.route === 'Orders' && unpaidOrders > 0;
+              const showBadge = bookingBadge || ordersBadge;
+              const badgeValue = bookingBadge ? pendingBookings : unpaidOrders;
+              const badgeLabel =
+                badgeValue > 99 ? '99+' : String(badgeValue);
               return (
                 <Pressable
                   key={tab.route}
@@ -78,11 +141,32 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
                   }}
                   accessibilityRole="button"
                   accessibilityState={{selected: active}}
-                  accessibilityLabel={tab.label}>
+                  accessibilityLabel={
+                    showBadge
+                      ? tab.route === 'Booking'
+                        ? `${tab.label}, ${pendingBookings} pending`
+                        : `${tab.label}, ${unpaidOrders} unpaid`
+                      : tab.label
+                  }>
                   <TabIcon size={14} color={iconColor} />
                   <Text style={[styles.tabText, active && styles.tabTextActive]}>
                     {tab.label}
                   </Text>
+                  {showBadge ? (
+                    <View
+                      style={[
+                        styles.tabBadge,
+                        active && styles.tabBadgeActive,
+                      ]}>
+                      <Text
+                        style={[
+                          styles.tabBadgeText,
+                          active && styles.tabBadgeTextActive,
+                        ]}>
+                        {badgeLabel}
+                      </Text>
+                    </View>
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -206,6 +290,26 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: colors.surface,
+  },
+  tabBadge: {
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabBadgeActive: {
+    backgroundColor: colors.surface,
+  },
+  tabBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.surface,
+  },
+  tabBadgeTextActive: {
+    color: colors.primary,
   },
   right: {
     flexDirection: 'row',

@@ -64,6 +64,7 @@ export function isSoundPlaybackAvailable(): boolean {
 
 const SOUND_TYPES = new Set([
   'NEW_ORDER',
+  'NEW_RESERVATION',
   'PAYMENT_COMPLETED',
   'KOT_READY',
   'PRINT_FAILED',

@@ -76,6 +76,8 @@ export function PaymentScreen({navigation, route}: Props) {
     floorName,
     subtotal: routeSubtotal,
     taxTotal: routeTaxTotal,
+    total: routeTotal,
+    paymentSeed,
   } = params;
 
   const [partyName, setPartyName] = useState(routePartyName || '');
@@ -150,12 +152,154 @@ export function PaymentScreen({navigation, route}: Props) {
 
       try {
         if (isPaymentApiConfigured()) {
-          const order = await fetchOrderById(activeOrderId);
+          let order: ApiOrder | null = null;
+          try {
+            order = await fetchOrderById(activeOrderId);
+          } catch {
+            order = null;
+          }
           if (cancelled) {
             return;
           }
 
           if (!order) {
+            // Fallback: today list includes ONLINE / COMPLETED that some orderId GETs used to miss
+            try {
+              const today = await fetchTodayOrders();
+              if (cancelled) {
+                return;
+              }
+              const match = today.data?.find(
+                (row) =>
+                  String(row._id) === String(activeOrderId) ||
+                  (routeOrderNumber &&
+                    String(row.orderNumber) === String(routeOrderNumber)),
+              );
+              if (match) {
+              if (
+                String(match.paymentStatus ?? '').toUpperCase() === 'PAID' ||
+                String(match.status ?? '').toUpperCase() === 'PAID'
+              ) {
+                const recovery = await fetchPaymentRecoveryState(String(match._id));
+                if (recovery.paid && recovery.order) {
+                  navigateToReceipt(recovery.order, recovery.printJobId);
+                  return;
+                }
+              }
+
+              if (match.items?.length || match.totalAmount != null) {
+                const cartItems = (match.items || []).map((item, idx) => ({
+                  id: `today-${idx}`,
+                  cartId: `today-${idx}`,
+                  name: item.name,
+                  productCode: '',
+                  category: item.category || 'ITEMS',
+                  price: item.price,
+                  tax: 0,
+                  serviceCharge: 0,
+                  qty: item.qty,
+                  size: item.size,
+                  preparationStyle: item.preparationStyle,
+                  options: item.options,
+                  productType:
+                    (item.productType as 'KITCHEN' | 'BAR' | undefined) ||
+                    'KITCHEN',
+                }));
+                const status = String(match.status || '').toUpperCase();
+                const hasSentKot =
+                  Boolean(match.onlineKotSentAt) ||
+                  ['PENDING', 'CONFIRMED', 'COMPLETED', 'PAID'].includes(status);
+                hydrateFromOrder({
+                  items: cartItems,
+                  orderNumber: match.orderNumber,
+                  orderId: match._id,
+                  orderStatus: match.status,
+                  orderNote: match.specialNote,
+                  partyName: match.partyName,
+                  guestName: match.guestName,
+                  guestPhone: match.contactNumber ?? '',
+                  guestCountryCode: match.guestCountryCode ?? '+1',
+                  guestEmail: match.guestEmail ?? '',
+                  hasSentKot,
+                  kotCartFingerprint: null,
+                  persistedTotals: {
+                    subtotal: match.subTotal ?? 0,
+                    taxTotal: match.taxTotal ?? 0,
+                    discountTotal: match.discountTotal ?? 0,
+                    total: match.totalAmount ?? 0,
+                  },
+                  appliedDiscount: null,
+                  serverName: match.processedByName,
+                });
+                setServerSubtotal(match.subTotal ?? 0);
+                setServerTaxTotal(match.taxTotal ?? 0);
+                if (match.partyName || match.guestName) {
+                  setPartyName(match.partyName || match.guestName || '');
+                }
+                setIsStaffOrder(match.source === 'STAFF');
+                setHydrating(false);
+                return;
+              }
+              }
+            } catch {
+              // Continue to paymentSeed
+            }
+
+            if (paymentSeed) {
+              const cartItems = (paymentSeed.items || []).map((item, idx) => ({
+                id: `seed-${idx}`,
+                cartId: `seed-${idx}`,
+                name: item.name,
+                productCode: '',
+                category: item.category || 'ITEMS',
+                price: item.price,
+                tax: 0,
+                serviceCharge: 0,
+                qty: item.qty,
+                size: item.size,
+                preparationStyle: item.preparationStyle,
+                options: item.options,
+                productType:
+                  (item.productType as 'KITCHEN' | 'BAR' | undefined) ||
+                  'KITCHEN',
+              }));
+              const status = String(paymentSeed.status || '').toUpperCase();
+              hydrateFromOrder({
+                items: cartItems,
+                orderNumber: routeOrderNumber || String(activeOrderId),
+                orderId: activeOrderId,
+                orderStatus: paymentSeed.status || 'PENDING',
+                orderNote: paymentSeed.specialNote,
+                partyName: paymentSeed.partyName,
+                guestName: paymentSeed.guestName,
+                guestPhone: paymentSeed.contactNumber ?? '',
+                guestCountryCode: paymentSeed.guestCountryCode ?? '+1',
+                guestEmail: paymentSeed.guestEmail ?? '',
+                hasSentKot:
+                  Boolean(paymentSeed.onlineKotSentAt) ||
+                  ['PENDING', 'CONFIRMED', 'COMPLETED', 'PAID'].includes(status),
+                kotCartFingerprint: null,
+                persistedTotals: {
+                  subtotal: routeSubtotal ?? 0,
+                  taxTotal: routeTaxTotal ?? 0,
+                  discountTotal: paymentSeed.discountTotal ?? 0,
+                  total: routeTotal ?? routeSubtotal ?? 0,
+                },
+                appliedDiscount: null,
+                serverName: paymentSeed.processedByName,
+              });
+              setServerSubtotal(routeSubtotal ?? 0);
+              setServerTaxTotal(routeTaxTotal ?? 0);
+              if (paymentSeed.partyName || paymentSeed.guestName) {
+                setPartyName(
+                  paymentSeed.partyName || paymentSeed.guestName || '',
+                );
+              }
+              setIsStaffOrder(paymentSeed.source === 'STAFF');
+              setHydrating(false);
+              return;
+            }
+
             const recovery = await fetchPaymentRecoveryState(activeOrderId);
             if (cancelled) {
               return;
@@ -263,7 +407,51 @@ export function PaymentScreen({navigation, route}: Props) {
         }
       } catch {
         if (!cancelled) {
-          setHydrateError('Unable to load order. Check your connection.');
+          if (paymentSeed && activeOrderId) {
+            const cartItems = (paymentSeed.items || []).map((item, idx) => ({
+              id: `seed-${idx}`,
+              cartId: `seed-${idx}`,
+              name: item.name,
+              productCode: '',
+              category: item.category || 'ITEMS',
+              price: item.price,
+              tax: 0,
+              serviceCharge: 0,
+              qty: item.qty,
+              size: item.size,
+              preparationStyle: item.preparationStyle,
+              options: item.options,
+              productType:
+                (item.productType as 'KITCHEN' | 'BAR' | undefined) || 'KITCHEN',
+            }));
+            hydrateFromOrder({
+              items: cartItems,
+              orderNumber: routeOrderNumber || String(activeOrderId),
+              orderId: activeOrderId,
+              orderStatus: paymentSeed.status || 'PENDING',
+              orderNote: paymentSeed.specialNote,
+              partyName: paymentSeed.partyName,
+              guestName: paymentSeed.guestName,
+              guestPhone: paymentSeed.contactNumber ?? '',
+              guestCountryCode: paymentSeed.guestCountryCode ?? '+1',
+              guestEmail: paymentSeed.guestEmail ?? '',
+              hasSentKot: true,
+              kotCartFingerprint: null,
+              persistedTotals: {
+                subtotal: routeSubtotal ?? 0,
+                taxTotal: routeTaxTotal ?? 0,
+                discountTotal: paymentSeed.discountTotal ?? 0,
+                total: routeTotal ?? routeSubtotal ?? 0,
+              },
+              appliedDiscount: null,
+              serverName: paymentSeed.processedByName,
+            });
+            setServerSubtotal(routeSubtotal ?? 0);
+            setServerTaxTotal(routeTaxTotal ?? 0);
+            setHydrateError('');
+          } else {
+            setHydrateError('Unable to load order. Check your connection.');
+          }
         }
       } finally {
         if (!cancelled) {
@@ -276,7 +464,17 @@ export function PaymentScreen({navigation, route}: Props) {
     return () => {
       cancelled = true;
     };
-  }, [resolvedOrderId, employees, hydrateFromOrder, navigateToReceipt]);
+  }, [
+    resolvedOrderId,
+    employees,
+    hydrateFromOrder,
+    navigateToReceipt,
+    paymentSeed,
+    routeOrderNumber,
+    routeSubtotal,
+    routeTaxTotal,
+    routeTotal,
+  ]);
 
   useEffect(() => {
     let cancelled = false;

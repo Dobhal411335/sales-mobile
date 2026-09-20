@@ -90,9 +90,11 @@ Optional `type` field (default `THERMAL`). Display name is `PrinterConfig.name`.
 
 ## 14. Printer connection type
 
-- **NETWORK/LAN & Wi-Fi:** Direct TCP port 9100 ESC/POS from Mobile app (`MobilePrintAgent` / `networkPrinter.ts`) and Electron desktop (`ElectronPrintAgent`). Recommended for production iOS & Android tablets.
-- **USB:** Windows local print-bridge (`127.0.0.1:9105`) → Spooler RAW → USB thermal (e.g. KPC307-UEWB). Used only when a Windows PC has a physical USB printer connected.
-- **BLUETOOTH:** reserved (not in Milestone 1)
+- **NETWORK/LAN & Wi-Fi (primary):** Direct TCP ESC/POS from Mobile (`MobilePrintAgent`) and Electron (`ElectronPrintAgent`). Recommended for production tablets.
+- **USB (secondary):** Windows local print-bridge (`127.0.0.1:9105`) → Spooler RAW. Used only when a Windows PC has a USB printer.
+- **BLUETOOTH:** reserved / not supported
+
+Sales agents load configs via `GET /api/sales/printers` (includes `lastReachability` for status UI).
 
 ## 15. Adapter architecture
 
@@ -138,13 +140,13 @@ All APIs scoped by authenticated `request.restaurant`. Printer configs and jobs 
 
 ---
 
-## Milestone 1 — USB print bridge (locked architecture)
+## Milestone 1 — USB print bridge (secondary path)
 
 ```
-Android App (Android Studio on Windows laptop)
-    ↓  HTTPS APIs only — NO USB printer libraries
+Android App / Electron
+    ↓  HTTPS APIs + Socket.IO
 Hostinger Next.js Backend
-    ↓  Existing PrintJob + idempotency
+    ↓  PrintJob + idempotency
 Socket.IO NEW_PRINT_JOB
     ↓
 Windows print-bridge on 127.0.0.1:9105 (same laptop as USB printer)
@@ -154,12 +156,11 @@ Windows Spooler RAW
 KPC307-UEWB USB Printer
 ```
 
-### Hard rules for Mobile
+### Hard rules for Mobile (USB)
 
 - **Do NOT** add Android USB printer SDKs or ESC/POS-over-USB from the app
 - **Do NOT** call `127.0.0.1:9105` from Android
-- Android only creates sales/orders and tracks print-job status via existing APIs/sockets
-- Physical print is solely the Windows print-bridge’s responsibility
+- USB physical print is solely the Windows print-bridge’s responsibility
 
 ### Printer registration example (USB receipt)
 
@@ -174,6 +175,38 @@ KPC307-UEWB USB Printer
 
 ---
 
+## Primary production path — Network / Wi‑Fi
+
+**Recommended restaurant layout:** Android Sales (Wi‑Fi) and KP307 (Wi‑Fi or Ethernet) on the same router. Windows Electron POS optional on the same LAN.
+
+### First-time setup (Admin / Manager)
+
+1. Connect KP307 to restaurant network (vendor Setting Tool / Wi‑Fi or LAN).
+2. Prefer a **DHCP reservation** for the printer IP.
+3. Open Tasty Bites Sales → Profile → **Printers**.
+4. Scan network (best effort) **or** enter IP manually + port (default `DEFAULT_PRINTER_PORT`, usually 9100).
+5. Test Print → assign purpose (Kitchen / Bar / Receipt) → Save.
+6. Confirm status shows **Online**.
+
+### Daily use
+
+1. Turn on router + printer + Android Sales.
+2. Login — `MobilePrintAgent` probes printers and drains any `QUEUED` jobs.
+3. Status Online → orders print automatically.
+4. Client does **not** re-enter IP daily.
+
+### Agent reliability
+
+- `MobilePrintAgent` / `ElectronPrintAgent` drain `QUEUED` jobs on mount, app resume / visibility, socket reconnect, and when a probe reports online.
+- Multi-device safety: atomic `claim` before TCP write.
+- Receipt reprint uses the print-job path only (no direct TCP bypass).
+
+### Status values
+
+`ONLINE` | `OFFLINE` | `CHECKING` | `UNKNOWN` — from TCP connect probe to `host:port`, not merely because an IP is saved.
+
+---
+
 ## BACKEND GAP: Mixed kitchen + bar orders
 
 If cart contains both kitchen and bar items, web sends **one** KOT to kitchen (entire ticket). No split into separate kitchen KOT + bar ticket in one POST. Mobile follows this behavior.
@@ -182,18 +215,17 @@ If cart contains both kitchen and bar items, web sends **one** KOT to kitchen (e
 
 1. Backend creates `QUEUED` print jobs after successful order/payment
 2. Socket emits `NEW_PRINT_JOB`
-3. **NETWORK/LAN / Wi-Fi (Production iPads & Android tablets):**
-   - Direct connection via raw TCP socket on port 9100 using `react-native-tcp-socket` (`networkPrinter.ts`).
-   - `MobilePrintAgent` background component mounted in `SalesNavigator` catches `NEW_PRINT_JOB` events.
-   - Generates ESC/POS bytes (`escpos.ts`), writes directly to `host:port` (e.g. `192.168.1.150:9100`), and calls `POST /api/sales/print-jobs/:id/complete`.
-   - **No Windows PC or print-bridge required.**
-4. **NETWORK/LAN (Electron Desktop):**
-   - Electron desktop (`ElectronPrintAgent`) uses Node `net.Socket()` to send TCP :9100, then calls `complete`.
-5. **USB (Windows Laptop only):**
-   - Local Windows `print-bridge` (`127.0.0.1:9105`) listens via Socket.IO, builds ESC/POS, sends Windows Spooler RAW to local USB queue, then calls `complete`.
-   - **Mobile does not talk to USB or call 127.0.0.1:9105.**
+3. **NETWORK/LAN / Wi-Fi (Production — primary):**
+   - Direct TCP via `react-native-tcp-socket` (`networkPrinter.ts`) / Electron `net.Socket`.
+   - Agents catch `NEW_PRINT_JOB`, drain backlog, build ESC/POS, write `host:port`, `POST .../complete`.
+   - **No Windows PC required for network printers.**
+4. **USB (Windows laptop — secondary):**
+   - Local Windows `print-bridge` → spooler RAW.
+   - Mobile/Electron skip USB jobs.
 
 Do not claim physical printing works without testing on restaurant hardware.
+
+See also: [`printer-hardware-test-matrix.md`](./printer-hardware-test-matrix.md).
 
 ---
 
@@ -220,4 +252,5 @@ After payment, optional UI releases session via `PUT /api/sales/sessions` with `
 | Payment | `processPayment` → `POST /api/sales/payments` |
 | Receipt | Preview from server response; track receipt `printJobId` |
 | Print retry | `retryPrintJob(printJobId)` |
-| Local printer | `PrinterService` backend mode — no fake success |
+| Printer setup | Profile → Printers (Admin/Manager edit; all staff see status) |
+| Local printer | Network TCP via `MobilePrintAgent` — no fake success |

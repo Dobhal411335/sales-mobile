@@ -9,11 +9,9 @@ import {
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem, ChoiceSelection} from '../../types/cart';
-import type {MenuProduct, TaxRate} from '../../types/product';
+import type {MenuProduct, ProductAddon, TaxRate} from '../../types/product';
 import {calculateItemTax, nextCartId} from '../../utils/cartPricing';
-import {
-  normalizeChoiceOptions,
-} from '../../utils/productChoices';
+import {normalizeChoiceOptions} from '../../utils/productChoices';
 import {formatCurrency} from '../../utils/currency';
 
 interface ModifierModalProps {
@@ -24,19 +22,42 @@ interface ModifierModalProps {
   onAdd: (items: CartLineItem[]) => void;
 }
 
+type AddonState = {
+  qty: number;
+  choicesByGroup: Record<number, string[]>;
+};
+
+function getAddonKey(addon: ProductAddon): string {
+  return String(addon.id || addon.name || '');
+}
+
+function buildAddonChoiceSelections(
+  addon: ProductAddon,
+  choicesByGroup: Record<number, string[]> = {},
+): ChoiceSelection[] {
+  return normalizeChoiceOptions(addon.choiceOptions)
+    .map((group, index) => ({
+      name: group.name,
+      subChoices: choicesByGroup[index] || [],
+    }))
+    .filter((group) => group.subChoices.length > 0);
+}
+
 function Stepper({
   value,
   onChange,
   label,
   price,
+  flat = false,
 }: {
   value: number;
   onChange: (next: number) => void;
   label: string;
   price?: number;
+  flat?: boolean;
 }) {
   return (
-    <View style={styles.stepperRow}>
+    <View style={[styles.stepperRow, flat && styles.stepperRowFlat]}>
       <View style={styles.stepperLabelWrap}>
         <Text style={styles.stepperLabel}>{label}</Text>
         {price !== undefined ? (
@@ -64,6 +85,29 @@ function Stepper({
   );
 }
 
+function ChoiceChip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={[styles.choiceChip, active && styles.choiceChipActive]}
+      onPress={onPress}
+      accessibilityRole="checkbox"
+      accessibilityState={{checked: active}}>
+      <View style={[styles.checkbox, active && styles.checkboxActive]}>
+        {active ? <Text style={styles.checkmark}>✓</Text> : null}
+      </View>
+      <Text style={styles.choiceChipText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function ModifierModal({
   visible,
   product,
@@ -71,12 +115,12 @@ export function ModifierModal({
   onClose,
   onAdd,
 }: ModifierModalProps) {
-  const [variantQtyBySize, setVariantQtyBySize] = useState<Record<string, number>>(
-    {},
-  );
-  const [addonQtyByName, setAddonQtyByName] = useState<Record<string, number>>(
-    {},
-  );
+  const [variantQtyBySize, setVariantQtyBySize] = useState<
+    Record<string, number>
+  >({});
+  const [addonStateByKey, setAddonStateByKey] = useState<
+    Record<string, AddonState>
+  >({});
   const [selectedStyle, setSelectedStyle] = useState('');
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
@@ -89,7 +133,7 @@ export function ModifierModal({
     }
     const stylesList = (product.preparationStyles || []).filter(Boolean);
     setVariantQtyBySize({});
-    setAddonQtyByName({});
+    setAddonStateByKey({});
     setSelectedChoices({});
     setSelectedStyle(stylesList.length === 1 ? stylesList[0] : '');
     setError(null);
@@ -110,6 +154,23 @@ export function ModifierModal({
           ? current.filter((value) => value !== subChoice)
           : [...current, subChoice],
       };
+    });
+  };
+
+  const setAddonQty = (addon: ProductAddon, qty: number) => {
+    const key = getAddonKey(addon);
+    const next = Math.max(0, Math.floor(qty));
+    setAddonStateByKey((prev) => {
+      const copy = {...prev};
+      if (next <= 0) {
+        delete copy[key];
+      } else {
+        copy[key] = {
+          qty: next,
+          choicesByGroup: copy[key]?.choicesByGroup || {},
+        };
+      }
+      return copy;
     });
   };
 
@@ -160,14 +221,21 @@ export function ModifierModal({
       });
     }
 
-    const addonEntries = Object.entries(addonQtyByName).filter(
-      ([, qty]) => qty > 0,
-    );
-
-    addonEntries.forEach(([addonName, qty]) => {
-      const addon = product.addons?.find((item) => item.name === addonName);
-      const price = addon?.price ?? 0;
+    (product.addons || []).forEach((addon) => {
+      const key = getAddonKey(addon);
+      const entry = addonStateByKey[key];
+      if (!entry || entry.qty <= 0) {
+        return;
+      }
+      const price = addon.price ?? 0;
       const tax = calculateItemTax(product, price, globalTaxes);
+      const addonChoiceSelections = buildAddonChoiceSelections(
+        addon,
+        entry.choicesByGroup,
+      );
+      const choiceParts = addonChoiceSelections.flatMap((group) =>
+        group.subChoices.map((value) => `${group.name}: ${value}`),
+      );
       lines.push({
         cartId: nextCartId(),
         id: product.id,
@@ -176,13 +244,16 @@ export function ModifierModal({
         category: product.category?.name || 'ITEMS',
         price,
         tax,
-        qty,
+        qty: entry.qty,
         size: 'Extra',
         productType: product.productType,
         taxes: product.taxes,
         preparationStyle: selectedStyle || null,
-        options: [addonName],
-        modifier: `Addons: ${addonName}`,
+        options: [addon.name],
+        addonChoiceSelections,
+        modifier: [`Addons: ${addon.name}`, ...choiceParts]
+          .filter(Boolean)
+          .join(' | '),
       });
     });
 
@@ -256,12 +327,19 @@ export function ModifierModal({
       onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.modal}>
-          <Text style={styles.title}>{product.name}</Text>
-          <Text style={styles.subtitle}>
-            {product.category?.name || 'Menu item'}
-          </Text>
+          <View style={styles.header}>
+            <Text style={styles.title}>
+              {product.productCode ? (
+                <Text style={styles.productCode}>{product.productCode} </Text>
+              ) : null}
+              {product.name}
+            </Text>
+            <Text style={styles.subtitle}>Select variations and extras</Text>
+          </View>
 
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.scrollContent}>
             {product.variants?.length ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Variants</Text>
@@ -285,60 +363,129 @@ export function ModifierModal({
             {stylesList.length ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Preparation</Text>
-                {stylesList.map((style) => {
-                  const active = selectedStyle === style;
-                  return (
-                    <Pressable
-                      key={style}
-                      style={[styles.choiceRow, active && styles.choiceRowActive]}
-                      onPress={() => setSelectedStyle(active ? '' : style)}
-                      accessibilityRole="button"
-                      accessibilityState={{selected: active}}>
-                      <Text style={styles.choiceText}>{style}</Text>
-                    </Pressable>
-                  );
-                })}
+                <View style={styles.choiceGrid}>
+                  {stylesList.map((style) => {
+                    const active = selectedStyle === style;
+                    return (
+                      <ChoiceChip
+                        key={style}
+                        label={style}
+                        active={active}
+                        onPress={() => setSelectedStyle(active ? '' : style)}
+                      />
+                    );
+                  })}
+                </View>
               </View>
             ) : null}
 
             {choiceGroups.map((group) => (
               <View key={group.name} style={styles.section}>
                 <Text style={styles.sectionTitle}>{group.name}</Text>
-                {group.subChoices.map((subChoice) => {
-                  const active = (selectedChoices[group.name] || []).includes(
-                    subChoice,
-                  );
-                  return (
-                    <Pressable
-                      key={subChoice}
-                      style={[styles.choiceRow, active && styles.choiceRowActive]}
-                      onPress={() => toggleChoice(group.name, subChoice)}
-                      accessibilityRole="button"
-                      accessibilityState={{selected: active}}>
-                      <Text style={styles.choiceText}>{subChoice}</Text>
-                    </Pressable>
-                  );
-                })}
+                <View style={styles.choiceGrid}>
+                  {group.subChoices.map((subChoice) => {
+                    const active = (selectedChoices[group.name] || []).includes(
+                      subChoice,
+                    );
+                    return (
+                      <ChoiceChip
+                        key={subChoice}
+                        label={subChoice}
+                        active={active}
+                        onPress={() => toggleChoice(group.name, subChoice)}
+                      />
+                    );
+                  })}
+                </View>
               </View>
             ))}
 
             {product.addons?.length ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Extras</Text>
-                {product.addons.map((addon) => (
-                  <Stepper
-                    key={addon.name}
-                    label={addon.name}
-                    price={addon.price}
-                    value={addonQtyByName[addon.name] || 0}
-                    onChange={(qty) =>
-                      setAddonQtyByName((prev) => ({
-                        ...prev,
-                        [addon.name]: qty,
-                      }))
-                    }
-                  />
-                ))}
+                {product.addons.map((addon) => {
+                  const addonKey = getAddonKey(addon);
+                  const entry = addonStateByKey[addonKey];
+                  const qty = entry?.qty || 0;
+                  const choicesByGroup = entry?.choicesByGroup || {};
+                  const addonChoiceGroups = normalizeChoiceOptions(
+                    addon.choiceOptions,
+                  );
+                  const active = qty > 0;
+
+                  return (
+                    <View
+                      key={addonKey}
+                      style={[
+                        styles.addonCard,
+                        active && styles.addonCardActive,
+                      ]}>
+                      <Stepper
+                        label={addon.name}
+                        price={addon.price}
+                        value={qty}
+                        flat
+                        onChange={(nextQty) => setAddonQty(addon, nextQty)}
+                      />
+
+                      {qty > 0 && addonChoiceGroups.length > 0 ? (
+                        <View style={styles.addonChoices}>
+                          {addonChoiceGroups.map((group, groupIndex) => (
+                            <View
+                              key={`${addonKey}-${group.name}-${groupIndex}`}
+                              style={styles.addonChoiceGroup}>
+                              <Text style={styles.addonChoiceTitle}>
+                                {group.name}
+                              </Text>
+                              <View style={styles.choiceGrid}>
+                                {group.subChoices.map((choice) => {
+                                  const selected = (
+                                    choicesByGroup[groupIndex] || []
+                                  ).includes(choice);
+                                  return (
+                                    <ChoiceChip
+                                      key={`${addonKey}-${group.name}-${choice}`}
+                                      label={choice}
+                                      active={selected}
+                                      onPress={() => {
+                                        setAddonStateByKey((prev) => {
+                                          const current = prev[addonKey];
+                                          if (!current || current.qty <= 0) {
+                                            return prev;
+                                          }
+                                          const list =
+                                            current.choicesByGroup?.[
+                                              groupIndex
+                                            ] || [];
+                                          const nextChoices = list.includes(
+                                            choice,
+                                          )
+                                            ? list.filter((v) => v !== choice)
+                                            : [...list, choice];
+                                          return {
+                                            ...prev,
+                                            [addonKey]: {
+                                              ...current,
+                                              choicesByGroup: {
+                                                ...(current.choicesByGroup ||
+                                                  {}),
+                                                [groupIndex]: nextChoices,
+                                              },
+                                            },
+                                          };
+                                        });
+                                      }}
+                                    />
+                                  );
+                                })}
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
               </View>
             ) : null}
 
@@ -377,7 +524,7 @@ const styles = StyleSheet.create({
   },
   modal: {
     width: '100%',
-    maxWidth: 520,
+    maxWidth: 560,
     maxHeight: '85%',
     backgroundColor: colors.surface,
     borderRadius: 16,
@@ -385,36 +532,44 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     overflow: 'hidden',
   },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: '#FAFAFA',
+  },
   title: {
     fontSize: 20,
     fontWeight: '800',
     color: colors.text,
-    paddingHorizontal: 20,
-    paddingTop: 20,
+  },
+  productCode: {
+    color: colors.primary,
+    fontWeight: '800',
   },
   subtitle: {
+    marginTop: 4,
     fontSize: 13,
     fontWeight: '600',
     color: colors.textSecondary,
-    paddingHorizontal: 20,
-    paddingBottom: 12,
   },
   scroll: {
-    maxHeight: 420,
+    maxHeight: 460,
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 12,
   },
   section: {
-    marginBottom: 16,
+    marginBottom: 18,
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    color: colors.text,
     marginBottom: 8,
   },
   stepperRow: {
@@ -424,11 +579,16 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    marginBottom: 8,
+    marginBottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     backgroundColor: colors.cream,
+  },
+  stepperRowFlat: {
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
   },
   stepperLabelWrap: {
     flex: 1,
@@ -451,8 +611,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   stepperButton: {
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
@@ -461,7 +621,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   stepperButtonText: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     color: colors.text,
   },
@@ -472,23 +632,80 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.text,
   },
-  choiceRow: {
-    minHeight: 44,
+  choiceGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  choiceChip: {
+    minWidth: '30%',
+    flexGrow: 1,
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 10,
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    marginBottom: 8,
-    backgroundColor: colors.cream,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: colors.surface,
   },
-  choiceRowActive: {
+  choiceChipActive: {
     borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
+    backgroundColor: '#FFF7ED',
   },
-  choiceText: {
-    fontSize: 15,
-    fontWeight: '600',
+  checkbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  checkboxActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  checkmark: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  choiceChipText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  addonCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginBottom: 10,
+    backgroundColor: colors.surface,
+  },
+  addonCardActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF7ED',
+  },
+  addonChoices: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    gap: 12,
+  },
+  addonChoiceGroup: {
+    gap: 8,
+  },
+  addonChoiceTitle: {
+    fontSize: 12,
+    fontWeight: '800',
     color: colors.text,
   },
   errorText: {

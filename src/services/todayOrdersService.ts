@@ -5,6 +5,7 @@ import {
   updateMockOrder,
 } from '../mocks/todayOrdersMockData';
 import type {
+  OnlineOrderActionResponse,
   TodayOrder,
   TodayOrdersResponse,
   WaiveOrderResponse,
@@ -90,7 +91,17 @@ function normalizeTodayOrder(raw: Record<string, unknown>): TodayOrder {
     guestName: raw.guestName ? String(raw.guestName) : undefined,
     partyName: raw.partyName ? String(raw.partyName) : undefined,
     guestCount: raw.guestCount != null ? Number(raw.guestCount) : undefined,
+    contactNumber: raw.contactNumber
+      ? String(raw.contactNumber)
+      : raw.guestPhone
+        ? String(raw.guestPhone)
+        : undefined,
+    guestEmail: raw.guestEmail ? String(raw.guestEmail) : undefined,
+    guestCountryCode: raw.guestCountryCode
+      ? String(raw.guestCountryCode)
+      : undefined,
     specialNote: raw.specialNote ? String(raw.specialNote) : undefined,
+    staffFor: raw.staffFor ? toId(raw.staffFor) : undefined,
     staffOrderReason: raw.staffOrderReason
       ? String(raw.staffOrderReason)
       : undefined,
@@ -139,8 +150,128 @@ function normalizeTodayOrder(raw: Record<string, unknown>): TodayOrder {
       raw.serviceChargeName ? String(raw.serviceChargeName) : undefined,
     tipMethod: raw.tipMethod ? String(raw.tipMethod) : undefined,
     restaurantName: raw.restaurantName ? String(raw.restaurantName) : undefined,
+    onlineApprovedAt: raw.onlineApprovedAt
+      ? String(raw.onlineApprovedAt)
+      : undefined,
+    onlineApprovedBy: raw.onlineApprovedBy
+      ? toId(raw.onlineApprovedBy)
+      : undefined,
+    onlineKotSentAt: raw.onlineKotSentAt
+      ? String(raw.onlineKotSentAt)
+      : undefined,
+    onlineKotSentBy: raw.onlineKotSentBy
+      ? toId(raw.onlineKotSentBy)
+      : undefined,
+    onlineReadyAt: raw.onlineReadyAt ? String(raw.onlineReadyAt) : undefined,
+    onlineReadyBy: raw.onlineReadyBy ? toId(raw.onlineReadyBy) : undefined,
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
   };
+}
+
+async function patchOnlineOrderAction(
+  orderId: string,
+  action: 'approve-online' | 'send-online-kot' | 'mark-online-ready',
+  fallback: string,
+): Promise<OnlineOrderActionResponse> {
+  if (!useLiveApi) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 400));
+    const orders = getMockTodayOrders();
+    const order = orders.find((o) => o._id === orderId);
+    if (!order) {
+      return {success: false, message: 'Order not found.'};
+    }
+
+    const now = new Date().toISOString();
+    let updated: TodayOrder = {...order};
+    if (action === 'approve-online') {
+      updated = {
+        ...updated,
+        status: 'CONFIRMED',
+        onlineApprovedAt: now,
+      };
+    } else if (action === 'send-online-kot') {
+      updated = {
+        ...updated,
+        onlineKotSentAt: now,
+      };
+    } else {
+      updated = {
+        ...updated,
+        status: 'COMPLETED',
+        onlineReadyAt: now,
+      };
+    }
+    updateMockOrder(updated);
+    return {
+      success: true,
+      data: {
+        ...updated,
+        kotJobId: action === 'send-online-kot' ? `mock-kot-${orderId}` : undefined,
+      },
+    };
+  }
+
+  try {
+    const response = await api.patch<
+      ApiEnvelope<TodayOrder & {kotJobId?: string}>
+    >('/api/orders/employee', {
+      orderId,
+      action,
+    });
+
+    if (!response.data?.success || !response.data.data) {
+      return {
+        success: false,
+        message: response.data?.message || fallback,
+      };
+    }
+
+    const data = response.data.data;
+    const row = data as unknown as Record<string, unknown>;
+    return {
+      success: true,
+      message: response.data.message,
+      data: {
+        ...normalizeTodayOrder(row),
+        kotJobId: data.kotJobId ? String(data.kotJobId) : undefined,
+      },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: mapTodayOrdersApiError(error, fallback),
+    };
+  }
+}
+
+export async function approveOnlineOrder(
+  orderId: string,
+): Promise<OnlineOrderActionResponse> {
+  return patchOnlineOrderAction(
+    orderId,
+    'approve-online',
+    'Failed to approve online order.',
+  );
+}
+
+export async function sendOnlineKot(
+  orderId: string,
+): Promise<OnlineOrderActionResponse> {
+  return patchOnlineOrderAction(
+    orderId,
+    'send-online-kot',
+    'Failed to create kitchen ticket.',
+  );
+}
+
+export async function markOnlineReady(
+  orderId: string,
+): Promise<OnlineOrderActionResponse> {
+  return patchOnlineOrderAction(
+    orderId,
+    'mark-online-ready',
+    'Failed to mark order ready for pickup.',
+  );
 }
 
 export function isTodayOrdersApiConfigured(): boolean {
@@ -179,6 +310,44 @@ export async function fetchEmployeeSales(
     return {
       success: false,
       message: mapTodayOrdersApiError(error, 'Failed to load sales data'),
+    };
+  }
+}
+
+export async function fetchUnpaidOrderCount(): Promise<{
+  success: boolean;
+  unpaidCount?: number;
+  message?: string;
+}> {
+  if (!useLiveApi) {
+    const unpaid = getMockTodayOrders().filter(
+      (order) =>
+        order.paymentStatus !== 'PAID' &&
+        order.status !== 'PAID' &&
+        order.status !== 'CANCELLED' &&
+        order.status !== 'WAIVED',
+    ).length;
+    return {success: true, unpaidCount: unpaid};
+  }
+
+  try {
+    const response = await api.get<ApiEnvelope<{unpaidCount?: number}>>(
+      '/api/orders/employee?unpaidCount=true',
+    );
+    if (!response.data?.success) {
+      return {
+        success: false,
+        message: response.data?.message || 'Failed to load unpaid count',
+      };
+    }
+    return {
+      success: true,
+      unpaidCount: Number(response.data.data?.unpaidCount) || 0,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: mapTodayOrdersApiError(error, 'Failed to load unpaid count'),
     };
   }
 }

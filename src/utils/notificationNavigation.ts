@@ -4,8 +4,15 @@ import type {NotificationNavigator} from '../components/notifications/Notificati
 export type NotificationTarget =
   | {screen: 'CreateOrder'; params: {sessionId: string}}
   | {screen: 'PrintJobs'; params: {jobId: string}}
+  | {screen: 'Orders'; params?: {filter?: 'ONLINE' | 'ALL'}}
+  | {screen: 'Booking'}
   | {screen: 'Floor'}
   | null;
+
+function isOnlineOrderNotification(notification: Notification): boolean {
+  const source = String(notification.metadata?.source || '').toUpperCase();
+  return source === 'ONLINE';
+}
 
 export function getNotificationTarget(
   notification: Notification,
@@ -15,6 +22,9 @@ export function getNotificationTarget(
     notification.type === 'EMPLOYEE_LOGOUT'
   ) {
     return null;
+  }
+  if (notification.type === 'NEW_RESERVATION') {
+    return {screen: 'Booking'};
   }
   if (notification.tableSessionId) {
     return {
@@ -26,6 +36,21 @@ export function getNotificationTarget(
     return {
       screen: 'PrintJobs',
       params: {jobId: notification.printJobId},
+    };
+  }
+  if (
+    notification.type === 'NEW_ORDER' ||
+    notification.type === 'ORDER_UPDATED' ||
+    notification.type === 'ORDER_COMPLETED' ||
+    notification.type === 'ORDER_CANCELLED' ||
+    notification.type === 'KOT_CREATED' ||
+    notification.type === 'KOT_READY'
+  ) {
+    return {
+      screen: 'Orders',
+      params: isOnlineOrderNotification(notification)
+        ? {filter: 'ONLINE'}
+        : undefined,
     };
   }
   if (notification.type?.startsWith('TABLE')) {
@@ -43,6 +68,14 @@ export function navigateToNotificationTarget(
   }
   if (target.screen === 'Floor') {
     navigation.navigate('Floor');
+    return;
+  }
+  if (target.screen === 'Booking') {
+    navigation.navigate('Booking');
+    return;
+  }
+  if (target.screen === 'Orders') {
+    navigation.navigate('Orders', target.params);
     return;
   }
   navigation.navigate(target.screen, target.params);

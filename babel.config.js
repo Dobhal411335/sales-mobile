@@ -22,7 +22,11 @@ function loadEnvFile(envFilePath) {
   return env;
 }
 
-const env = loadEnvFile(path.resolve(__dirname, '.env'));
+// .env = shared defaults; .env.local overrides (gitignored) for local Web API
+const env = {
+  ...loadEnvFile(path.resolve(__dirname, '.env')),
+  ...loadEnvFile(path.resolve(__dirname, '.env.local')),
+};
 
 function inlineEnvPlugin({types: t}) {
   return {

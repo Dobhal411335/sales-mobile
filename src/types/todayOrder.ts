@@ -66,7 +66,11 @@ export interface TodayOrder {
   guestName?: string;
   partyName?: string;
   guestCount?: number;
+  contactNumber?: string;
+  guestEmail?: string;
+  guestCountryCode?: string;
   specialNote?: string;
+  staffFor?: string;
   staffOrderReason?: string;
   waiveReason?: string;
   processedByName?: string;
@@ -85,7 +89,19 @@ export interface TodayOrder {
   serviceChargeName?: string;
   tipMethod?: string;
   restaurantName?: string;
+  onlineApprovedAt?: string;
+  onlineApprovedBy?: string;
+  onlineKotSentAt?: string;
+  onlineKotSentBy?: string;
+  onlineReadyAt?: string;
+  onlineReadyBy?: string;
   createdAt: string;
+}
+
+export interface OnlineOrderActionResponse {
+  success: boolean;
+  message?: string;
+  data?: TodayOrder & {kotJobId?: string};
 }
 
 export interface TodayOrdersResponse {

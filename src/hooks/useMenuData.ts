@@ -17,7 +17,7 @@ import {scoreMenuSearch} from '../utils/menuSearch';
 let cachedMenuData: MenuData | null = null;
 let cacheTimestamp = 0;
 const MENU_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
-const LAYOUT_PREF_KEY = 'sales-order-layout';
+const LAYOUT_PREF_KEY = 'sales-order-layout-v2';
 
 export function invalidateMenuCache(): void {
   cachedMenuData = null;
@@ -58,7 +58,7 @@ export function useMenuData(): UseMenuDataResult {
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeHead, setActiveHead] = useState('All');
   const [viewMode, setViewMode] = useState<MenuViewMode>('list');
-  const [panelLayout, setPanelLayoutState] = useState<PanelLayout>('2');
+  const [panelLayout, setPanelLayoutState] = useState<PanelLayout>('3');
   const [itemStyle, setItemStyleState] = useState<ItemStyle>('list');
   const [gridCols, setGridColsState] = useState<GridCols>(2);
   const [searchQuery, setSearchQuery] = useState('');

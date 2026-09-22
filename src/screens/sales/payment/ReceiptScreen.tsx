@@ -59,7 +59,16 @@ export function ReceiptScreen({navigation, route}: Props) {
       setReleaseDialogOpen(true);
       return;
     }
-    goToFloor();
+    resetOrderState();
+    if (orderType === 'staff') {
+      navigation.navigate('StaffHub');
+      return;
+    }
+    if (orderType === 'walking') {
+      navigation.navigate('WalkInHub');
+      return;
+    }
+    navigation.navigate('Floor');
   };
 
   const handleReprintBill = async () => {

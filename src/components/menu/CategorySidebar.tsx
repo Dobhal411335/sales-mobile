@@ -53,13 +53,13 @@ export function CategorySidebar({
 
 const styles = StyleSheet.create({
   wrap: {
-    width: 148,
+    width: 180,
     borderRightWidth: 1,
     borderRightColor: colors.border,
     backgroundColor: colors.surface,
   },
   header: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
@@ -78,20 +78,21 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   item: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
     paddingVertical: 12,
     borderLeftWidth: 4,
     borderLeftColor: 'transparent',
+    borderBottomWidth: 1,
   },
   itemActive: {
     backgroundColor: '#FFF7ED',
     borderLeftColor: colors.primary,
   },
   itemText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: colors.text,
-    lineHeight: 16,
+    lineHeight: 17,
   },
   itemTextActive: {
     color: '#9A3412',

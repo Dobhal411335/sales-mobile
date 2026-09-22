@@ -6,6 +6,7 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -19,6 +20,7 @@ import {useOrderHub} from '../../../hooks/useOrderHub';
 import {useStaffEmployees} from '../../../hooks/useStaffEmployees';
 import type {SalesStackParamList} from '../../../navigation/types';
 import type {SalesEmployee} from '../../../services/employeeService';
+import type {PaidOrderSnapshot} from '../../../types/receipt';
 import type {TodayOrder} from '../../../types/todayOrder';
 import {
   getDirectSalePartyLabel,
@@ -30,7 +32,65 @@ type Props = NativeStackScreenProps<SalesStackParamList, 'StaffHub'>;
 
 const DEFAULT_EMP_COLOR = '#4f46e5';
 
+function todayOrderToPaidSnapshot(order: TodayOrder): PaidOrderSnapshot {
+  const staffName = getDirectSalePartyLabel(order);
+  return {
+    orderNumber: order.orderNumber,
+    orderId: order._id,
+    guestName: order.guestName,
+    partyName: order.partyName || staffName,
+    guestCount: order.guestCount,
+    serverName: order.processedByName,
+    createdAt: order.createdAt,
+    specialNote: order.specialNote,
+    items: (order.items || []).map((item, index) => ({
+      cartId: `staff-${order._id}-${index}`,
+      id: `staff-${order._id}-${index}`,
+      name: item.name,
+      category: item.category || 'General',
+      price: item.price,
+      tax: 0,
+      qty: item.qty,
+      size: item.size,
+      preparationStyle: item.preparationStyle,
+      options: item.options,
+      productType:
+        (item.productType as 'KITCHEN' | 'BAR' | undefined) || 'KITCHEN',
+    })),
+    subTotal: order.subTotal,
+    taxTotal: order.taxTotal,
+    discountTotal: order.discountTotal,
+    discountPercent: order.discountPercent,
+    discountCode: order.discountCode,
+    giftcardUsedAmount: order.giftcardUsedAmount,
+    totalAmount: order.totalAmount,
+    tipAmount: order.tipAmount,
+    tipMethod: order.tipMethod,
+    serviceChargeTotal: order.serviceChargeTotal,
+    serviceChargeName: order.serviceChargeName,
+    paymentMethod: order.paymentMethod,
+    cashAmount: order.cashAmount,
+    cardAmount: order.cardAmount,
+    paymentStatus: order.paymentStatus ?? 'PAID',
+    source: order.source,
+    restaurantName: order.restaurantName,
+    paidAt: order.createdAt,
+    isReprint: true,
+    taxBreakdown: (order.taxBreakdown || [])
+      .map((line) => ({
+        name: String(line.name || 'Tax'),
+        amount: Number(line.amount ?? line.taxAmount ?? 0),
+        rate: line.rate != null ? Number(line.rate) : undefined,
+      }))
+      .filter((line) => line.amount > 0),
+  };
+}
+
 export function StaffHubScreen({navigation}: Props) {
+  const {width} = useWindowDimensions();
+  // Match web ~320px sidebar; keep readable on phones (~36% capped).
+  const sidebarWidth = Math.min(320, Math.max(240, Math.round(width * 0.38)));
+
   const {
     filtered,
     stats,
@@ -109,11 +169,20 @@ export function StaffHubScreen({navigation}: Props) {
     [navigation],
   );
 
+  const printReceipt = useCallback(
+    (order: TodayOrder) => {
+      const snapshot = todayOrderToPaidSnapshot(order);
+      navigation.navigate('Receipt', {
+        orderSnapshot: snapshot,
+        orderType: 'staff',
+        taxBreakdown: snapshot.taxBreakdown,
+      });
+    },
+    [navigation],
+  );
+
   const onRefreshAll = useCallback(async () => {
-    await Promise.all([
-      refresh({silent: true}),
-      refreshEmployees(),
-    ]);
+    await Promise.all([refresh({silent: true}), refreshEmployees()]);
   }, [refresh, refreshEmployees]);
 
   const emptyMessage =
@@ -137,10 +206,7 @@ export function StaffHubScreen({navigation}: Props) {
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <Pressable
-            style={({pressed}) => [
-              styles.backBtn,
-              pressed && styles.pressed,
-            ]}
+            style={({pressed}) => [styles.backBtn, pressed && styles.pressed]}
             onPress={() => navigation.navigate('Floor')}
             accessibilityRole="button"
             accessibilityLabel="Back to Floor">
@@ -149,7 +215,7 @@ export function StaffHubScreen({navigation}: Props) {
           <View style={styles.headerTitles}>
             <Text style={styles.title}>Staff Orders</Text>
             <Text style={styles.subtitle}>
-              Pick staff below · manage today’s staff orders
+              Pick staff on the left · manage today’s staff orders here
             </Text>
           </View>
           <Pressable
@@ -173,7 +239,7 @@ export function StaffHubScreen({navigation}: Props) {
       </View>
 
       <View style={styles.body}>
-        <View style={styles.sidebar}>
+        <View style={[styles.sidebar, {width: sidebarWidth}]}>
           <View style={styles.sidebarHeader}>
             <Text style={styles.sidebarEyebrow}>New order</Text>
             <Text style={styles.sidebarTitle}>
@@ -181,7 +247,7 @@ export function StaffHubScreen({navigation}: Props) {
               <Text style={styles.sidebarCount}>({employees.length})</Text>
             </Text>
             <Text style={styles.sidebarHint}>
-              Tap to start a staff order · includes Master Terminal
+              Tap to start a staff order
             </Text>
           </View>
 
@@ -232,7 +298,7 @@ export function StaffHubScreen({navigation}: Props) {
                     {discount > 0 ? (
                       <View style={styles.discountBadge}>
                         <Percent
-                          size={11}
+                          size={12}
                           color={colors.success}
                           strokeWidth={2.4}
                         />
@@ -285,7 +351,7 @@ export function StaffHubScreen({navigation}: Props) {
                 </View>
                 <Text style={styles.emptyTitle}>{emptyMessage}</Text>
                 <Text style={styles.emptyBody}>
-                  Tap an employee on the left to start a staff meal order.
+                  Tap an employee on the left to start a staff order.
                 </Text>
               </View>
             ) : undefined
@@ -296,6 +362,7 @@ export function StaffHubScreen({navigation}: Props) {
               typeLabel="Staff"
               onContinue={() => continueOrder(item)}
               onPay={() => payOrder(item)}
+              onPrint={() => printReceipt(item)}
             />
           )}
           ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -367,39 +434,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   sidebar: {
-    width: 168,
-    maxWidth: '42%',
     borderRightWidth: 1,
     borderRightColor: colors.border,
     backgroundColor: colors.surface,
   },
   sidebarHeader: {
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 10,
+    paddingHorizontal: 14,
+    paddingTop: 14,
+    paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     gap: 2,
   },
   sidebarEyebrow: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     color: '#4F46E5',
   },
   sidebarTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.text,
   },
   sidebarCount: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '700',
     color: colors.textSecondary,
   },
   sidebarHint: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
     marginTop: 2,
@@ -410,8 +475,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   sidebarEmpty: {
-    margin: 10,
-    padding: 14,
+    margin: 12,
+    padding: 16,
     borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: colors.border,
@@ -421,59 +486,59 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   empList: {
-    padding: 8,
-    paddingBottom: 20,
-    gap: 6,
+    padding: 10,
+    paddingBottom: 24,
+    gap: 8,
   },
   empRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E0E7FF',
     backgroundColor: colors.surface,
   },
   empAvatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   empAvatarText: {
     color: '#fff',
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '900',
   },
   empMeta: {
     flex: 1,
     minWidth: 0,
-    gap: 1,
+    gap: 2,
   },
   empName: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '800',
     color: colors.text,
   },
   empRole: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
   },
   discountBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 2,
+    gap: 3,
     backgroundColor: '#ECFDF5',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 8,
   },
   discountText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     color: colors.success,
   },
@@ -481,22 +546,22 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   listContent: {
-    padding: 12,
+    padding: 14,
     paddingBottom: 32,
     flexGrow: 1,
   },
   listHeader: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   ordersEyebrow: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.8,
     textTransform: 'uppercase',
     color: '#4F46E5',
   },
   ordersTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '800',
     color: colors.text,
     marginTop: 2,
@@ -507,7 +572,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   separator: {
-    height: 10,
+    height: 12,
   },
   centeredInline: {
     alignItems: 'center',

@@ -1,9 +1,13 @@
 import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {Receipt} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {TodayOrder} from '../../types/todayOrder';
 import {formatCurrency} from '../../utils/currency';
-import {getDirectSalePartyLabel, getOrderPartyLabel} from '../../utils/orderDisplay';
+import {
+  getDirectSalePartyLabel,
+  getOrderPartyLabel,
+} from '../../utils/orderDisplay';
 import {
   getOrderGrandTotal,
   getOrderItemCount,
@@ -17,6 +21,7 @@ interface OrderHubCardProps {
   typeLabel: string;
   onContinue?: () => void;
   onPay?: () => void;
+  onPrint?: () => void;
 }
 
 function formatTime(createdAt: string) {
@@ -31,6 +36,7 @@ export function OrderHubCard({
   typeLabel,
   onContinue,
   onPay,
+  onPrint,
 }: OrderHubCardProps) {
   const open = isOrderOpen(order);
   const paid = isOrderPaid(order);
@@ -46,6 +52,7 @@ export function OrderHubCard({
   const statusColors = getStatusColors(
     paid ? 'PAID' : (order.status as TodayOrder['status']),
   );
+  const isStaffType = typeLabel === 'Staff';
 
   return (
     <View
@@ -69,8 +76,12 @@ export function OrderHubCard({
                 {statusLabel}
               </Text>
             </View>
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeText}>{typeLabel}</Text>
+            <View
+              style={[styles.typeBadge, isStaffType && styles.typeBadgeStaff]}>
+              <Text
+                style={[styles.typeText, isStaffType && styles.typeTextStaff]}>
+                {typeLabel}
+              </Text>
             </View>
           </View>
           <Text style={styles.party} numberOfLines={1}>
@@ -101,14 +112,25 @@ export function OrderHubCard({
             <Text style={styles.continueText}>Continue</Text>
           </Pressable>
           <Pressable
-            style={({pressed}) => [
-              styles.payBtn,
-              pressed && styles.btnPressed,
-            ]}
+            style={({pressed}) => [styles.payBtn, pressed && styles.btnPressed]}
             onPress={onPay}
             accessibilityRole="button"
             accessibilityLabel="Pay order">
             <Text style={styles.payText}>Pay</Text>
+          </Pressable>
+        </View>
+      ) : onPrint ? (
+        <View style={styles.actions}>
+          <Pressable
+            style={({pressed}) => [
+              styles.printBtn,
+              pressed && styles.btnPressed,
+            ]}
+            onPress={onPrint}
+            accessibilityRole="button"
+            accessibilityLabel="Print receipt">
+            <Receipt size={16} color={colors.text} strokeWidth={2.4} />
+            <Text style={styles.printText}>Print receipt</Text>
           </Pressable>
         </View>
       ) : null}
@@ -174,10 +196,17 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     backgroundColor: colors.cream,
   },
+  typeBadgeStaff: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+  },
   typeText: {
     fontSize: 10,
     fontWeight: '700',
     color: colors.textSecondary,
+  },
+  typeTextStaff: {
+    color: '#3730A3',
   },
   party: {
     fontSize: 14,
@@ -230,6 +259,23 @@ const styles = StyleSheet.create({
   },
   payText: {
     color: colors.surface,
+    fontWeight: '800',
+    fontSize: 14,
+  },
+  printBtn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  printText: {
+    color: colors.text,
     fontWeight: '800',
     fontSize: 14,
   },

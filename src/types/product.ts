@@ -86,6 +86,9 @@ export interface ProductHeadMapping {
 }
 
 export type MenuViewMode = 'grid' | 'list';
+export type PanelLayout = '2' | '3';
+export type ItemStyle = 'tiles' | 'list';
+export type GridCols = 2 | 3 | 4;
 
 export function productNeedsOptions(product: MenuProduct): boolean {
   const hasVariants = Boolean(product.variants?.length);

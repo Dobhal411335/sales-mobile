@@ -193,13 +193,33 @@ export function getOrderPartyLabel(order: TodayOrder): string | null {
   if (!party) {
     return null;
   }
-  if (order?.source === 'WALK_IN' && party === 'Walk-in') {
+  // Hide only generic placeholders — keep real walk-in / staff names.
+  if (order?.source === 'WALK_IN' && /^walk[- ]?in$/i.test(party)) {
     return null;
   }
-  if (order?.source === 'STAFF' && party === getOrderLocationLabel(order)) {
+  if (order?.source === 'STAFF' && /^staff$/i.test(party)) {
     return null;
   }
   return party;
+}
+
+/** Party / staff name for receipts and hub cards. */
+export function getDirectSalePartyLabel(order: {
+  source?: string | null;
+  partyName?: string | null;
+  guestName?: string | null;
+}): string {
+  const party = (order?.partyName || order?.guestName || '').trim();
+  if (party) {
+    return party;
+  }
+  if (order?.source === 'STAFF') {
+    return 'Staff';
+  }
+  if (order?.source === 'WALK_IN') {
+    return 'Walk-in';
+  }
+  return '';
 }
 
 export function getPlacerName(order: TodayOrder): string | null {

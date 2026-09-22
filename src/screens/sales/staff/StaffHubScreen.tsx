@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {ArrowLeft, Percent, RefreshCw, User, Users} from 'lucide-react-native';
+import {ArrowLeft, Percent, RefreshCw, Users} from 'lucide-react-native';
 import {OrderHubCard} from '../../../components/sales/OrderHubCard';
 import {OrderHubStats} from '../../../components/sales/OrderHubStats';
 import {toast} from '../../../components/common/Toast';
@@ -20,10 +20,15 @@ import {useStaffEmployees} from '../../../hooks/useStaffEmployees';
 import type {SalesStackParamList} from '../../../navigation/types';
 import type {SalesEmployee} from '../../../services/employeeService';
 import type {TodayOrder} from '../../../types/todayOrder';
-import {getOrderSessionId} from '../../../utils/orderDisplay';
+import {
+  getDirectSalePartyLabel,
+  getOrderSessionId,
+} from '../../../utils/orderDisplay';
 import {isOrderOpen} from '../../../utils/todayOrderHelpers';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'StaffHub'>;
+
+const DEFAULT_EMP_COLOR = '#4f46e5';
 
 export function StaffHubScreen({navigation}: Props) {
   const {
@@ -37,7 +42,11 @@ export function StaffHubScreen({navigation}: Props) {
     refresh,
   } = useOrderHub('STAFF');
 
-  const {employees, loading: employeesLoading} = useStaffEmployees();
+  const {
+    employees,
+    loading: employeesLoading,
+    refresh: refreshEmployees,
+  } = useStaffEmployees();
 
   const startStaffOrder = useCallback(
     (employee: SalesEmployee) => {
@@ -69,6 +78,7 @@ export function StaffHubScreen({navigation}: Props) {
 
   const payOrder = useCallback(
     (order: TodayOrder) => {
+      const staffName = getDirectSalePartyLabel(order);
       navigation.navigate('Payment', {
         orderId: order._id,
         sessionId: getOrderSessionId(order) ?? undefined,
@@ -76,7 +86,7 @@ export function StaffHubScreen({navigation}: Props) {
         subtotal: order.subTotal,
         taxTotal: order.taxTotal,
         total: order.totalAmount,
-        partyName: order.partyName ?? order.guestName,
+        partyName: staffName,
         guestCount: order.guestCount,
         orderNumber: order.orderNumber,
         paymentSeed: {
@@ -85,7 +95,7 @@ export function StaffHubScreen({navigation}: Props) {
           paymentStatus: order.paymentStatus,
           specialNote: order.specialNote,
           guestName: order.guestName,
-          partyName: order.partyName,
+          partyName: order.partyName ?? staffName,
           contactNumber: order.contactNumber,
           guestCountryCode: order.guestCountryCode,
           guestEmail: order.guestEmail,
@@ -100,8 +110,11 @@ export function StaffHubScreen({navigation}: Props) {
   );
 
   const onRefreshAll = useCallback(async () => {
-    await refresh({silent: true});
-  }, [refresh]);
+    await Promise.all([
+      refresh({silent: true}),
+      refreshEmployees(),
+    ]);
+  }, [refresh, refreshEmployees]);
 
   const emptyMessage =
     filter === 'OPEN'
@@ -111,6 +124,13 @@ export function StaffHubScreen({navigation}: Props) {
         : 'No staff orders today';
 
   const showOrderList = !loading && !error;
+
+  const filterLabel =
+    filter === 'OPEN'
+      ? 'Unpaid'
+      : filter === 'PAID'
+        ? 'Paid today'
+        : 'All orders';
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
@@ -129,7 +149,7 @@ export function StaffHubScreen({navigation}: Props) {
           <View style={styles.headerTitles}>
             <Text style={styles.title}>Staff Orders</Text>
             <Text style={styles.subtitle}>
-              Tap an employee to start · filter today’s staff orders below
+              Pick staff below · manage today’s staff orders
             </Text>
           </View>
           <Pressable
@@ -152,107 +172,135 @@ export function StaffHubScreen({navigation}: Props) {
         />
       </View>
 
-      <FlatList
-        data={showOrderList ? filtered : []}
-        keyExtractor={(item) => item._id}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => void onRefreshAll()}
-            tintColor={colors.primary}
-          />
-        }
-        ListHeaderComponent={
-          <View style={styles.listHeader}>
-            <Text style={styles.sectionLabel}>Employees</Text>
-            {employeesLoading ? (
-              <ActivityIndicator
-                style={styles.empLoader}
-                color={colors.primary}
-              />
-            ) : employees.length === 0 ? (
-              <Text style={styles.empEmpty}>No employees available.</Text>
-            ) : (
-              <View style={styles.empGrid}>
-                {employees.map((employee) => (
+      <View style={styles.body}>
+        <View style={styles.sidebar}>
+          <View style={styles.sidebarHeader}>
+            <Text style={styles.sidebarEyebrow}>New order</Text>
+            <Text style={styles.sidebarTitle}>
+              Employees{' '}
+              <Text style={styles.sidebarCount}>({employees.length})</Text>
+            </Text>
+            <Text style={styles.sidebarHint}>
+              Tap to start a staff order · includes Master Terminal
+            </Text>
+          </View>
+
+          {employeesLoading ? (
+            <View style={styles.sidebarCentered}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.loadingText}>Loading employees…</Text>
+            </View>
+          ) : employees.length === 0 ? (
+            <View style={styles.sidebarEmpty}>
+              <Users size={22} color={colors.primary} strokeWidth={2} />
+              <Text style={styles.emptyTitle}>No active employees found</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={employees}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.empList}
+              showsVerticalScrollIndicator={false}
+              renderItem={({item: employee}) => {
+                const discount = Number(employee.staffDiscount) || 0;
+                const avatarColor = employee.color || DEFAULT_EMP_COLOR;
+                const initial = (employee.name || '?').charAt(0).toUpperCase();
+                return (
                   <Pressable
-                    key={employee.id}
                     style={({pressed}) => [
-                      styles.empCard,
+                      styles.empRow,
                       pressed && styles.pressed,
                     ]}
                     onPress={() => startStaffOrder(employee)}
                     accessibilityRole="button"
                     accessibilityLabel={`Start staff order for ${employee.name}`}>
-                    <View style={styles.empIcon}>
-                      <User size={16} color={colors.primary} strokeWidth={2.4} />
+                    <View
+                      style={[
+                        styles.empAvatar,
+                        {backgroundColor: avatarColor},
+                      ]}>
+                      <Text style={styles.empAvatarText}>{initial}</Text>
                     </View>
-                    <Text style={styles.empName} numberOfLines={1}>
-                      {employee.name}
-                    </Text>
-                    {employee.role ? (
-                      <Text style={styles.empRole} numberOfLines={1}>
-                        {employee.role}
+                    <View style={styles.empMeta}>
+                      <Text style={styles.empName} numberOfLines={1}>
+                        {employee.name}
                       </Text>
-                    ) : null}
-                    {employee.staffDiscount != null &&
-                    employee.staffDiscount > 0 ? (
-                      <View style={styles.discountRow}>
+                      <Text style={styles.empRole} numberOfLines={1}>
+                        {employee.role || 'Staff'}
+                      </Text>
+                    </View>
+                    {discount > 0 ? (
+                      <View style={styles.discountBadge}>
                         <Percent
                           size={11}
                           color={colors.success}
                           strokeWidth={2.4}
                         />
-                        <Text style={styles.discountText}>
-                          {employee.staffDiscount}% off
-                        </Text>
+                        <Text style={styles.discountText}>{discount}%</Text>
                       </View>
                     ) : null}
                   </Pressable>
-                ))}
-              </View>
-            )}
+                );
+              }}
+            />
+          )}
+        </View>
 
-            <Text style={[styles.sectionLabel, styles.ordersLabel]}>
-              Today’s staff orders{' '}
-              <Text style={styles.listCount}>({filtered.length})</Text>
-            </Text>
-            {loading ? (
-              <View style={styles.centeredInline}>
-                <ActivityIndicator color={colors.primary} />
-                <Text style={styles.loadingText}>Loading staff orders…</Text>
-              </View>
-            ) : error ? (
-              <View style={styles.centeredInline}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null}
-          </View>
-        }
-        ListEmptyComponent={
-          showOrderList ? (
-            <View style={styles.empty}>
-              <View style={styles.emptyIcon}>
-                <Users size={28} color={colors.primary} strokeWidth={2} />
-              </View>
-              <Text style={styles.emptyTitle}>{emptyMessage}</Text>
-              <Text style={styles.emptyBody}>
-                Tap an employee above to start a staff meal order.
+        <FlatList
+          style={styles.ordersPane}
+          data={showOrderList ? filtered : []}
+          keyExtractor={(item) => item._id}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void onRefreshAll()}
+              tintColor={colors.primary}
+            />
+          }
+          ListHeaderComponent={
+            <View style={styles.listHeader}>
+              <Text style={styles.ordersEyebrow}>Showing</Text>
+              <Text style={styles.ordersTitle}>
+                {filterLabel}{' '}
+                <Text style={styles.listCount}>({filtered.length})</Text>
               </Text>
+              {loading ? (
+                <View style={styles.centeredInline}>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={styles.loadingText}>Loading staff orders…</Text>
+                </View>
+              ) : error ? (
+                <View style={styles.centeredInline}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              ) : null}
             </View>
-          ) : undefined
-        }
-        renderItem={({item}) => (
-          <OrderHubCard
-            order={item}
-            typeLabel="Staff"
-            onContinue={() => continueOrder(item)}
-            onPay={() => payOrder(item)}
-          />
-        )}
-        ItemSeparatorComponent={() => <View style={styles.separator} />}
-      />
+          }
+          ListEmptyComponent={
+            showOrderList ? (
+              <View style={styles.empty}>
+                <View style={styles.emptyIcon}>
+                  <Users size={28} color={colors.primary} strokeWidth={2} />
+                </View>
+                <Text style={styles.emptyTitle}>{emptyMessage}</Text>
+                <Text style={styles.emptyBody}>
+                  Tap an employee on the left to start a staff meal order.
+                </Text>
+              </View>
+            ) : undefined
+          }
+          renderItem={({item}) => (
+            <OrderHubCard
+              order={item}
+              typeLabel="Staff"
+              onContinue={() => continueOrder(item)}
+              onPay={() => payOrder(item)}
+            />
+          )}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
+      </View>
     </SafeAreaView>
   );
 }
@@ -314,91 +362,152 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.85,
   },
+  body: {
+    flex: 1,
+    flexDirection: 'row',
+  },
+  sidebar: {
+    width: 168,
+    maxWidth: '42%',
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  sidebarHeader: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 2,
+  },
+  sidebarEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: '#4F46E5',
+  },
+  sidebarTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  sidebarCount: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  sidebarHint: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  sidebarCentered: {
+    paddingVertical: 28,
+    alignItems: 'center',
+    gap: 8,
+  },
+  sidebarEmpty: {
+    margin: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    borderRadius: 12,
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.background,
+  },
+  empList: {
+    padding: 8,
+    paddingBottom: 20,
+    gap: 6,
+  },
+  empRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+    backgroundColor: colors.surface,
+  },
+  empAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  empAvatarText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  empMeta: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  empName: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  empRole: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  discountBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  discountText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.success,
+  },
+  ordersPane: {
+    flex: 1,
+  },
   listContent: {
-    padding: 16,
+    padding: 12,
     paddingBottom: 32,
     flexGrow: 1,
   },
   listHeader: {
-    marginBottom: 4,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    color: colors.textSecondary,
     marginBottom: 10,
   },
-  ordersLabel: {
-    marginTop: 18,
-    color: colors.text,
-    textTransform: 'none',
+  ordersEyebrow: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    color: '#4F46E5',
+  },
+  ordersTitle: {
     fontSize: 16,
-    letterSpacing: 0,
+    fontWeight: '800',
+    color: colors.text,
+    marginTop: 2,
   },
   listCount: {
     color: colors.textSecondary,
     fontWeight: '700',
     fontSize: 14,
   },
-  empLoader: {
-    marginVertical: 16,
-  },
-  empEmpty: {
-    color: colors.textSecondary,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  empGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  empCard: {
-    width: '31%',
-    minWidth: 100,
-    flexGrow: 1,
-    maxWidth: '48%',
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 10,
-    gap: 4,
-  },
-  empIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: colors.primaryLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 2,
-  },
-  empName: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  empRole: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  discountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    marginTop: 2,
-  },
-  discountText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: colors.success,
-  },
   separator: {
-    height: 12,
+    height: 10,
   },
   centeredInline: {
     alignItems: 'center',
@@ -409,6 +518,7 @@ const styles = StyleSheet.create({
   loadingText: {
     color: colors.textSecondary,
     fontWeight: '600',
+    fontSize: 12,
   },
   errorText: {
     color: colors.error,
@@ -418,8 +528,8 @@ const styles = StyleSheet.create({
   empty: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: 36,
+    paddingHorizontal: 16,
     borderWidth: 1,
     borderStyle: 'dashed',
     borderColor: colors.border,
@@ -437,13 +547,13 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   emptyTitle: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '800',
     color: colors.text,
     textAlign: 'center',
   },
   emptyBody: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: colors.textSecondary,
     textAlign: 'center',

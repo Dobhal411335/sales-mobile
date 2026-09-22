@@ -13,6 +13,7 @@ export interface SalesEmployee {
   name: string;
   role?: string;
   staffDiscount?: number;
+  color?: string;
 }
 
 const useLiveApi = Boolean(config.API_BASE_URL);
@@ -52,6 +53,7 @@ function normalizeEmployee(raw: Record<string, unknown>): SalesEmployee {
     role: raw.role ? String(raw.role) : undefined,
     staffDiscount:
       raw.staffDiscount != null ? Number(raw.staffDiscount) : undefined,
+    color: raw.color ? String(raw.color) : undefined,
   };
 }
 

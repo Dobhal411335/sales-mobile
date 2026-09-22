@@ -3,7 +3,7 @@ import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {colors} from '../../constants/colors';
 import type {TodayOrder} from '../../types/todayOrder';
 import {formatCurrency} from '../../utils/currency';
-import {getOrderPartyLabel} from '../../utils/orderDisplay';
+import {getDirectSalePartyLabel, getOrderPartyLabel} from '../../utils/orderDisplay';
 import {
   getOrderGrandTotal,
   getOrderItemCount,
@@ -34,7 +34,10 @@ export function OrderHubCard({
 }: OrderHubCardProps) {
   const open = isOrderOpen(order);
   const paid = isOrderPaid(order);
-  const party = getOrderPartyLabel(order) || typeLabel;
+  const party =
+    order.source === 'STAFF'
+      ? getDirectSalePartyLabel(order)
+      : getOrderPartyLabel(order) || typeLabel;
   const total = getOrderGrandTotal(order);
   const items = getOrderItemCount(order);
   const statusLabel = paid

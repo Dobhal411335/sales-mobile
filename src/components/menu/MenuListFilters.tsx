@@ -17,6 +17,8 @@ interface MenuListFiltersProps {
   searchQuery: string;
   onChangeSearch: (query: string) => void;
   onSelectCategory: (category: string) => void;
+  /** When false, only search is shown (3-panel uses category sidebar). */
+  showCategory?: boolean;
 }
 
 export function MenuListFilters({
@@ -25,6 +27,7 @@ export function MenuListFilters({
   searchQuery,
   onChangeSearch,
   onSelectCategory,
+  showCategory = true,
 }: MenuListFiltersProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -42,16 +45,18 @@ export function MenuListFilters({
         />
       </View>
 
-      <Pressable
-        style={styles.selectButton}
-        onPress={() => setPickerOpen(true)}
-        accessibilityRole="button"
-        accessibilityLabel="Select category">
-        <Text style={styles.selectValue} numberOfLines={1}>
-          {activeCategory || 'Select a category'}
-        </Text>
-        <ChevronDownIcon size={14} color={colors.textSecondary} />
-      </Pressable>
+      {showCategory ? (
+        <Pressable
+          style={styles.selectButton}
+          onPress={() => setPickerOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Select category">
+          <Text style={styles.selectValue} numberOfLines={1}>
+            {activeCategory || 'Select a category'}
+          </Text>
+          <ChevronDownIcon size={14} color={colors.textSecondary} />
+        </Pressable>
+      ) : null}
 
       <Modal
         visible={pickerOpen}

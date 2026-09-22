@@ -11,11 +11,12 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {Cart} from '../../../components/cart/Cart';
 import {TabletModal} from '../../../components/common/TabletModal';
-import {LayoutGrid, List} from 'lucide-react-native';
+import {CategorySidebar} from '../../../components/menu/CategorySidebar';
 import {HeadList} from '../../../components/menu/HeadList';
 import {MenuListFilters} from '../../../components/menu/MenuListFilters';
 import {ModifierModal} from '../../../components/menu/ModifierModal';
 import {OfferOptionsModal} from '../../../components/menu/OfferOptionsModal';
+import {OrderLayoutMenu} from '../../../components/menu/OrderLayoutMenu';
 import {ProductGrid} from '../../../components/menu/ProductGrid';
 import {
   PartyNameForm,
@@ -105,7 +106,9 @@ export function CreateOrderScreen({navigation, route}: Props) {
     heads,
     activeCategory,
     activeHead,
-    viewMode,
+    panelLayout,
+    itemStyle,
+    gridCols,
     searchQuery,
     filteredProducts,
     globalTaxes,
@@ -113,9 +116,13 @@ export function CreateOrderScreen({navigation, route}: Props) {
     error: menuError,
     setActiveCategory,
     setActiveHead,
-    setViewMode,
+    setPanelLayout,
+    setItemStyle,
+    setGridCols,
     setSearchQuery,
   } = useMenuData();
+
+  const effectiveItemStyle = panelLayout === '3' ? 'list' : itemStyle;
 
   const items = useCartStore((state) => state.items);
   const orderNote = useCartStore((state) => state.orderNote);
@@ -581,59 +588,44 @@ export function CreateOrderScreen({navigation, route}: Props) {
       ) : null}
 
       <View style={styles.layout}>
+        {panelLayout === '3' ? (
+          <CategorySidebar
+            categories={categories}
+            activeCategory={activeCategory}
+            onSelectCategory={setActiveCategory}
+          />
+        ) : null}
+
         <View style={styles.menuPane}>
           <View style={styles.contextHeader}>
             <View style={styles.contextHeaderText}>
               <Text style={styles.screenTitle}>{display.headerTitle}</Text>
               <Text style={styles.contextSubtitle}>{display.partyLabel}</Text>
             </View>
-            <View style={styles.viewToggle}>
-              <Pressable
-                style={[
-                  styles.viewToggleBtn,
-                  viewMode === 'grid' && styles.viewToggleBtnActive,
-                ]}
-                onPress={() => setViewMode('grid')}
-                accessibilityRole="button"
-                accessibilityState={{selected: viewMode === 'grid'}}
-                accessibilityLabel="Grid view">
-                <LayoutGrid
-                  size={16}
-                  color={viewMode === 'grid' ? colors.text : colors.textSecondary}
-                />
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.viewToggleBtn,
-                  viewMode === 'list' && styles.viewToggleBtnActive,
-                ]}
-                onPress={() => setViewMode('list')}
-                accessibilityRole="button"
-                accessibilityState={{selected: viewMode === 'list'}}
-                accessibilityLabel="List view">
-                <List
-                  size={16}
-                  color={viewMode === 'list' ? colors.text : colors.textSecondary}
-                />
-              </Pressable>
-            </View>
+            <OrderLayoutMenu
+              panelLayout={panelLayout}
+              itemStyle={itemStyle}
+              gridCols={gridCols}
+              onPanelLayout={setPanelLayout}
+              onItemStyle={setItemStyle}
+              onGridCols={setGridCols}
+            />
           </View>
 
-          {viewMode === 'grid' ? (
-            <HeadList
-              heads={heads}
-              activeHead={activeHead}
-              onSelectHead={setActiveHead}
-            />
-          ) : (
-            <MenuListFilters
-              categories={categories}
-              activeCategory={activeCategory}
-              searchQuery={searchQuery}
-              onChangeSearch={setSearchQuery}
-              onSelectCategory={setActiveCategory}
-            />
-          )}
+          <MenuListFilters
+            categories={categories}
+            activeCategory={activeCategory}
+            searchQuery={searchQuery}
+            onChangeSearch={setSearchQuery}
+            onSelectCategory={setActiveCategory}
+            showCategory={panelLayout === '2'}
+          />
+
+          <HeadList
+            heads={heads}
+            activeHead={activeHead}
+            onSelectHead={setActiveHead}
+          />
 
           {showSessionLoader ? (
             <View style={styles.loaderPane}>
@@ -646,11 +638,17 @@ export function CreateOrderScreen({navigation, route}: Props) {
               loading={menuLoading}
               error={menuError}
               onProductPress={handleProductPress}
+              itemStyle={effectiveItemStyle}
+              gridCols={gridCols}
             />
           )}
         </View>
 
-        <View style={styles.cartPane}>
+        <View
+          style={[
+            styles.cartPane,
+            panelLayout === '3' ? styles.cartPaneThree : null,
+          ]}>
           <Cart
             items={items}
             orderNote={orderNote}
@@ -940,6 +938,11 @@ const styles = StyleSheet.create({
     flex: 0.38,
     minWidth: 320,
   },
+  cartPaneThree: {
+    flex: 0.32,
+    minWidth: 280,
+    maxWidth: 400,
+  },
   contextHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -966,29 +969,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.textSecondary,
-  },
-  viewToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    backgroundColor: '#F4F4F5',
-    padding: 4,
-    borderRadius: 10,
-  },
-  viewToggleBtn: {
-    width: 36,
-    height: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  viewToggleBtnActive: {
-    backgroundColor: colors.surface,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    shadowOffset: {width: 0, height: 1},
-    elevation: 1,
   },
   loaderPane: {
     flex: 1,

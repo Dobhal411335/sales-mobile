@@ -8,7 +8,7 @@ import {
   FlatList,
 } from 'react-native';
 import {colors} from '../../constants/colors';
-import type {MenuProduct} from '../../types/product';
+import type {GridCols, ItemStyle, MenuProduct} from '../../types/product';
 import {ProductCard} from './ProductCard';
 
 interface ProductGridProps {
@@ -16,6 +16,8 @@ interface ProductGridProps {
   loading: boolean;
   error: string | null;
   onProductPress: (product: MenuProduct) => void;
+  itemStyle?: ItemStyle;
+  gridCols?: GridCols;
 }
 
 export function ProductGrid({
@@ -23,11 +25,22 @@ export function ProductGrid({
   loading,
   error,
   onProductPress,
+  itemStyle = 'list',
+  gridCols = 2,
 }: ProductGridProps) {
   const {width} = useWindowDimensions();
-  const numColumns = width >= 1100 ? 3 : 2;
+
+  const numColumns = useMemo(() => {
+    if (itemStyle === 'tiles') {
+      return gridCols;
+    }
+    // List/cards: 1–2 columns depending on available width
+    return width >= 1100 ? 2 : 1;
+  }, [itemStyle, gridCols, width]);
 
   const data = useMemo(() => products, [products]);
+  const variant: ItemStyle =
+    itemStyle === 'tiles' ? 'tiles' : 'list';
 
   if (loading) {
     return (
@@ -60,13 +73,17 @@ export function ProductGrid({
   return (
     <FlatList
       data={data}
-      key={numColumns}
+      key={`${variant}-${numColumns}`}
       numColumns={numColumns}
       keyExtractor={(item) => item.id}
       contentContainerStyle={styles.listContent}
       columnWrapperStyle={numColumns > 1 ? styles.columnWrap : undefined}
       renderItem={({item}) => (
-        <ProductCard product={item} onPress={onProductPress} />
+        <ProductCard
+          product={item}
+          onPress={onProductPress}
+          variant={variant}
+        />
       )}
     />
   );

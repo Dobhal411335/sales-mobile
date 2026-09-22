@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import {
   fetchSalesEmployees,
   isEmployeeApiConfigured,
@@ -12,51 +12,44 @@ function mockEmployeesAsSales(): SalesEmployee[] {
     name: emp.name,
     role: emp.role,
     staffDiscount: emp.staffDiscount,
+    color: emp.color,
   }));
 }
 
 export function useStaffEmployees() {
   const [employees, setEmployees] = useState<SalesEmployee[]>(
-  isEmployeeApiConfigured() ? [] : mockEmployeesAsSales(),
+    isEmployeeApiConfigured() ? [] : mockEmployeesAsSales(),
   );
   const [loading, setLoading] = useState(isEmployeeApiConfigured());
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadEmployees = useCallback(async () => {
     if (!isEmployeeApiConfigured()) {
+      setEmployees(mockEmployeesAsSales());
+      setLoading(false);
       return;
     }
 
-    let cancelled = false;
     setLoading(true);
     setError(null);
-
-    fetchSalesEmployees()
-      .then((rows) => {
-        if (!cancelled) {
-          setEmployees(rows);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : 'Unable to load employees.',
-          );
-          setEmployees(mockEmployeesAsSales());
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    try {
+      const rows = await fetchSalesEmployees();
+      setEmployees(rows);
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : 'Unable to load employees.',
+      );
+      setEmployees(mockEmployeesAsSales());
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  return {employees, loading, error};
+  useEffect(() => {
+    void loadEmployees();
+  }, [loadEmployees]);
+
+  return {employees, loading, error, refresh: loadEmployees};
 }
 
 export function getStaffEmployeeName(

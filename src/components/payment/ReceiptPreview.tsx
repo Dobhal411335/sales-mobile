@@ -11,7 +11,7 @@ import type {
 } from '../../types/receipt';
 import {formatCurrency} from '../../utils/currency';
 import {isOfferItem} from '../../utils/offerDetails';
-import {formatTableLocation} from '../../utils/orderDisplay';
+import {formatTableLocation, getDirectSalePartyLabel} from '../../utils/orderDisplay';
 import {
   formatReceiptDate,
   formatTableNumbersWithFloor,
@@ -42,13 +42,18 @@ export interface ReceiptPreviewProps {
 
 function isDirectSaleOrder(order?: Partial<ReceiptOrder> | null): boolean {
   const src = String(order?.source || '').toUpperCase();
-  return src === 'WALK_IN' || src === 'ONLINE';
+  return src === 'WALK_IN' || src === 'STAFF' || src === 'ONLINE';
 }
 
 function shouldShowTable(order?: Partial<ReceiptOrder> | null): boolean {
   if (!order?.tableNo) return false;
   const src = String(order?.source || '').toUpperCase();
-  return src !== 'WALK_IN' && src !== 'ONLINE';
+  return src !== 'WALK_IN' && src !== 'STAFF' && src !== 'ONLINE';
+}
+
+function resolvePartyLabel(order?: Partial<ReceiptOrder> | null): string {
+  if (!order) return '';
+  return getDirectSalePartyLabel(order);
 }
 
 function groupKotItems(
@@ -111,11 +116,10 @@ function KotReceiptBody({
     );
   }
 
-  const {orderNumber, tableNo, guestName, partyName, createdAt} = order;
+  const {orderNumber, tableNo, createdAt} = order;
   const tableLabel = formatTableLocation(tableNo, order.floorName);
   const note = specialNote || order.specialNote;
-  const partyLabel =
-    partyName || guestName || (isDirectSaleOrder(order) ? 'Walk-in' : '');
+  const partyLabel = resolvePartyLabel(order);
   const directSale = isDirectSaleOrder(order);
   const resolvedGuests =
     guestCount != null
@@ -135,7 +139,7 @@ function KotReceiptBody({
         ) : null}
         <Text style={styles.receiptBold}>
           {directSale
-            ? partyLabel || 'Walk-in'
+            ? partyLabel || (String(order?.source || '').toUpperCase() === 'STAFF' ? 'Staff' : 'Walk-in')
             : tableLabel || 'Takeaway / No Table'}
         </Text>
       </View>
@@ -261,11 +265,10 @@ function BarReceiptBody({
     );
   }
 
-  const {orderNumber, tableNo, guestName, partyName, createdAt} = order;
+  const {orderNumber, tableNo, createdAt} = order;
   const tableLabel = formatTableNumbersWithFloor(tableNo, order.floorName);
   const note = specialNote || order.specialNote;
-  const partyLabel =
-    partyName || guestName || (isDirectSaleOrder(order) ? 'Walk-in' : '');
+  const partyLabel = resolvePartyLabel(order);
   const directSale = isDirectSaleOrder(order);
   const covers =
     guestCount != null
@@ -421,7 +424,7 @@ function CustomerReceiptBody({
 
   const rawTableLabel = formatTableNumbersWithFloor(order?.tableNo, order?.floorName);
   const tableLabel = rawTableLabel.replace(/^(tables?\s*)+/i, '').trim();
-  const partyLabel = order?.partyName || order?.guestName;
+  const partyLabel = resolvePartyLabel(order);
   const items = (order?.items ?? []) as CartLineItem[];
 
   const resolvedTaxBreakdown = (() => {
@@ -622,7 +625,10 @@ function CustomerReceiptBody({
         {partyLabel || !shouldShowTable(order) ? (
           <Text style={styles.metaLine}>
             <Text style={styles.metaBold}>Party:</Text>{' '}
-            {partyLabel || 'Walk-in'}
+            {partyLabel ||
+              (String(order?.source || '').toUpperCase() === 'STAFF'
+                ? 'Staff'
+                : 'Walk-in')}
           </Text>
         ) : null}
         {resolvedGuests != null ? (

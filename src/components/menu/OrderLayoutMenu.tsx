@@ -96,8 +96,6 @@ export function OrderLayoutMenu({
               ) : null}
             </Pressable>
 
-            {panelLayout === '2' ? (
-              <>
                 <View style={styles.separator} />
                 <Text style={styles.sectionLabel}>Product view</Text>
                 <Pressable
@@ -146,8 +144,6 @@ export function OrderLayoutMenu({
                     ))}
                   </View>
                 ) : null}
-              </>
-            ) : null}
           </Pressable>
         </Pressable>
       </Modal>

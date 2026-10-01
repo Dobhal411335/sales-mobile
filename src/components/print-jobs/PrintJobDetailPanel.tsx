@@ -27,7 +27,7 @@ import {
   formatPrintJobDetailTime,
   getTicketItems,
   orderLabel,
-  printTypeLabel,
+  printTypeLabelForJob,
   printerNameForTarget,
   printerTargetLabel,
   tableLabel,
@@ -182,12 +182,39 @@ export function PrintJobDetailPanel({
         <Text style={styles.cardHeader}>JOB INFORMATION</Text>
 
         <DetailRow label="Order Number" value={`#${orderLabel(job)}`} />
-        <DetailRow label="Print Type" value={printTypeLabel(job.printType)} />
+        <DetailRow label="Print Type" value={printTypeLabelForJob(job)} />
         <DetailRow
           label="Target Station"
           value={printerName ? `${targetLabel} (${printerName})` : targetLabel}
         />
         {tableStr && <DetailRow label="Table" value={tableStr} />}
+        {job.metadata?.isSplitReceipt ? (
+          <>
+            <DetailRow
+              label="Split Slip"
+              value={`${job.metadata.splitIndex || '?'}/${job.metadata.splitTotal || '?'}`}
+            />
+            {job.metadata.splitName ? (
+              <DetailRow label="Payer" value={String(job.metadata.splitName)} />
+            ) : null}
+            {job.metadata.splitAmount != null ? (
+              <DetailRow
+                label="Split Amount"
+                value={formatCurrency(Number(job.metadata.splitAmount) || 0)}
+              />
+            ) : null}
+            {job.metadata.splitMethod ? (
+              <DetailRow
+                label="Split Method"
+                value={
+                  job.metadata.splitCardType
+                    ? `${job.metadata.splitMethod} - ${job.metadata.splitCardType}`
+                    : String(job.metadata.splitMethod)
+                }
+              />
+            ) : null}
+          </>
+        ) : null}
         <DetailRow
           label="Created At"
           value={formatPrintJobDetailTime(job.createdAt)}
@@ -352,6 +379,9 @@ export function PrintJobDetailPanel({
                         Style: {item.preparationStyle}
                       </Text>
                     ) : null}
+                    {item.notes ? (
+                      <Text style={styles.itemRemark}>Remark: {item.notes}</Text>
+                    ) : null}
                   </View>
                   <Text style={styles.itemPrice}>
                     {formatCurrency((item.price || 0) * (item.qty || 1))}
@@ -361,9 +391,14 @@ export function PrintJobDetailPanel({
             ) : ticketItems.length > 0 ? (
               ticketItems.map((item, idx) => (
                 <View key={`titem-${idx}`} style={styles.itemRow}>
-                  <Text style={styles.itemName}>
-                    {item.qty || 1}x {item.name}
-                  </Text>
+                  <View style={styles.itemLeft}>
+                    <Text style={styles.itemName}>
+                      {item.qty || 1}x {item.name}
+                    </Text>
+                    {item.notes ? (
+                      <Text style={styles.itemRemark}>Remark: {item.notes}</Text>
+                    ) : null}
+                  </View>
                 </View>
               ))
             ) : (
@@ -449,6 +484,25 @@ export function PrintJobDetailPanel({
                   <Text style={styles.finSubValue}>{order.paymentMethod}</Text>
                 </View>
               )}
+              {Array.isArray(order.paymentSplits) &&
+              order.paymentSplits.length > 0 ? (
+                <View style={styles.splitsBlock}>
+                  <Text style={styles.splitsTitle}>Payment Splits</Text>
+                  {order.paymentSplits.map((row, index) => (
+                    <Text
+                      key={`${row.name}-${index}`}
+                      style={styles.splitLine}>
+                      {row.name || `Guest ${index + 1}`}
+                      {' · '}
+                      {row.method === 'Card' && row.cardType
+                        ? `Card - ${row.cardType}`
+                        : row.method}
+                      {' · '}
+                      {formatCurrency(Number(row.amount) || 0)}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
             </View>
           )}
         </View>
@@ -762,6 +816,13 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 1,
   },
+  itemRemark: {
+    fontSize: 11,
+    fontWeight: '600',
+    fontStyle: 'italic',
+    color: '#92400E',
+    marginTop: 1,
+  },
   itemPrice: {
     fontSize: 12,
     fontWeight: '700',
@@ -821,5 +882,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
     fontWeight: '600',
+  },
+  splitsBlock: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    backgroundColor: '#F5F3FF',
+    gap: 4,
+  },
+  splitsTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#6D28D9',
+    textTransform: 'uppercase',
+  },
+  splitLine: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.text,
   },
 });

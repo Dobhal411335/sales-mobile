@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   Pressable,
   ScrollView,
@@ -43,6 +43,11 @@ interface PrintJobFiltersProps {
   onTypeChange: (type: string) => void;
   targetFilter: string;
   onTargetChange: (target: string) => void;
+  dateFilter: string;
+  todayISO: string;
+  onDateChange: (date: string) => void;
+  onSelectToday: () => void;
+  onSelectAllDates: () => void;
   reprintOnly: boolean;
   onToggleReprintOnly?: () => void;
   hasActiveFilters: boolean;
@@ -60,11 +65,76 @@ export function PrintJobFilters({
   onTypeChange,
   targetFilter,
   onTargetChange,
+  dateFilter,
+  todayISO,
+  onDateChange,
+  onSelectToday,
+  onSelectAllDates,
   hasActiveFilters,
   onResetFilters,
 }: PrintJobFiltersProps) {
+  const isToday = dateFilter === todayISO;
+  const isAll = dateFilter === 'all';
+  const [dateDraft, setDateDraft] = useState(isAll ? '' : dateFilter);
+
+  useEffect(() => {
+    setDateDraft(isAll ? '' : dateFilter);
+  }, [dateFilter, isAll]);
+
   return (
     <View style={styles.container}>
+      {/* Date filter */}
+      <View style={styles.dateRow}>
+        <TextInput
+          style={styles.dateInput}
+          value={dateDraft}
+          onChangeText={(value) => {
+            setDateDraft(value);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+              onDateChange(value);
+            }
+          }}
+          onBlur={() => {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dateDraft)) {
+              onDateChange(dateDraft);
+            } else if (!isAll) {
+              setDateDraft(dateFilter === 'all' ? '' : dateFilter);
+            }
+          }}
+          placeholder={todayISO}
+          placeholderTextColor={colors.textSecondary}
+          autoCorrect={false}
+          autoCapitalize="none"
+          keyboardType="numbers-and-punctuation"
+          accessibilityLabel="Filter by date YYYY-MM-DD"
+        />
+        {!isToday ? (
+          <Pressable
+            style={({pressed}) => [
+              styles.dateBtn,
+              styles.todayBtn,
+              pressed && styles.dateBtnPressed,
+            ]}
+            onPress={onSelectToday}
+            accessibilityRole="button"
+            accessibilityLabel="Show today">
+            <Text style={styles.todayBtnText}>Today</Text>
+          </Pressable>
+        ) : null}
+        {!isAll ? (
+          <Pressable
+            style={({pressed}) => [
+              styles.dateBtn,
+              pressed && styles.dateBtnPressed,
+            ]}
+            onPress={onSelectAllDates}
+            accessibilityRole="button"
+            accessibilityLabel="Show all dates">
+            <Text style={styles.dateBtnText}>All</Text>
+          </Pressable>
+        ) : null}
+      </View>
+
       {/* Search Input Row & Reset Action */}
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
@@ -191,6 +261,50 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginBottom: 6,
     gap: 8,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dateInput: {
+    flex: 1,
+    height: 40,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  dateBtn: {
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  todayBtn: {
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+  },
+  dateBtnPressed: {
+    opacity: 0.85,
+  },
+  todayBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  dateBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
   searchRow: {
     flexDirection: 'row',

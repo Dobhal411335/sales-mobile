@@ -209,6 +209,22 @@ export function OrderDetailPanel({
         {order.paymentMethod ? (
           <InfoRow label="Method" value={order.paymentMethod} />
         ) : null}
+        {Array.isArray(order.paymentSplits) && order.paymentSplits.length > 0 ? (
+          <View style={styles.splitsBlock}>
+            <Text style={styles.splitsTitle}>Payment Splits</Text>
+            {order.paymentSplits.map((row, index) => (
+              <Text key={`${row.name}-${index}`} style={styles.splitLine}>
+                {row.name || `Guest ${index + 1}`}
+                {' · '}
+                {row.method === 'Card' && row.cardType
+                  ? `Card - ${row.cardType}`
+                  : row.method}
+                {' · '}
+                {formatCurrency(Number(row.amount) || 0)}
+              </Text>
+            ))}
+          </View>
+        ) : null}
         <InfoRow
           label="Tip"
           value={formatCurrency(Number(order.tipAmount || 0))}
@@ -234,6 +250,9 @@ export function OrderDetailPanel({
                     + {opt}
                   </Text>
                 ))}
+                {item.notes ? (
+                  <Text style={styles.itemRemark}>Remark: {item.notes}</Text>
+                ) : null}
               </View>
             </View>
             <Text style={styles.itemPrice}>
@@ -560,6 +579,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#312E81',
   },
+  splitsBlock: {
+    marginTop: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    backgroundColor: '#F5F3FF',
+    padding: 12,
+    gap: 4,
+  },
+  splitsTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#6D28D9',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    marginBottom: 2,
+  },
+  splitLine: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
   divider: {
     height: 1,
     backgroundColor: colors.border,
@@ -624,6 +665,13 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontStyle: 'italic',
     color: colors.text,
+  },
+  itemRemark: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: '600',
+    fontStyle: 'italic',
+    color: '#92400E',
   },
   itemPrice: {
     fontSize: 15,

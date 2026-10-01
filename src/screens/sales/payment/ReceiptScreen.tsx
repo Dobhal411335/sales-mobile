@@ -28,8 +28,14 @@ import {formatCurrency} from '../../../utils/currency';
 type Props = NativeStackScreenProps<SalesStackParamList, 'Receipt'>;
 
 export function ReceiptScreen({navigation, route}: Props) {
-  const {orderSnapshot, sessionId, orderType, taxBreakdown, printJobId} =
-    route.params;
+  const {
+    orderSnapshot,
+    sessionId,
+    orderType,
+    taxBreakdown,
+    printJobId,
+    printJobIds,
+  } = route.params;
   const resetOrderState = useCartStore((state) => state.resetOrderState);
   const {width} = useWindowDimensions();
   const isWide = width >= 768;
@@ -37,8 +43,13 @@ export function ReceiptScreen({navigation, route}: Props) {
   const [releaseDialogOpen, setReleaseDialogOpen] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [printMessage, setPrintMessage] = useState<string | null>(null);
+  const primaryPrintJobId =
+    printJobId ??
+    (Array.isArray(printJobIds) && printJobIds.length > 0
+      ? printJobIds[0]
+      : null);
   const [activePrintJobId, setActivePrintJobId] = useState<string | null>(
-    printJobId ?? null,
+    primaryPrintJobId,
   );
   const [isReprint, setIsReprint] = useState(Boolean(orderSnapshot.isReprint));
   const [reprinting, setReprinting] = useState(false);
@@ -48,6 +59,10 @@ export function ReceiptScreen({navigation, route}: Props) {
   const grandTotal =
     Number(orderSnapshot.totalAmount ?? 0) +
     Number(orderSnapshot.tipAmount ?? 0);
+  const splitRows = Array.isArray(orderSnapshot.paymentSplits)
+    ? orderSnapshot.paymentSplits
+    : [];
+  const isMultiSplit = splitRows.length > 1;
 
   const goToFloor = useCallback(() => {
     resetOrderState();
@@ -210,6 +225,28 @@ export function ReceiptScreen({navigation, route}: Props) {
             <Text style={styles.meta}>{orderSnapshot.paymentMethod}</Text>
           ) : null}
 
+          {isMultiSplit ? (
+            <View style={styles.splitList}>
+              <Text style={styles.splitTitle}>Payment Splits</Text>
+              {splitRows.map((row, index) => (
+                <Text key={`${row.name}-${index}`} style={styles.splitRow}>
+                  {row.name || `Guest ${index + 1}`}
+                  {' · '}
+                  {row.method === 'Card' && row.cardType
+                    ? `Card - ${row.cardType}`
+                    : row.method}
+                  {' · '}
+                  {formatCurrency(Number(row.amount) || 0)}
+                </Text>
+              ))}
+              {Array.isArray(printJobIds) && printJobIds.length > 1 ? (
+                <Text style={styles.splitHint}>
+                  {printJobIds.length} receipt slips queued
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+
           <View style={styles.totalBlock}>
             <Text style={styles.totalLabel}>TOTAL PAID</Text>
             <Text style={styles.totalValue}>{formatCurrency(grandTotal)}</Text>
@@ -353,6 +390,32 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: colors.success,
+  },
+  splitList: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    backgroundColor: '#F5F3FF',
+    gap: 4,
+  },
+  splitTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#6D28D9',
+    marginBottom: 4,
+  },
+  splitRow: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  splitHint: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
   },
   totalBlock: {
     marginTop: 16,

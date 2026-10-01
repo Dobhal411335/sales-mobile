@@ -41,6 +41,7 @@ export function buildSimpleCartLine(
     productType: product.productType,
     taxes: product.taxes,
     preparationStyle: null,
+    notes: '',
   };
 }
 
@@ -50,6 +51,7 @@ export function buildOfferCartLine(
     inclusions?: string[];
     choices?: string[];
     drinks?: string[];
+    notes?: string;
   } = {},
   globalTaxes: TaxRate[] = [],
 ): CartLineItem {
@@ -83,5 +85,6 @@ export function buildOfferCartLine(
     inclusions,
     choices,
     drinks,
+    notes: String(selection.notes || '').trim(),
   };
 }

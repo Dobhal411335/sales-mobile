@@ -1,5 +1,5 @@
 import React, {memo, useMemo} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {Image, Pressable, StyleSheet, Text, View} from 'react-native';
 import {colors} from '../../constants/colors';
 import type {ItemStyle, MenuProduct} from '../../types/product';
 import {productNeedsOptions} from '../../types/product';
@@ -55,6 +55,7 @@ function ProductCardComponent({
       ? product.variants[0].price
       : product.price;
   const isAvailable = product.inStock !== false;
+  const imageUrl = product.imageUrl;
 
   const theme = useMemo(() => {
     const idx = hashKey(product.id || product.name) % TILE_THEMES.length;
@@ -77,6 +78,15 @@ function ProductCardComponent({
         onPress={() => onPress(product)}
         accessibilityRole="button"
         accessibilityLabel={`${product.name}, ${formatCurrency(basePrice)}`}>
+        {imageUrl ? (
+          <View style={styles.tileImageWrap}>
+            <Image
+              source={{uri: imageUrl}}
+              style={styles.tileImage}
+              resizeMode="contain"
+            />
+          </View>
+        ) : null}
         {product.productCode || isOffer ? (
           <View style={[styles.tileCode, {backgroundColor: theme.codeBg}]}>
             <Text style={styles.tileCodeText}>
@@ -89,24 +99,27 @@ function ProductCardComponent({
             <Text style={styles.tileOutText}>Out</Text>
           </View>
         ) : null}
-        <Text style={styles.tileName} numberOfLines={2}>
-          {product.name}
-        </Text>
-        <Text style={styles.tilePrice}>{formatCurrency(basePrice)}</Text>
         <View
-          style={[
-            styles.tileAction,
-            hasOptions ? styles.tileActionOptions : styles.tileActionAdd,
-          ]}>
-          <Text
-            style={[
-              styles.tileActionText,
-              hasOptions
-                ? styles.tileActionTextOptions
-                : styles.tileActionTextAdd,
-            ]}>
-            {hasOptions ? 'Options' : 'Add'}
+          style={[styles.tileBody, !imageUrl && styles.tileBodyNoImage]}>
+          <Text style={styles.tileName} numberOfLines={2}>
+            {product.name}
           </Text>
+          <Text style={styles.tilePrice}>{formatCurrency(basePrice)}</Text>
+          <View
+            style={[
+              styles.tileAction,
+              hasOptions ? styles.tileActionOptions : styles.tileActionAdd,
+            ]}>
+            <Text
+              style={[
+                styles.tileActionText,
+                hasOptions
+                  ? styles.tileActionTextOptions
+                  : styles.tileActionTextAdd,
+              ]}>
+              {hasOptions ? 'Options' : 'Add'}
+            </Text>
+          </View>
         </View>
       </Pressable>
     );
@@ -118,35 +131,46 @@ function ProductCardComponent({
       onPress={() => onPress(product)}
       accessibilityRole="button"
       accessibilityLabel={`${product.name}, ${formatCurrency(basePrice)}`}>
-      <View style={styles.headerRow}>
-        {product.productCode ? (
-          <View style={styles.codeBadge}>
-            <Text style={styles.codeBadgeText}>{product.productCode}</Text>
-          </View>
-        ) : isOffer ? (
-          <Text style={styles.offerTag}>Offer</Text>
-        ) : (
-          <View />
-        )}
-        {hasOptions ? (
-          <View style={styles.optionsBadge}>
-            <Text style={styles.optionsBadgeText}>Options</Text>
-          </View>
-        ) : null}
-      </View>
-
-      <Text style={styles.name} numberOfLines={2}>
-        {product.name}
-      </Text>
-      <Text style={styles.category} numberOfLines={1}>
-        {product.category?.name || 'Uncategorized'}
-      </Text>
-      {offerOptionsPreview ? (
-        <Text style={styles.optionsPreview} numberOfLines={2}>
-          {offerOptionsPreview}
-        </Text>
+      {imageUrl ? (
+        <View style={styles.listImageWrap}>
+          <Image
+            source={{uri: imageUrl}}
+            style={styles.listImage}
+            resizeMode="contain"
+          />
+        </View>
       ) : null}
-      <Text style={styles.price}>{formatCurrency(basePrice)}</Text>
+      <View style={styles.listBody}>
+        <View style={styles.headerRow}>
+          {product.productCode ? (
+            <View style={styles.codeBadge}>
+              <Text style={styles.codeBadgeText}>{product.productCode}</Text>
+            </View>
+          ) : isOffer ? (
+            <Text style={styles.offerTag}>Offer</Text>
+          ) : (
+            <View />
+          )}
+          {hasOptions ? (
+            <View style={styles.optionsBadge}>
+              <Text style={styles.optionsBadgeText}>Options</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <Text style={styles.name} numberOfLines={2}>
+          {product.name}
+        </Text>
+        <Text style={styles.category} numberOfLines={1}>
+          {product.category?.name || 'Uncategorized'}
+        </Text>
+        {offerOptionsPreview ? (
+          <Text style={styles.optionsPreview} numberOfLines={2}>
+            {offerOptionsPreview}
+          </Text>
+        ) : null}
+        <Text style={styles.price}>{formatCurrency(basePrice)}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -156,17 +180,35 @@ export const ProductCard = memo(ProductCardComponent);
 const styles = StyleSheet.create({
   card: {
     flex: 1,
-    minHeight: 132,
+    minHeight: 96,
+    flexDirection: 'row',
     backgroundColor: colors.surface,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: 12,
+    overflow: 'hidden',
     margin: 6,
   },
   cardPressed: {
     borderColor: colors.primary,
     backgroundColor: colors.cream,
+  },
+  listImageWrap: {
+    width: 128,
+    minHeight: 96,
+    alignSelf: 'stretch',
+    backgroundColor: '#F4F4F5',
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+    padding: 6,
+  },
+  listImage: {
+    width: '100%',
+    height: '100%',
+  },
+  listBody: {
+    flex: 1,
+    padding: 12,
   },
   headerRow: {
     flexDirection: 'row',
@@ -239,23 +281,31 @@ const styles = StyleSheet.create({
   },
   tile: {
     flex: 1,
-    minHeight: 132,
     borderRadius: 14,
     borderWidth: 2,
-    paddingHorizontal: 10,
-    paddingTop: 28,
-    paddingBottom: 10,
     margin: 5,
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    overflow: 'hidden',
   },
   tilePressed: {
     opacity: 0.88,
+  },
+  tileImageWrap: {
+    width: '100%',
+    aspectRatio: 4 / 3,
+    backgroundColor: '#F4F4F5',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(228,228,231,0.9)',
+    padding: 4,
+  },
+  tileImage: {
+    width: '100%',
+    height: '100%',
   },
   tileCode: {
     position: 'absolute',
     top: 8,
     left: 8,
+    zIndex: 2,
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -269,6 +319,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 8,
     right: 8,
+    zIndex: 2,
     backgroundColor: colors.error,
     borderRadius: 6,
     paddingHorizontal: 6,
@@ -278,6 +329,18 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
     color: '#FFFFFF',
+  },
+  tileBody: {
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    paddingBottom: 10,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tileBodyNoImage: {
+    minHeight: 128,
+    paddingTop: 28,
   },
   tileName: {
     fontSize: 15,

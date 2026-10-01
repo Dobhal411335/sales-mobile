@@ -149,6 +149,7 @@ function todayOrderToReceipt(order: TodayOrder): ReceiptOrder {
       preparationStyle: item.preparationStyle,
       options: item.options,
       productType: (item.productType as 'KITCHEN' | 'BAR' | undefined) || 'KITCHEN',
+      notes: item.notes,
     })),
     subTotal: order.subTotal,
     taxTotal: order.taxTotal,
@@ -169,6 +170,7 @@ function todayOrderToKotItems(order: TodayOrder): KotLineItem[] {
     size: item.size,
     options: item.options,
     preparationStyle: item.preparationStyle,
+    notes: item.notes,
   }));
 }
 

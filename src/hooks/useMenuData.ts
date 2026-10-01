@@ -167,13 +167,16 @@ export function useMenuData(): UseMenuDataResult {
     );
   }, [panelLayout, itemStyle, gridCols, viewMode]);
 
-  const setPanelLayout = useCallback((layout: PanelLayout) => {
-    setPanelLayoutState(layout);
-    if (layout === '3') {
-      setItemStyleState('list');
-      setViewMode('list');
-    }
-  }, []);
+  const setPanelLayout = useCallback(
+    (layout: PanelLayout) => {
+      setPanelLayoutState(layout);
+      // Narrower menu column in 3-panel — default to 2 tile columns.
+      if (layout === '3' && itemStyle === 'tiles') {
+        setGridColsState(2);
+      }
+    },
+    [itemStyle],
+  );
 
   const setItemStyle = useCallback((style: ItemStyle) => {
     setItemStyleState(style);

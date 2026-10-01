@@ -122,7 +122,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
     setSearchQuery,
   } = useMenuData();
 
-  const effectiveItemStyle = panelLayout === '3' ? 'list' : itemStyle;
+  const effectiveItemStyle = itemStyle;
 
   const items = useCartStore((state) => state.items);
   const orderNote = useCartStore((state) => state.orderNote);
@@ -143,6 +143,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
 
   const addItems = useCartStore((state) => state.addItems);
   const updateQty = useCartStore((state) => state.updateQty);
+  const updateItemNotes = useCartStore((state) => state.updateItemNotes);
   const removeItem = useCartStore((state) => state.removeItem);
   const setOrderNote = useCartStore((state) => state.setOrderNote);
   const clearCart = useCartStore((state) => state.clearCart);
@@ -660,6 +661,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
             onChangeNote={(note) => {
               markDirty();
               setOrderNote(note);
+            }}
+            onChangeItemNotes={(cartId, notes) => {
+              markDirty();
+              updateItemNotes(cartId, notes);
             }}
             onIncrease={(cartId) => {
               const item = items.find((line) => line.cartId === cartId);

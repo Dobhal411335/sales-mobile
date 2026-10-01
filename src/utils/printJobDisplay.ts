@@ -129,44 +129,91 @@ export function getTicketItems(data: PrintJobDetailData): KotLineItem[] {
 export function buildReceiptOrderFromDetail(data: PrintJobDetailData): ReceiptOrder {
   const {job, order} = data;
   const meta = job.metadata ?? {};
+  const isSplit = Boolean(meta.isSplitReceipt);
 
   if (order) {
+    const splitParty =
+      meta.splitName || meta.partyName || meta.guestName || undefined;
     return {
       ...order,
       orderNumber: String(order.orderNumber ?? meta.orderNumber ?? '—'),
       tableNo: order.tableNo ?? meta.tableNo?.toString(),
-      guestName: order.guestName ?? meta.guestName,
-      partyName: order.partyName ?? meta.partyName,
+      guestName: isSplit
+        ? String(splitParty || order.guestName || '')
+        : order.guestName ?? meta.guestName,
+      partyName: isSplit
+        ? String(splitParty || order.partyName || '')
+        : order.partyName ?? meta.partyName,
       guestCount: order.guestCount ?? data.guestCount ?? meta.guestCount,
-      paymentMethod: order.paymentMethod ?? meta.paymentMethod,
-      cashAmount: order.cashAmount ?? meta.cashAmount,
-      cardAmount: order.cardAmount ?? meta.cardAmount,
-      giftcardUsedAmount: order.giftcardUsedAmount ?? meta.giftcardUsedAmount,
-      totalAmount: order.totalAmount ?? meta.totalAmount,
-      subTotal: order.subTotal ?? meta.subTotal,
-      discountTotal: order.discountTotal ?? meta.discountTotal,
-      discountPercent: order.discountPercent ?? meta.discountPercent,
-      taxTotal: order.taxTotal ?? meta.taxTotal,
-      tipAmount: order.tipAmount ?? meta.tipAmount,
-      tipMethod: order.tipMethod ?? meta.tipMethod,
-      serviceChargeTotal: order.serviceChargeTotal ?? meta.serviceChargeTotal,
-      serviceChargeName: order.serviceChargeName ?? meta.serviceChargeName,
+      paymentMethod: isSplit
+        ? meta.paymentMethod ??
+          (meta.splitMethod
+            ? meta.splitCardType
+              ? `${meta.splitMethod} - ${meta.splitCardType}`
+              : meta.splitMethod
+            : order.paymentMethod)
+        : order.paymentMethod ?? meta.paymentMethod,
+      cashAmount: isSplit
+        ? meta.cashAmount ??
+          (meta.splitMethod === 'Cash' ? meta.splitAmount : 0)
+        : order.cashAmount ?? meta.cashAmount,
+      cardAmount: isSplit
+        ? meta.cardAmount ??
+          (meta.splitMethod === 'Card' ? meta.splitAmount : 0)
+        : order.cardAmount ?? meta.cardAmount,
+      giftcardUsedAmount: isSplit
+        ? meta.giftcardUsedAmount ?? 0
+        : order.giftcardUsedAmount ?? meta.giftcardUsedAmount,
+      totalAmount: isSplit
+        ? meta.splitAmount ?? meta.totalAmount ?? order.totalAmount
+        : order.totalAmount ?? meta.totalAmount,
+      subTotal: isSplit
+        ? meta.subTotal ?? meta.splitAmount ?? order.subTotal
+        : order.subTotal ?? meta.subTotal,
+      discountTotal: isSplit
+        ? meta.discountTotal ?? 0
+        : order.discountTotal ?? meta.discountTotal,
+      discountPercent: isSplit
+        ? meta.discountPercent ?? null
+        : order.discountPercent ?? meta.discountPercent,
+      taxTotal: isSplit ? meta.taxTotal ?? 0 : order.taxTotal ?? meta.taxTotal,
+      tipAmount: isSplit ? meta.tipAmount ?? 0 : order.tipAmount ?? meta.tipAmount,
+      tipMethod: isSplit
+        ? meta.tipMethod
+        : order.tipMethod ?? meta.tipMethod,
+      serviceChargeTotal: isSplit
+        ? meta.serviceChargeTotal ?? 0
+        : order.serviceChargeTotal ?? meta.serviceChargeTotal,
+      serviceChargeName: isSplit
+        ? meta.serviceChargeName
+        : order.serviceChargeName ?? meta.serviceChargeName,
+      paymentSplits: order.paymentSplits,
     };
   }
 
   return {
     orderNumber: String(meta.orderNumber ?? '—'),
     tableNo: meta.tableNo?.toString(),
-    guestName: meta.guestName,
-    partyName: meta.partyName,
+    guestName: meta.splitName || meta.guestName,
+    partyName: meta.splitName || meta.partyName,
     guestCount: data.guestCount ?? meta.guestCount,
     createdAt: job.createdAt,
-    paymentMethod: meta.paymentMethod,
-    cashAmount: meta.cashAmount,
-    cardAmount: meta.cardAmount,
+    paymentMethod:
+      meta.paymentMethod ||
+      (meta.splitMethod
+        ? meta.splitCardType
+          ? `${meta.splitMethod} - ${meta.splitCardType}`
+          : meta.splitMethod
+        : undefined),
+    cashAmount:
+      meta.cashAmount ??
+      (meta.splitMethod === 'Cash' ? meta.splitAmount : undefined),
+    cardAmount:
+      meta.cardAmount ??
+      (meta.splitMethod === 'Card' ? meta.splitAmount : undefined),
     giftcardUsedAmount: meta.giftcardUsedAmount,
-    totalAmount: meta.totalAmount,
-    subTotal: meta.subTotal,
+    totalAmount: meta.splitAmount ?? meta.totalAmount,
+    subTotal: meta.subTotal ?? meta.splitAmount,
     discountTotal: meta.discountTotal,
     discountPercent: meta.discountPercent,
     taxTotal: meta.taxTotal,
@@ -175,6 +222,18 @@ export function buildReceiptOrderFromDetail(data: PrintJobDetailData): ReceiptOr
     serviceChargeTotal: meta.serviceChargeTotal,
     serviceChargeName: meta.serviceChargeName,
   };
+}
+
+export function printTypeLabelForJob(job: PrintJob): string {
+  if (job?.metadata?.isSplitReceipt) {
+    const idx = job.metadata.splitIndex;
+    const total = job.metadata.splitTotal;
+    if (idx && total) {
+      return `Split ${idx}/${total}`;
+    }
+    return 'Split Receipt';
+  }
+  return printTypeLabel(job.printType);
 }
 
 export function printerNameForTarget(

@@ -392,6 +392,9 @@ export function mapPaymentResponseToSnapshot(
     paymentMethod: data.paymentMethod,
     cashAmount: data.cashAmount,
     cardAmount: data.cardAmount,
+    paymentSplits: Array.isArray(data.paymentSplits)
+      ? data.paymentSplits
+      : undefined,
     paymentStatus: data.paymentStatus ?? 'PAID',
     paidAt: data.paidAt ?? new Date().toISOString(),
     createdAt: data.createdAt ?? new Date().toISOString(),
@@ -416,6 +419,7 @@ export interface PaymentRecoveryState {
   paid: boolean;
   order?: PaidOrderSnapshot;
   printJobId?: string | null;
+  printJobIds?: string[];
 }
 
 export async function fetchPaymentRecoveryState(
@@ -504,11 +508,20 @@ export async function processPayment(
 
     const data = response.data.data;
     const order = mapPaymentResponseToSnapshot(data, cartItems);
+    const printJobIds = Array.isArray(
+      (data as PaymentApiOrder).printJobIds,
+    )
+      ? ((data as PaymentApiOrder).printJobIds as string[])
+      : undefined;
+    const printJobId =
+      data.printJobId ??
+      (printJobIds && printJobIds.length > 0 ? printJobIds[0] : null);
 
     return {
       success: true,
       order,
-      printJobId: data.printJobId ?? null,
+      printJobId: printJobId ?? null,
+      printJobIds,
     };
   } catch (error) {
     if (isAxiosError(error) && error.response?.status === 409) {

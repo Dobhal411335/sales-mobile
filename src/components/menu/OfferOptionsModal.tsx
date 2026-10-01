@@ -4,6 +4,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
   ScrollView,
 } from 'react-native';
@@ -61,6 +62,7 @@ export function OfferOptionsModal({
   const [selectedInclusions, setSelectedInclusions] = useState<string[]>([]);
   const [selectedChoices, setSelectedChoices] = useState<string[]>([]);
   const [selectedDrinks, setSelectedDrinks] = useState<string[]>([]);
+  const [itemNotes, setItemNotes] = useState('');
 
   useEffect(() => {
     if (!offer || !visible) {
@@ -72,6 +74,7 @@ export function OfferOptionsModal({
     setSelectedInclusions(inclusions);
     setSelectedChoices(choices.length === 1 ? choices : []);
     setSelectedDrinks(drinks.length === 1 ? drinks : []);
+    setItemNotes('');
   }, [offer, visible]);
 
   if (!offer) {
@@ -90,6 +93,7 @@ export function OfferOptionsModal({
           inclusions: selectedInclusions,
           choices: selectedChoices,
           drinks: selectedDrinks,
+          notes: itemNotes,
         },
         globalTaxes,
       ),
@@ -168,6 +172,20 @@ export function OfferOptionsModal({
                 ))}
               </View>
             ) : null}
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Special request / remark</Text>
+              <TextInput
+                style={styles.notesInput}
+                value={itemNotes}
+                onChangeText={setItemNotes}
+                onBlur={() => setItemNotes((prev) => prev.trim())}
+                placeholder="e.g. No onions, extra sauce..."
+                placeholderTextColor={colors.textSecondary}
+                multiline
+                accessibilityLabel="Special request or remark"
+              />
+            </View>
           </ScrollView>
 
           <View style={styles.footer}>
@@ -304,6 +322,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: colors.text,
+  },
+  notesInput: {
+    minHeight: 56,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: colors.text,
+    backgroundColor: colors.cream,
   },
   footer: {
     flexDirection: 'row',

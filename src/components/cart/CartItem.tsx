@@ -1,5 +1,5 @@
 import React, {memo} from 'react';
-import {Pressable, StyleSheet, Text, View} from 'react-native';
+import {Pressable, StyleSheet, Text, TextInput, View} from 'react-native';
 import {Trash2} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem} from '../../types/cart';
@@ -11,6 +11,7 @@ interface CartItemProps {
   onIncrease: () => void;
   onDecrease: () => void;
   onRemove: () => void;
+  onChangeNotes: (notes: string) => void;
 }
 
 function ChoiceChips({
@@ -58,6 +59,7 @@ function CartItemComponent({
   onIncrease,
   onDecrease,
   onRemove,
+  onChangeNotes,
 }: CartItemProps) {
   const lineTotal = item.price * item.qty;
   const choiceGroups = item.isOffer
@@ -96,6 +98,25 @@ function CartItemComponent({
         <Text style={styles.price}>{formatCurrency(lineTotal)}</Text>
       </View>
 
+      <View style={styles.notesBlock}>
+        <Text style={styles.notesLabel}>Item remark</Text>
+        <TextInput
+          style={styles.notesInput}
+          value={item.notes || ''}
+          onChangeText={onChangeNotes}
+          onBlur={() => {
+            const trimmed = String(item.notes || '').trim();
+            if (trimmed !== (item.notes || '')) {
+              onChangeNotes(trimmed);
+            }
+          }}
+          placeholder="e.g. No onions, extra sauce..."
+          placeholderTextColor={colors.textSecondary}
+          multiline
+          accessibilityLabel={`Item remark for ${item.name}`}
+        />
+      </View>
+
       <View style={styles.controlsRow}>
         <Pressable
           style={styles.trashButton}
@@ -103,7 +124,7 @@ function CartItemComponent({
           hitSlop={8}
           accessibilityRole="button"
           accessibilityLabel={`Remove ${item.name}`}>
-          <Trash2 size={16} color={colors.textSecondary} />
+          <Trash2 size={16} color={colors.error} />
         </Pressable>
 
         <View style={styles.qtyControls}>
@@ -242,6 +263,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: colors.text,
+  },
+  notesBlock: {
+    gap: 4,
+  },
+  notesLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  notesInput: {
+    minHeight: 40,
+    maxHeight: 72,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: colors.text,
+    backgroundColor: colors.cream,
   },
   controlsRow: {
     flexDirection: 'row',

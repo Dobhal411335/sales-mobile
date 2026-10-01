@@ -56,6 +56,7 @@ function todayOrderToPaidSnapshot(order: TodayOrder): PaidOrderSnapshot {
       options: item.options,
       productType:
         (item.productType as 'KITCHEN' | 'BAR' | undefined) || 'KITCHEN',
+      notes: item.notes,
     })),
     subTotal: order.subTotal,
     taxTotal: order.taxTotal,

@@ -34,6 +34,7 @@ export interface ApiOrderItem {
   drinks?: string[];
   choiceSelections?: ChoiceSelection[];
   addonChoiceSelections?: ChoiceSelection[];
+  notes?: string;
   sentQty?: number;
 }
 

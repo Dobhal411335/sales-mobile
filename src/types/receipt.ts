@@ -18,6 +18,7 @@ export interface KotLineItem {
   addonChoiceSelections?: Array<{name: string; subChoices: string[]}>;
   modifier?: string;
   preparationStyle?: string;
+  notes?: string;
   isOffer?: boolean;
 }
 
@@ -26,6 +27,15 @@ export interface TaxBreakdownLine {
   amount: number;
   rate?: number;
   taxId?: string;
+}
+
+export interface OrderPaymentSplit {
+  name: string;
+  amount: number;
+  method: string;
+  cardType?: string | null;
+  tipAmount?: number;
+  paidAt?: string;
 }
 
 export interface ReceiptOrder {
@@ -56,6 +66,7 @@ export interface ReceiptOrder {
   cashAmount?: number;
   cardAmount?: number;
   paymentStatus?: string;
+  paymentSplits?: OrderPaymentSplit[];
   source?: string;
   isReprint?: boolean;
   restaurantName?: string;

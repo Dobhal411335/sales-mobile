@@ -770,12 +770,19 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
   const tableNo = resolveTableNo(job, order);
   const floorName = resolveFloorName(job, order);
   const tableLabel = formatTableNumbersWithFloor(tableNo, floorName);
-  const partyLabel =
-    order?.partyName ||
-    order?.guestName ||
-    job?.metadata?.partyName ||
-    job?.metadata?.guestName ||
-    '';
+  const meta = (job?.metadata || {}) as Record<string, unknown>;
+  const isSplitReceipt = Boolean(meta.isSplitReceipt);
+
+  const partyLabel = isSplitReceipt
+    ? String(meta.splitName || meta.partyName || meta.guestName || '').trim() ||
+      order?.partyName ||
+      order?.guestName ||
+      ''
+    : order?.partyName ||
+      order?.guestName ||
+      job?.metadata?.partyName ||
+      job?.metadata?.guestName ||
+      '';
 
   const orderTaxBreakdown = (order as {taxBreakdown?: TaxBreakdownLine[]})?.taxBreakdown;
   const taxBreakdown = (Array.isArray(orderTaxBreakdown)
@@ -787,35 +794,58 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
       : Number(order?.taxTotal || 0);
 
   const rawOrder = (order || {}) as Record<string, unknown>;
-  const meta = (job?.metadata || {}) as Record<string, unknown>;
 
   const methodStr = String(
-    rawOrder.paymentMethod ||
-    meta.paymentMethod ||
-    rawOrder.method ||
-    meta.method ||
-    '',
+    (isSplitReceipt
+      ? meta.paymentMethod ||
+        (meta.splitMethod
+          ? meta.splitCardType
+            ? `${meta.splitMethod} - ${meta.splitCardType}`
+            : meta.splitMethod
+          : '')
+      : rawOrder.paymentMethod ||
+        meta.paymentMethod ||
+        rawOrder.method ||
+        meta.method) || '',
   ).trim();
 
-  const tip = Number(rawOrder.tipAmount ?? meta.tipAmount ?? 0);
-  const discount = Number(rawOrder.discountTotal ?? meta.discountTotal ?? 0);
-  const serviceCharge = Number(
-    rawOrder.serviceChargeTotal ?? meta.serviceChargeTotal ?? 0,
-  );
-  const giftUsed = Number(
-    rawOrder.giftcardUsedAmount ??
-    rawOrder.giftCardUsedAmount ??
-    rawOrder.giftCardUsed ??
-    meta.giftcardUsedAmount ??
-    meta.giftCardUsedAmount ??
-    meta.giftCardUsed ??
-    0,
-  );
-  const cash = Number(rawOrder.cashAmount ?? meta.cashAmount ?? 0);
-  const card = Number(rawOrder.cardAmount ?? meta.cardAmount ?? 0);
-  const orderTotal = Number(
-    rawOrder.totalAmount ?? meta.totalAmount ?? rawOrder.amount ?? 0,
-  );
+  const tip = isSplitReceipt
+    ? Number(meta.tipAmount ?? 0)
+    : Number(rawOrder.tipAmount ?? meta.tipAmount ?? 0);
+  const discount = isSplitReceipt
+    ? Number(meta.discountTotal ?? 0)
+    : Number(rawOrder.discountTotal ?? meta.discountTotal ?? 0);
+  const serviceCharge = isSplitReceipt
+    ? Number(meta.serviceChargeTotal ?? 0)
+    : Number(rawOrder.serviceChargeTotal ?? meta.serviceChargeTotal ?? 0);
+  const giftUsed = isSplitReceipt
+    ? Number(meta.giftcardUsedAmount ?? 0)
+    : Number(
+        rawOrder.giftcardUsedAmount ??
+          rawOrder.giftCardUsedAmount ??
+          rawOrder.giftCardUsed ??
+          meta.giftcardUsedAmount ??
+          meta.giftCardUsedAmount ??
+          meta.giftCardUsed ??
+          0,
+      );
+  const cash = isSplitReceipt
+    ? Number(
+        meta.cashAmount ??
+          (meta.splitMethod === 'Cash' ? meta.splitAmount : 0) ??
+          0,
+      )
+    : Number(rawOrder.cashAmount ?? meta.cashAmount ?? 0);
+  const card = isSplitReceipt
+    ? Number(
+        meta.cardAmount ??
+          (meta.splitMethod === 'Card' ? meta.splitAmount : 0) ??
+          0,
+      )
+    : Number(rawOrder.cardAmount ?? meta.cardAmount ?? 0);
+  const orderTotal = isSplitReceipt
+    ? Number(meta.splitAmount ?? meta.totalAmount ?? 0)
+    : Number(rawOrder.totalAmount ?? meta.totalAmount ?? rawOrder.amount ?? 0);
   const grandTotal = orderTotal + tip;
 
   const cardLabelMatch = methodStr.match(/Card\s*-\s*([^+/]+)/i);
@@ -912,6 +942,17 @@ export function buildReceiptTicket(params: ReceiptTicketParams): string {
   e.bold(false);
   if (reprint) {
     e.align(1).bold(true).line('*** REPRINT ***').bold(false);
+  }
+  if (isSplitReceipt) {
+    const splitIdx = Number(meta.splitIndex) || 1;
+    const splitTot = Number(meta.splitTotal) || 1;
+    e.align(1).bold(true).line(`SPLIT ${splitIdx} of ${splitTot}`).bold(false);
+    if (meta.splitName) {
+      e.align(1)
+        .bold(true)
+        .line(toPrinterText(String(meta.splitName)))
+        .bold(false);
+    }
   }
   for (const addrLine of String(restAddress).split(/\r?\n/)) {
     e.line(toPrinterText(addrLine));

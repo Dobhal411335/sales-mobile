@@ -30,6 +30,7 @@ export interface TodayOrderItem {
   options?: string[];
   productType?: string;
   category?: string;
+  notes?: string;
 }
 
 export interface TodayOrderProcessedBy {
@@ -43,6 +44,15 @@ export interface TodayOrderTableSession {
   id?: string;
 }
 
+export interface TodayOrderPaymentSplit {
+  name: string;
+  amount: number;
+  method: string;
+  cardType?: string | null;
+  tipAmount?: number;
+  paidAt?: string;
+}
+
 export interface TodayOrder {
   _id: string;
   orderNumber: string;
@@ -50,6 +60,7 @@ export interface TodayOrder {
   source?: TodayOrderSource;
   paymentStatus?: TodayOrderPaymentStatus;
   paymentMethod?: string;
+  paymentSplits?: TodayOrderPaymentSplit[];
   cashAmount?: number;
   cardAmount?: number;
   totalAmount: number;

@@ -58,6 +58,25 @@ export interface ServiceTaxConfig {
   active: boolean;
 }
 
+/** Named payer row for Split Bill (mirrors web paymentSplits). */
+export interface PaymentSplitPayload {
+  name: string;
+  amount: number;
+  method: 'Cash' | 'Card';
+  cardType?: string | null;
+}
+
+/** Local editor row for Split Bill UI. */
+export interface PaymentSplitDraft {
+  id: string;
+  name: string;
+  amount: string;
+  method: 'Cash' | 'Card';
+  cardType: string;
+}
+
+export type BillMode = 'full' | 'split';
+
 export interface PaymentRequestPayload {
   orderId: string;
   amount: number;
@@ -69,6 +88,7 @@ export interface PaymentRequestPayload {
   giftCardCode?: string;
   giftCardUsedAmount?: number;
   splitAmount?: number;
+  paymentSplits?: PaymentSplitPayload[];
   discountTotal?: number;
   discountCode?: string | null;
   discountPercent?: number | null;
@@ -85,6 +105,7 @@ export interface PaymentRequestPayload {
 export interface PaymentApiOrder extends ReceiptOrder {
   _id?: string;
   printJobId?: string | null;
+  printJobIds?: string[];
   processedByName?: string;
   paymentStatus?: string;
   status?: string;
@@ -101,6 +122,7 @@ export interface PaymentProcessResult {
   message?: string;
   order?: PaidOrderSnapshot;
   printJobId?: string | null;
+  printJobIds?: string[];
   alreadyPaid?: boolean;
 }
 

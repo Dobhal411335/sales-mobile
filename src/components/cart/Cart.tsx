@@ -23,6 +23,7 @@ interface CartProps {
   canPay: boolean;
   hasSentKot: boolean;
   onChangeNote: (note: string) => void;
+  onChangeItemNotes: (cartId: string, notes: string) => void;
   onIncrease: (cartId: string) => void;
   onDecrease: (cartId: string) => void;
   onRemove: (cartId: string) => void;
@@ -40,6 +41,7 @@ export function Cart({
   canPay,
   hasSentKot,
   onChangeNote,
+  onChangeItemNotes,
   onIncrease,
   onDecrease,
   onRemove,
@@ -95,6 +97,7 @@ export function Cart({
               onIncrease={() => onIncrease(item.cartId)}
               onDecrease={() => onDecrease(item.cartId)}
               onRemove={() => onRemove(item.cartId)}
+              onChangeNotes={(notes) => onChangeItemNotes(item.cartId, notes)}
             />
           )}
         />

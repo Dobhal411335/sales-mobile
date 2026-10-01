@@ -529,6 +529,24 @@ export function TodaySalesDetailDrawer({
                   </View>
                 ) : null}
 
+                {Array.isArray(order.paymentSplits) &&
+                order.paymentSplits.length > 0 ? (
+                  <View style={styles.splitsCard}>
+                    <Text style={styles.splitsCardTitle}>Payment Splits</Text>
+                    {order.paymentSplits.map((row, index) => (
+                      <Text key={`${row.name}-${index}`} style={styles.splitLine}>
+                        {row.name || `Guest ${index + 1}`}
+                        {' · '}
+                        {row.method === 'Card' && row.cardType
+                          ? `Card - ${row.cardType}`
+                          : row.method}
+                        {' · '}
+                        {formatCurrency(Number(row.amount) || 0)}
+                      </Text>
+                    ))}
+                  </View>
+                ) : null}
+
                 <View style={styles.infoRow}>
                   <Text style={styles.infoLabel}>Tip</Text>
                   <Text style={styles.infoValueBold}>
@@ -567,6 +585,11 @@ export function TodaySalesDetailDrawer({
                               + {opt}
                             </Text>
                           ))}
+                          {item.notes ? (
+                            <Text style={styles.itemRemark}>
+                              Remark: {item.notes}
+                            </Text>
+                          ) : null}
                         </View>
                       </View>
 
@@ -704,6 +727,24 @@ export function TodaySalesDetailDrawer({
                       <Text style={styles.paymentMethodBreakdownText}>
                         {parsedPayment.displayBreakdown}
                       </Text>
+                    ) : null}
+                    {Array.isArray(order.paymentSplits) &&
+                    order.paymentSplits.length > 0 ? (
+                      <View style={styles.splitsCardFooter}>
+                        {order.paymentSplits.map((row, index) => (
+                          <Text
+                            key={`footer-split-${row.name}-${index}`}
+                            style={styles.splitLine}>
+                            {row.name || `Guest ${index + 1}`}
+                            {' · '}
+                            {row.method === 'Card' && row.cardType
+                              ? `Card - ${row.cardType}`
+                              : row.method}
+                            {' · '}
+                            {formatCurrency(Number(row.amount) || 0)}
+                          </Text>
+                        ))}
+                      </View>
                     ) : null}
                   </View>
                 ) : null}
@@ -1221,6 +1262,13 @@ const styles = StyleSheet.create({
     color: '#71717a',
     marginTop: 1,
   },
+  itemRemark: {
+    fontSize: 11,
+    fontWeight: '600',
+    fontStyle: 'italic',
+    color: '#92400E',
+    marginTop: 1,
+  },
   itemPrice: {
     fontSize: 13,
     fontWeight: '700',
@@ -1317,6 +1365,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#64748b',
     textAlign: 'right',
+  },
+  splitsCard: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    backgroundColor: '#F5F3FF',
+    gap: 4,
+  },
+  splitsCardTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#6D28D9',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  splitsCardFooter: {
+    marginTop: 8,
+    gap: 3,
+  },
+  splitLine: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#18181B',
   },
   giftCardValue: {
     color: '#7c3aed',

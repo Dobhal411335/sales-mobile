@@ -34,10 +34,11 @@ import {
   formatPrintJobDetailTime,
   getTicketItems,
   orderLabel,
-  printTypeLabel,
+  printTypeLabelForJob,
   printTypeToReceiptMode,
   printerTargetLabel,
 } from '../../../utils/printJobDisplay';
+import {todayRestaurantISO} from '../../../utils/restaurantTime';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'PrintJobs'>;
 
@@ -66,6 +67,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
   const targetFilter = usePrintJobStore((s) => s.targetFilter);
   const reprintOnly = usePrintJobStore((s) => s.reprintOnly);
   const searchQuery = usePrintJobStore((s) => s.searchQuery);
+  const dateFilter = usePrintJobStore((s) => s.dateFilter);
   const page = usePrintJobStore((s) => s.page);
   const pagination = usePrintJobStore((s) => s.pagination);
   const serverStats = usePrintJobStore((s) => s.serverStats);
@@ -86,6 +88,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
   const setTargetFilter = usePrintJobStore((s) => s.setTargetFilter);
   const setReprintOnly = usePrintJobStore((s) => s.setReprintOnly);
   const setSearchQuery = usePrintJobStore((s) => s.setSearchQuery);
+  const setDateFilter = usePrintJobStore((s) => s.setDateFilter);
   const setPage = usePrintJobStore((s) => s.setPage);
   const resetFilters = usePrintJobStore((s) => s.resetFilters);
   const selectJob = usePrintJobStore((s) => s.selectJob);
@@ -96,6 +99,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
 
   const [previewOpen, setPreviewOpen] = useState(false);
   const [reprintTarget, setReprintTarget] = useState<PrintJob | null>(null);
+  const todayISO = useMemo(() => todayRestaurantISO(), []);
 
   const deepLinkJobId = route.params?.jobId;
 
@@ -122,7 +126,8 @@ export function PrintJobsScreen({navigation, route}: Props) {
     typeFilter !== 'ALL' ||
     targetFilter !== 'ALL' ||
     reprintOnly ||
-    Boolean(searchQuery.trim());
+    Boolean(searchQuery.trim()) ||
+    dateFilter !== todayISO;
 
   const onRefresh = useCallback(() => {
     clearActionMessage();
@@ -462,6 +467,20 @@ export function PrintJobsScreen({navigation, route}: Props) {
             clearActionMessage();
             setTargetFilter(tgt);
           }}
+          dateFilter={dateFilter}
+          todayISO={todayISO}
+          onDateChange={(d) => {
+            clearActionMessage();
+            setDateFilter(d);
+          }}
+          onSelectToday={() => {
+            clearActionMessage();
+            setDateFilter(todayISO);
+          }}
+          onSelectAllDates={() => {
+            clearActionMessage();
+            setDateFilter('all');
+          }}
           reprintOnly={reprintOnly}
           hasActiveFilters={hasActiveFilters}
           onResetFilters={() => {
@@ -535,7 +554,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
                     <View style={styles.previewRow}>
                       <Text style={styles.previewLabel}>Type</Text>
                       <Text style={styles.previewValue}>
-                        {printTypeLabel(detail.job.printType)}
+                        {printTypeLabelForJob(detail.job)}
                       </Text>
                     </View>
                     <View style={styles.previewRow}>

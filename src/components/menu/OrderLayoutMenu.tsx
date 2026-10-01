@@ -39,7 +39,7 @@ export function OrderLayoutMenu({
 
   const summary = useMemo(() => {
     const panels = panelLayout === '3' ? '3 panels' : '2 panels';
-    if (panelLayout === '3' || itemStyle === 'list') {
+    if (itemStyle === 'list') {
       return `${panels} · List`;
     }
     return `${panels} · Tiles ${gridCols}`;

@@ -36,9 +36,17 @@ export interface PrintJobOrderRef {
   orderNumber?: string | number;
   tableNo?: string | number;
   guestName?: string;
+  partyName?: string;
   status?: string;
   paymentStatus?: string;
   totalAmount?: number;
+  paymentMethod?: string;
+  paymentSplits?: Array<{
+    name: string;
+    amount: number;
+    method: string;
+    cardType?: string | null;
+  }>;
 }
 
 export interface PrintJobMetadata {
@@ -53,6 +61,13 @@ export interface PrintJobMetadata {
   guestName?: string;
   partyName?: string;
   isReprint?: boolean;
+  isSplitReceipt?: boolean;
+  splitIndex?: number;
+  splitTotal?: number;
+  splitName?: string;
+  splitAmount?: number;
+  splitMethod?: string;
+  splitCardType?: string;
   paymentMethod?: string;
   cashAmount?: number;
   cardAmount?: number;
@@ -181,6 +196,8 @@ export interface FetchPrintJobsParams {
   printerTarget?: string;
   reprint?: boolean;
   search?: string;
+  /** YYYY-MM-DD restaurant-local day, or "all" */
+  date?: string;
   page?: number;
   limit?: number;
 }

@@ -99,6 +99,7 @@ export function getReceiptModifierLines(
 }
 
 export function cartLineToKotItem(line: CartLineItem): KotLineItem {
+  const notes = String(line.notes || '').trim();
   return {
     name: line.name,
     qty: line.qty,
@@ -111,6 +112,8 @@ export function cartLineToKotItem(line: CartLineItem): KotLineItem {
     choiceSelections: line.choiceSelections,
     addonChoiceSelections: line.addonChoiceSelections,
     modifier: line.modifier,
+    preparationStyle: line.preparationStyle || undefined,
+    notes: notes || undefined,
     isOffer: line.isOffer,
   };
 }

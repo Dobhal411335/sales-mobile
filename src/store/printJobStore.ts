@@ -18,6 +18,7 @@ import type {
   PrintJobStats,
   PrinterConfig,
 } from '../types/printJob';
+import {todayRestaurantISO} from '../utils/restaurantTime';
 
 interface PrintJobState {
   jobs: PrintJob[];
@@ -28,6 +29,8 @@ interface PrintJobState {
   targetFilter: string;
   reprintOnly: boolean;
   searchQuery: string;
+  /** YYYY-MM-DD or "all" — defaults to restaurant-local today */
+  dateFilter: string;
   page: number;
   pagination: PrintJobPagination | null;
   serverStats: PrintJobStats | null;
@@ -51,6 +54,7 @@ interface PrintJobState {
   setTargetFilter: (target: string) => Promise<void>;
   setReprintOnly: (reprintOnly: boolean) => Promise<void>;
   setSearchQuery: (query: string) => Promise<void>;
+  setDateFilter: (date: string) => Promise<void>;
   setPage: (page: number) => Promise<void>;
   resetFilters: () => Promise<void>;
   selectJob: (id: string | null) => Promise<void>;
@@ -76,6 +80,7 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
   targetFilter: 'ALL',
   reprintOnly: false,
   searchQuery: '',
+  dateFilter: todayRestaurantISO(),
   page: 1,
   pagination: null,
   serverStats: null,
@@ -99,6 +104,7 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
       targetFilter,
       reprintOnly,
       searchQuery,
+      dateFilter,
       page,
       listInFlight,
     } = get();
@@ -120,6 +126,7 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
       printerTarget: targetFilter,
       reprint: reprintOnly,
       search: searchQuery,
+      date: dateFilter || todayRestaurantISO(),
       page,
       limit: 25,
     });
@@ -214,6 +221,16 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
     await get().fetchList();
   },
 
+  setDateFilter: async (dateFilter) => {
+    set({
+      dateFilter,
+      page: 1,
+      selectedJobId: null,
+      detail: null,
+    });
+    await get().fetchList();
+  },
+
   setPage: async (page) => {
     set({page});
     await get().fetchList();
@@ -227,6 +244,7 @@ export const usePrintJobStore = create<PrintJobState>((set, get) => ({
       filter: 'ALL',
       reprintOnly: false,
       searchQuery: '',
+      dateFilter: todayRestaurantISO(),
       page: 1,
     });
     await get().fetchList();

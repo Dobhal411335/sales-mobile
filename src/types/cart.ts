@@ -27,6 +27,7 @@ export interface CartLineItem {
   choiceSelections?: ChoiceSelection[];
   addonChoiceSelections?: ChoiceSelection[];
   modifier?: string;
+  notes?: string;
   taxes?: TaxRate[];
 }
 

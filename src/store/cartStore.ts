@@ -41,6 +41,7 @@ interface CartState extends PartyFields {
   setGlobalTaxes: (taxes: TaxRate[]) => void;
   addItems: (items: CartLineItem[]) => void;
   updateQty: (cartId: string, qty: number) => void;
+  updateItemNotes: (cartId: string, notes: string) => void;
   removeItem: (cartId: string) => void;
   setOrderNote: (note: string) => void;
   clearCart: () => void;
@@ -154,6 +155,24 @@ export const useCartStore = create<CartState>((set, get) => ({
     }),
 
   removeItem: (cartId) => get().updateQty(cartId, 0),
+
+  updateItemNotes: (cartId, notes) =>
+    set((state) => {
+      const items = state.items.map((item) =>
+        item.cartId === cartId
+          ? {...item, notes: String(notes ?? '')}
+          : item,
+      );
+      const fingerprint = getCartFingerprint(items);
+      const hasSentKot =
+        state.hasSentKot && state.kotCartFingerprint === fingerprint;
+      return {
+        items,
+        hasSentKot,
+        kotCartFingerprint: hasSentKot ? state.kotCartFingerprint : null,
+        persistedTotals: hasSentKot ? state.persistedTotals : null,
+      };
+    }),
 
   setOrderNote: (note) => set({orderNote: note}),
 

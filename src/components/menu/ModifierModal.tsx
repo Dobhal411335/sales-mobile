@@ -4,6 +4,7 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
   ScrollView,
 } from 'react-native';
@@ -125,6 +126,7 @@ export function ModifierModal({
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
   >({});
+  const [itemNotes, setItemNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -136,6 +138,7 @@ export function ModifierModal({
     setAddonStateByKey({});
     setSelectedChoices({});
     setSelectedStyle(stylesList.length === 1 ? stylesList[0] : '');
+    setItemNotes('');
     setError(null);
   }, [product, visible]);
 
@@ -180,6 +183,7 @@ export function ModifierModal({
     }
 
     const lines: CartLineItem[] = [];
+    const notes = String(itemNotes || '').trim();
     const choiceSelections: ChoiceSelection[] = Object.entries(selectedChoices)
       .map(([name, subChoices]) => ({name, subChoices}))
       .filter((group) => group.subChoices.length > 0);
@@ -217,6 +221,7 @@ export function ModifierModal({
           preparationStyle: selectedStyle || null,
           choiceSelections,
           modifier: modifierParts.join(' | ') || undefined,
+          notes,
         });
       });
     }
@@ -254,6 +259,7 @@ export function ModifierModal({
         modifier: [`Addons: ${addon.name}`, ...choiceParts]
           .filter(Boolean)
           .join(' | '),
+        notes,
       });
     });
 
@@ -283,6 +289,7 @@ export function ModifierModal({
         preparationStyle: selectedStyle || null,
         choiceSelections,
         modifier: modifierParts.join(' | ') || undefined,
+        notes,
       });
     }
 
@@ -488,6 +495,20 @@ export function ModifierModal({
                 })}
               </View>
             ) : null}
+
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Special request / remark</Text>
+              <TextInput
+                style={styles.notesInput}
+                value={itemNotes}
+                onChangeText={setItemNotes}
+                onBlur={() => setItemNotes((prev) => prev.trim())}
+                placeholder="e.g. No onions, extra sauce..."
+                placeholderTextColor={colors.textSecondary}
+                multiline
+                accessibilityLabel="Special request or remark"
+              />
+            </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
           </ScrollView>
@@ -713,6 +734,18 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.error,
     marginBottom: 8,
+  },
+  notesInput: {
+    minHeight: 56,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: colors.text,
+    backgroundColor: colors.cream,
   },
   footer: {
     flexDirection: 'row',

@@ -101,6 +101,7 @@ function mapOrderApiError(error: unknown): string {
 function normalizeKotItems(raw: unknown[]): KotLineItem[] {
   return raw.map((item) => {
     const row = item as Record<string, unknown>;
+    const notes = row.notes ? String(row.notes).trim() : '';
     return {
       name: String(row.name ?? ''),
       qty: Number(row.qty) || 1,
@@ -110,6 +111,7 @@ function normalizeKotItems(raw: unknown[]): KotLineItem[] {
       options: Array.isArray(row.options)
         ? row.options.map((v) => String(v))
         : undefined,
+      notes: notes || undefined,
       isOffer: Boolean(row.isOffer),
     };
   });

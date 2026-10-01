@@ -72,6 +72,7 @@ export function isSameCartLine(a: CartLineItem, b: CartLineItem): boolean {
     (a.preparationStyle || '') === (b.preparationStyle || '') &&
     a.price === b.price &&
     Boolean(a.isOffer) === Boolean(b.isOffer) &&
+    String(a.notes || '').trim() === String(b.notes || '').trim() &&
     JSON.stringify(sortedOptions(a.options)) ===
       JSON.stringify(sortedOptions(b.options)) &&
     cartChoiceSelectionsKey(a.choiceSelections) ===
@@ -110,6 +111,7 @@ export function getCartFingerprint(items: CartLineItem[]): string {
       size: item.size,
       price: item.price,
       preparationStyle: item.preparationStyle,
+      notes: String(item.notes || '').trim(),
       options: sortedOptions(item.options),
       choiceSelections: normalizeChoiceSelections(item.choiceSelections),
       addonChoiceSelections: normalizeChoiceSelections(

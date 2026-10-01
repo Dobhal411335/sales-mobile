@@ -70,6 +70,16 @@ function normalizeTodayOrder(raw: Record<string, unknown>): TodayOrder {
       ? (String(raw.paymentStatus) as TodayOrder['paymentStatus'])
       : undefined,
     paymentMethod: raw.paymentMethod ? String(raw.paymentMethod) : undefined,
+    paymentSplits: Array.isArray(raw.paymentSplits)
+      ? (raw.paymentSplits as Array<Record<string, unknown>>).map((row) => ({
+          name: String(row.name ?? ''),
+          amount: Number(row.amount) || 0,
+          method: String(row.method ?? ''),
+          cardType: row.cardType != null ? String(row.cardType) : null,
+          tipAmount: row.tipAmount != null ? Number(row.tipAmount) : undefined,
+          paidAt: row.paidAt != null ? String(row.paidAt) : undefined,
+        }))
+      : undefined,
     cashAmount: raw.cashAmount != null ? Number(raw.cashAmount) : undefined,
     cardAmount: raw.cardAmount != null ? Number(raw.cardAmount) : undefined,
     totalAmount: Number(raw.totalAmount) || 0,
@@ -131,6 +141,7 @@ function normalizeTodayOrder(raw: Record<string, unknown>): TodayOrder {
               : undefined,
             productType: row.productType ? String(row.productType) : undefined,
             category: row.category ? String(row.category) : undefined,
+            notes: row.notes ? String(row.notes).trim() || undefined : undefined,
           };
         })
       : undefined,

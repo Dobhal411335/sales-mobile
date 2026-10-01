@@ -69,6 +69,7 @@ export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineIte
         item.addonChoiceSelections,
       ),
       modifier: parts.length > 0 ? parts.join(' | ') : undefined,
+      notes: String(item.notes || '').trim() || undefined,
       cartId: item.cartId || `r-${Date.now()}-${idx}`,
     };
   });

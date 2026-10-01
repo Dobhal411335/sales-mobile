@@ -8,12 +8,12 @@ import {
 } from 'react-native';
 import {Eye, Printer, RotateCcw, X} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
-import type {PrintJob, PrintType} from '../../types/printJob';
+import type {PrintJob} from '../../types/printJob';
 import {
   employeeLabel,
   formatPrintJobListTime,
   orderLabel,
-  printTypeLabel,
+  printTypeLabelForJob,
   printerTargetLabel,
   tableLabel,
 } from '../../utils/printJobDisplay';
@@ -30,8 +30,15 @@ interface PrintJobCardProps {
   onPrintAgain?: (job: PrintJob) => void;
 }
 
-function getTypeBadgeStyle(type: PrintType) {
-  switch (type) {
+function getTypeBadgeStyle(job: PrintJob) {
+  if (job.metadata?.isSplitReceipt) {
+    return {
+      backgroundColor: '#F5F3FF',
+      borderColor: '#DDD6FE',
+      color: '#6D28D9',
+    };
+  }
+  switch (job.printType) {
     case 'KOT':
       return {
         backgroundColor: '#EFF6FF',
@@ -90,13 +97,25 @@ export function PrintJobCard({
       ? (job.orderId as {guestCount?: number})?.guestCount
       : undefined);
 
-  const partyLabel = rawParty ? String(rawParty).trim() : null;
+  const partyLabel = (() => {
+    if (job.metadata?.isSplitReceipt && job.metadata.splitName) {
+      const amt =
+        job.metadata.splitAmount != null
+          ? ` · $${Number(job.metadata.splitAmount || 0).toFixed(2)}`
+          : '';
+      const method = job.metadata.splitMethod
+        ? ` · ${job.metadata.splitMethod}`
+        : '';
+      return `${job.metadata.splitName}${amt}${method}`;
+    }
+    return rawParty ? String(rawParty).trim() : null;
+  })();
   const guestLabel =
     guestCount != null
       ? `${guestCount} ${guestCount === 1 ? 'guest' : 'guests'}`
       : null;
 
-  const typePalette = getTypeBadgeStyle(job.printType);
+  const typePalette = getTypeBadgeStyle(job);
 
   return (
     <Pressable
@@ -109,7 +128,7 @@ export function PrintJobCard({
       onPress={() => onPress(job)}
       accessibilityRole="button"
       accessibilityState={{selected}}
-      accessibilityLabel={`${printTypeLabel(job.printType)} order ${orderNo}`}>
+      accessibilityLabel={`${printTypeLabelForJob(job)} order ${orderNo}`}>
       {/* Top Header: Print Type, Reprint Badge, and Status */}
       <View style={styles.headerRow}>
         <View style={styles.badgeGroup}>
@@ -122,7 +141,7 @@ export function PrintJobCard({
               },
             ]}>
             <Text style={[styles.typeBadgeText, {color: typePalette.color}]}>
-              {printTypeLabel(job.printType)}
+              {printTypeLabelForJob(job)}
             </Text>
           </View>
 

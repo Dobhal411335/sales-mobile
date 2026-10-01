@@ -54,6 +54,7 @@ export interface MenuProduct {
   };
   inStock?: boolean;
   isOffer?: boolean;
+  imageUrl?: string;
   inclusions?: string[];
   choices?: string[];
   drinks?: string[];
@@ -69,6 +70,7 @@ export interface MenuOffer {
   taxes?: TaxRate[];
   taxData?: MenuProduct['taxData'];
   status?: string;
+  imageUrl?: string;
 }
 
 export interface MenuHead {

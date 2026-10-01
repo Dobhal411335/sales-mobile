@@ -18,6 +18,10 @@ import {GiftCardDetailsModal} from '../../../components/payment/GiftCardDetailsM
 import {PayRemainingActions} from '../../../components/payment/PayRemainingActions';
 import {PaymentMethodSelector} from '../../../components/payment/PaymentMethodSelector';
 import {PaymentSummary} from '../../../components/payment/PaymentSummary';
+import {
+  createDefaultSplitRows,
+  SplitBillEditor,
+} from '../../../components/payment/SplitBillEditor';
 import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
 import {
@@ -42,11 +46,13 @@ import type {SalesStackParamList} from '../../../navigation/types';
 import {useCartStore} from '../../../store/cartStore';
 import type {
   AppliedPaymentDiscount,
+  BillMode,
   CardTypeName,
   DiscountCoupon,
   GiftCardDetails,
   PaymentMethodKey,
   PaymentRequestPayload,
+  PaymentSplitDraft,
   PaymentUiStatus,
   ServiceTaxConfig,
 } from '../../../types/payment';
@@ -111,8 +117,17 @@ export function PaymentScreen({navigation, route}: Props) {
       order: NonNullable<Awaited<ReturnType<typeof processPayment>>['order']>,
       receiptPrintJobId?: string | null,
       receiptTaxBreakdown?: TaxBreakdownLine[],
+      receiptPrintJobIds?: string[],
     ) => {
       markOrderPaid(order);
+      const splitCount = Array.isArray(order.paymentSplits)
+        ? order.paymentSplits.length
+        : 0;
+      if (splitCount > 1) {
+        toast.success(
+          `${splitCount} split receipt slips sent to the printer`,
+        );
+      }
       navigation.replace('Receipt', {
         orderSnapshot: order,
         sessionId,
@@ -120,6 +135,7 @@ export function PaymentScreen({navigation, route}: Props) {
         tableId,
         taxBreakdown: receiptTaxBreakdown ?? order.taxBreakdown,
         printJobId: receiptPrintJobId ?? undefined,
+        printJobIds: receiptPrintJobIds,
       });
     },
     [markOrderPaid, navigation, orderType, sessionId, tableId],
@@ -508,6 +524,10 @@ export function PaymentScreen({navigation, route}: Props) {
   const isWide = width >= 768;
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodKey>('Card');
+  const [billMode, setBillMode] = useState<BillMode>('full');
+  const [paymentSplits, setPaymentSplits] = useState<PaymentSplitDraft[]>(() =>
+    createDefaultSplitRows(),
+  );
   const [selectedCardType, setSelectedCardType] = useState<CardTypeName | ''>(
     '',
   );
@@ -621,12 +641,39 @@ export function PaymentScreen({navigation, route}: Props) {
   const autoTip = roundMoney(cardOverpay || cashOverpay || 0);
   const tipMethod = cashOverpay > 0 ? 'Cash' : cardOverpay > 0 ? 'Card' : null;
 
+  // Split bill: totals.totalDue already subtracts applied gift card.
+  const splitDue = roundMoney(Math.max(0, totals.totalDue));
+  const giftCoversSplitBill =
+    billMode === 'split' && giftUsedPreview > 0 && splitDue < 0.01;
+  const splitAllocated = roundMoney(
+    paymentSplits.reduce((sum, row) => sum + (parseFloat(row.amount) || 0), 0),
+  );
+  const splitRemaining = roundMoney(splitDue - splitAllocated);
+  const splitsValid =
+    billMode === 'split' &&
+    (giftCoversSplitBill ||
+      (paymentSplits.length >= 2 &&
+        Math.abs(splitRemaining) < 0.01 &&
+        paymentSplits.every((row) => {
+          const nameOk = String(row.name || '').trim().length > 0;
+          const amt = parseFloat(row.amount);
+          const amtOk = Number.isFinite(amt) && amt > 0;
+          const methodOk = row.method === 'Cash' || row.method === 'Card';
+          const cardOk =
+            row.method !== 'Card' ||
+            Boolean(String(row.cardType || '').trim());
+          return nameOk && amtOk && methodOk && cardOk;
+        })));
+
   const completeDisabled = useMemo(() => {
     if (hydrating || hydrateError) {
       return true;
     }
     if (paymentStatus === 'processing') {
       return true;
+    }
+    if (billMode === 'split') {
+      return !splitsValid;
     }
     if (includeServiceCharge && autoTip > 0) {
       return true;
@@ -664,18 +711,20 @@ export function PaymentScreen({navigation, route}: Props) {
     hydrating,
     hydrateError,
     paymentStatus,
+    billMode,
+    splitsValid,
     includeServiceCharge,
     autoTip,
     paymentMethod,
     totals.totalDue,
     giftUsedPreview,
-    cashSplitAmount,
-    cardSplitFromCash,
+    effectiveCardDue,
+    selectedCardType,
     cardAmountTendered,
     parsedCardAmount,
-    effectiveCardDue,
+    cashSplitAmount,
     lockedCardAmount,
-    selectedCardType,
+    cardSplitFromCash,
   ]);
 
   const handleSelectMethod = (method: PaymentMethodKey) => {
@@ -897,7 +946,14 @@ export function PaymentScreen({navigation, route}: Props) {
       return;
     }
 
-    if (includeServiceCharge && autoTip > 0) {
+    if (billMode === 'split') {
+      if (!splitsValid) {
+        toast.error(
+          'Complete all split payers so amounts equal the total due.',
+        );
+        return;
+      }
+    } else if (includeServiceCharge && autoTip > 0) {
       const exactDue =
         paymentMethod === 'Cash' ? effectiveCashDue : effectiveCardDue;
       toast.error(
@@ -910,7 +966,11 @@ export function PaymentScreen({navigation, route}: Props) {
       return;
     }
 
-    if (paymentMethod === 'Card' && effectiveCardDue > 0) {
+    if (
+      billMode === 'full' &&
+      paymentMethod === 'Card' &&
+      effectiveCardDue > 0
+    ) {
       if (!selectedCardType) {
         toast.error('Please select a card type.');
         return;
@@ -929,70 +989,7 @@ export function PaymentScreen({navigation, route}: Props) {
     setPaymentStatus('processing');
     setStatusMessage('Processing payment...');
 
-    let resolvedCashAmount = lockedCashAmount;
-    let resolvedCardAmount = lockedCardAmount;
-    const parts: string[] = [];
-
     const giftUsedAmount = giftUsedPreview;
-    if (giftUsedAmount > 0) {
-      parts.push('Gift Card');
-    }
-
-    if (paymentMethod === 'Card') {
-      const cardPortion = roundMoney(Math.min(cardPayAmount, effectiveCardDue));
-      resolvedCardAmount = roundMoney(lockedCardAmount + cardPortion);
-      if (resolvedCardAmount > 0) {
-        parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
-      }
-      if (lockedCashAmount > 0) {
-        parts.push('Cash');
-      }
-      if (autoTip > 0 && resolvedCardAmount > 0) {
-        resolvedCardAmount = roundMoney(resolvedCardAmount + autoTip);
-      } else if (autoTip > 0 && lockedCashAmount > 0) {
-        resolvedCashAmount = roundMoney(lockedCashAmount + autoTip);
-      }
-    } else if (paymentMethod === 'Cash') {
-      const cashPortion = Number.isFinite(parsedCashAmount)
-        ? roundMoney(Math.min(cashPayAmount, effectiveCashDue))
-        : roundMoney(effectiveCashDue);
-      resolvedCashAmount = roundMoney(lockedCashAmount + cashPortion);
-      if (resolvedCashAmount > 0 || giftUsedAmount <= 0) {
-        parts.push('Cash');
-      }
-      if (lockedCardAmount > 0) {
-        parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
-      }
-      if (autoTip > 0) {
-        resolvedCashAmount = roundMoney(resolvedCashAmount + autoTip);
-      }
-    } else if (paymentMethod === 'GiftCard') {
-      if (lockedCardAmount > 0) {
-        parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
-      }
-      if (lockedCashAmount > 0) {
-        parts.push('Cash');
-      }
-      if (remainingAfterGift > 0) {
-        resolvedCashAmount = roundMoney(lockedCashAmount + remainingAfterGift + autoTip);
-        if (!parts.includes('Cash')) {
-          parts.push('Cash');
-        }
-      } else if (autoTip > 0) {
-        if (lockedCashAmount > 0) {
-          resolvedCashAmount = roundMoney(lockedCashAmount + autoTip);
-        } else if (lockedCardAmount > 0) {
-          resolvedCardAmount = roundMoney(lockedCardAmount + autoTip);
-        } else {
-          resolvedCashAmount = autoTip;
-          parts.push('Cash');
-        }
-      }
-    }
-
-    const resolvedPaymentMethod =
-      parts.length > 0 ? parts.join(' + ') : paymentMethod;
-
     const serverAmount = roundMoney(
       totals.subTotal -
         totals.discountTotal +
@@ -1000,19 +997,147 @@ export function PaymentScreen({navigation, route}: Props) {
         totals.serviceChargeTotal,
     );
 
-    const payableTotalWithTip = roundMoney(serverAmount + autoTip);
-    if (resolvedCardAmount > 0) {
-      const maxCard = roundMoney(
-        Math.max(
-          0,
-          payableTotalWithTip - resolvedCashAmount - giftUsedAmount,
-        ),
-      );
-      resolvedCardAmount = Math.min(resolvedCardAmount, maxCard);
-    }
+    let resolvedCashAmount = 0;
+    let resolvedCardAmount = 0;
+    let resolvedPaymentMethod = paymentMethod as string;
+    let selectedCardForPayload: CardTypeName | '' = selectedCardType;
+    let finalTip = 0;
+    let finalTipMethod: string | null = null;
+    let splitsPayload:
+      | Array<{
+          name: string;
+          amount: number;
+          method: 'Cash' | 'Card';
+          cardType: string | null;
+        }>
+      | null = null;
 
-    const finalTip = includeServiceCharge ? 0 : autoTip;
-    const finalTipMethod = finalTip > 0 ? (tipMethod ?? null) : null;
+    if (billMode === 'split') {
+      if (giftUsedAmount > 0 && splitDue < 0.01) {
+        splitsPayload = null;
+        resolvedPaymentMethod = 'Gift Card';
+        selectedCardForPayload = '';
+      } else {
+        splitsPayload = paymentSplits.map((row) => ({
+          name: String(row.name || '').trim(),
+          amount: roundMoney(parseFloat(row.amount) || 0),
+          method: row.method === 'Cash' ? 'Cash' : 'Card',
+          cardType:
+            row.method === 'Card'
+              ? String(row.cardType || '').trim() || null
+              : null,
+        }));
+        resolvedCashAmount = roundMoney(
+          splitsPayload
+            .filter((s) => s.method === 'Cash')
+            .reduce((sum, row) => sum + row.amount, 0),
+        );
+        resolvedCardAmount = roundMoney(
+          splitsPayload
+            .filter((s) => s.method === 'Card')
+            .reduce((sum, row) => sum + row.amount, 0),
+        );
+        const methodParts = [
+          ...new Set(
+            splitsPayload.map((s) =>
+              s.method === 'Card' && s.cardType
+                ? `Card - ${s.cardType}`
+                : s.method,
+            ),
+          ),
+        ];
+        resolvedPaymentMethod =
+          methodParts.length <= 3
+            ? `Split (${splitsPayload.length}) · ${methodParts.join(' + ')}`
+            : `Split (${splitsPayload.length})`;
+        if (giftUsedAmount > 0) {
+          resolvedPaymentMethod = `${resolvedPaymentMethod} + Gift Card`;
+        }
+        const firstCard = splitsPayload.find(
+          (s) => s.method === 'Card' && s.cardType,
+        );
+        selectedCardForPayload = (firstCard?.cardType as CardTypeName) || '';
+      }
+    } else {
+      resolvedCashAmount = lockedCashAmount;
+      resolvedCardAmount = lockedCardAmount;
+      const parts: string[] = [];
+      if (giftUsedAmount > 0) {
+        parts.push('Gift Card');
+      }
+
+      if (paymentMethod === 'Card') {
+        const cardPortion = roundMoney(
+          Math.min(cardPayAmount, effectiveCardDue),
+        );
+        resolvedCardAmount = roundMoney(lockedCardAmount + cardPortion);
+        if (resolvedCardAmount > 0) {
+          parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
+        }
+        if (lockedCashAmount > 0) {
+          parts.push('Cash');
+        }
+        if (autoTip > 0 && resolvedCardAmount > 0) {
+          resolvedCardAmount = roundMoney(resolvedCardAmount + autoTip);
+        } else if (autoTip > 0 && lockedCashAmount > 0) {
+          resolvedCashAmount = roundMoney(lockedCashAmount + autoTip);
+        }
+      } else if (paymentMethod === 'Cash') {
+        const cashPortion = Number.isFinite(parsedCashAmount)
+          ? roundMoney(Math.min(cashPayAmount, effectiveCashDue))
+          : roundMoney(effectiveCashDue);
+        resolvedCashAmount = roundMoney(lockedCashAmount + cashPortion);
+        if (resolvedCashAmount > 0 || giftUsedAmount <= 0) {
+          parts.push('Cash');
+        }
+        if (lockedCardAmount > 0) {
+          parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
+        }
+        if (autoTip > 0) {
+          resolvedCashAmount = roundMoney(resolvedCashAmount + autoTip);
+        }
+      } else if (paymentMethod === 'GiftCard') {
+        if (lockedCardAmount > 0) {
+          parts.push(selectedCardType ? `Card - ${selectedCardType}` : 'Card');
+        }
+        if (lockedCashAmount > 0) {
+          parts.push('Cash');
+        }
+        if (remainingAfterGift > 0) {
+          resolvedCashAmount = roundMoney(
+            lockedCashAmount + remainingAfterGift + autoTip,
+          );
+          if (!parts.includes('Cash')) {
+            parts.push('Cash');
+          }
+        } else if (autoTip > 0) {
+          if (lockedCashAmount > 0) {
+            resolvedCashAmount = roundMoney(lockedCashAmount + autoTip);
+          } else if (lockedCardAmount > 0) {
+            resolvedCardAmount = roundMoney(lockedCardAmount + autoTip);
+          } else {
+            resolvedCashAmount = autoTip;
+            parts.push('Cash');
+          }
+        }
+      }
+
+      resolvedPaymentMethod =
+        parts.length > 0 ? parts.join(' + ') : paymentMethod;
+      finalTip = includeServiceCharge ? 0 : autoTip;
+      finalTipMethod = finalTip > 0 ? (tipMethod ?? null) : null;
+
+      const payableTotalWithTip = roundMoney(serverAmount + finalTip);
+      if (resolvedCardAmount > 0) {
+        const maxCard = roundMoney(
+          Math.max(
+            0,
+            payableTotalWithTip - resolvedCashAmount - giftUsedAmount,
+          ),
+        );
+        resolvedCardAmount = Math.min(resolvedCardAmount, maxCard);
+      }
+    }
 
     const payload: PaymentRequestPayload = {
       orderId: resolvedOrderId,
@@ -1037,14 +1162,18 @@ export function PaymentScreen({navigation, route}: Props) {
       applyServiceCharge: includeServiceCharge,
       serviceChargeTotal: totals.serviceChargeTotal,
       serviceChargeName: totals.serviceChargeName ?? null,
-      cardType: resolvedCardAmount > 0 ? selectedCardType || undefined : undefined,
-      giftCardCode:
-        giftUsedPreview > 0 ? giftCardCode.trim().toUpperCase() : undefined,
-      giftCardUsedAmount: giftUsedPreview > 0 ? giftUsedPreview : undefined,
-      splitAmount:
-        giftUsedPreview > 0
-          ? roundMoney(Math.max(0, serverAmount - giftUsedPreview))
+      cardType:
+        resolvedCardAmount > 0
+          ? selectedCardForPayload || undefined
           : undefined,
+      giftCardCode:
+        giftUsedAmount > 0 ? giftCardCode.trim().toUpperCase() : undefined,
+      giftCardUsedAmount: giftUsedAmount > 0 ? giftUsedAmount : undefined,
+      splitAmount:
+        giftUsedAmount > 0
+          ? roundMoney(Math.max(0, serverAmount - giftUsedAmount))
+          : undefined,
+      paymentSplits: splitsPayload ?? undefined,
     };
 
     try {
@@ -1066,11 +1195,12 @@ export function PaymentScreen({navigation, route}: Props) {
             taxTotal: totals.taxTotal,
             discountTotal: totals.discountTotal,
             totalAmount: serverAmount,
-            paymentMethod,
+            paymentMethod: resolvedPaymentMethod,
             paymentStatus: 'PAID',
             paidAt: new Date().toISOString(),
             items,
             taxBreakdown: totals.taxBreakdown,
+            paymentSplits: splitsPayload ?? undefined,
           };
         }
 
@@ -1084,6 +1214,7 @@ export function PaymentScreen({navigation, route}: Props) {
             paidSnapshot,
             recovery.printJobId,
             paidSnapshot.taxBreakdown ?? totals.taxBreakdown,
+            recovery.printJobIds,
           );
           return;
         }
@@ -1104,11 +1235,19 @@ export function PaymentScreen({navigation, route}: Props) {
       }
 
       setPaymentStatus('success');
-      toast.success('Payment collected successfully!');
+      if (
+        !(
+          Array.isArray(result.order.paymentSplits) &&
+          result.order.paymentSplits.length > 1
+        )
+      ) {
+        toast.success('Payment collected successfully!');
+      }
       navigateToReceipt(
         result.order,
         result.printJobId,
         totals.taxBreakdown,
+        result.printJobIds,
       );
     } finally {
       isPayingRef.current = false;
@@ -1116,12 +1255,15 @@ export function PaymentScreen({navigation, route}: Props) {
   }, [
     appliedDiscount,
     autoTip,
+    billMode,
     cardAmountTendered,
     cardPayAmount,
     cashPayAmount,
     completeDisabled,
+    displayOrderNumber,
     effectiveCardDue,
     effectiveCashDue,
+    floorName,
     giftCardCode,
     giftUsedPreview,
     guestCount,
@@ -1135,10 +1277,14 @@ export function PaymentScreen({navigation, route}: Props) {
     parsedCashAmount,
     partyName,
     paymentMethod,
+    paymentSplits,
     remainingAfterGift,
     resolvedOrderId,
     selectedCardType,
     sessionId,
+    splitDue,
+    splitsValid,
+    tableNumber,
     tipMethod,
     totals,
   ]);
@@ -1154,6 +1300,128 @@ export function PaymentScreen({navigation, route}: Props) {
       contentContainerStyle={styles.controlsContent}
       keyboardShouldPersistTaps="handled"
       showsVerticalScrollIndicator={false}>
+      <Text style={styles.controlsTitle}>BILLING MODE</Text>
+      <View style={styles.billModeRow}>
+        <Pressable
+          style={[
+            styles.billModeChip,
+            billMode === 'full' && styles.billModeChipSelected,
+          ]}
+          onPress={() => setBillMode('full')}
+          accessibilityRole="button"
+          accessibilityState={{selected: billMode === 'full'}}>
+          <Text
+            style={[
+              styles.billModeChipText,
+              billMode === 'full' && styles.billModeChipTextSelected,
+            ]}>
+            Pay in full
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[
+            styles.billModeChip,
+            billMode === 'split' && styles.billModeChipSelected,
+          ]}
+          onPress={() => setBillMode('split')}
+          accessibilityRole="button"
+          accessibilityState={{selected: billMode === 'split'}}>
+          <Text
+            style={[
+              styles.billModeChipText,
+              billMode === 'split' && styles.billModeChipTextSelected,
+            ]}>
+            Split bill
+          </Text>
+        </Pressable>
+      </View>
+
+      {billMode === 'split' ? (
+        <>
+          <Text style={styles.controlsTitle}>GIFT CARD (OPTIONAL)</Text>
+          <View style={styles.methodSection}>
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>GIFT CARD CODE</Text>
+              <View style={styles.giftRow}>
+                <TextInput
+                  style={[styles.input, styles.giftInput]}
+                  value={giftCardCode}
+                  onChangeText={setGiftCardCode}
+                  placeholder="Enter code"
+                  autoCapitalize="characters"
+                  accessibilityLabel="Gift card code"
+                />
+                <Pressable
+                  style={styles.verifyButton}
+                  onPress={handleVerifyGiftCard}
+                  disabled={isVerifyingGiftCard}
+                  accessibilityRole="button"
+                  accessibilityLabel="Verify gift card">
+                  {isVerifyingGiftCard ? (
+                    <ActivityIndicator size="small" color={colors.surface} />
+                  ) : (
+                    <Text style={styles.verifyText}>Verify</Text>
+                  )}
+                </Pressable>
+              </View>
+              {giftCardError ? (
+                <Text style={styles.errorText}>{giftCardError}</Text>
+              ) : null}
+              {giftCardBalance !== null ? (
+                <View style={styles.giftCardBadgeRow}>
+                  <Text style={styles.balanceText}>
+                    Balance: {formatCurrency(giftCardBalance)}
+                  </Text>
+                  <Pressable onPress={handleRemoveGiftCard}>
+                    <Text style={styles.removeTextSmall}>Remove</Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+            {giftCardBalance !== null ? (
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>AMOUNT TO APPLY</Text>
+                <View style={styles.inputWithExactRow}>
+                  <TextInput
+                    style={[styles.input, styles.inputFlex]}
+                    value={giftCardUseAmount}
+                    onChangeText={setGiftCardUseAmount}
+                    keyboardType="decimal-pad"
+                    accessibilityLabel="Gift card amount"
+                  />
+                  <Pressable
+                    style={styles.exactButton}
+                    onPress={() => {
+                      const maxApplicable = roundMoney(
+                        Math.min(
+                          giftCardBalance,
+                          totals.subTotal -
+                            totals.discountTotal +
+                            totals.taxTotal +
+                            totals.serviceChargeTotal,
+                        ),
+                      );
+                      setGiftCardUseAmount(String(maxApplicable));
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Use exact gift card amount">
+                    <Text style={styles.exactButtonText}>Exact</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+          </View>
+
+          <Text style={styles.controlsTitle}>SPLIT PAYERS</Text>
+          <SplitBillEditor
+            splitDue={splitDue}
+            giftUsed={giftUsedPreview}
+            rows={paymentSplits}
+            onChangeRows={setPaymentSplits}
+          />
+        </>
+      ) : (
+        <>
       <Text style={styles.controlsTitle}>PAYMENT METHOD</Text>
       <PaymentMethodSelector
         selected={paymentMethod}
@@ -1397,6 +1665,8 @@ export function PaymentScreen({navigation, route}: Props) {
           ) : null}
         </View>
       ) : null}
+        </>
+      )}
 
       {statusMessage ? (
         <View
@@ -1621,6 +1891,31 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.textSecondary,
     letterSpacing: 0.5,
+  },
+  billModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  billModeChip: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+  },
+  billModeChipSelected: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF7ED',
+  },
+  billModeChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  billModeChipTextSelected: {
+    color: colors.primary,
   },
   methodSection: {
     gap: 12,

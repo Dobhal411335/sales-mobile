@@ -140,10 +140,16 @@ function normalizeProduct(raw: Record<string, unknown>): MenuProduct {
     taxes,
     taxData: raw.taxData as MenuProduct['taxData'],
     inStock: raw.inStock != null ? Boolean(raw.inStock) : undefined,
+    // Sales POS uses salesImage only (online `image` is for public menu).
+    imageUrl: (() => {
+      const salesImage = raw.salesImage as {url?: string} | undefined;
+      return salesImage?.url ? String(salesImage.url) : undefined;
+    })(),
   };
 }
 
 function normalizeOffer(raw: Record<string, unknown>): MenuOffer {
+  const image = raw.image as {url?: string} | undefined;
   return {
     id: toId(raw._id ?? raw.id),
     name: String(raw.name ?? 'Offer'),
@@ -162,6 +168,7 @@ function normalizeOffer(raw: Record<string, unknown>): MenuOffer {
       : undefined,
     taxData: raw.taxData as MenuOffer['taxData'],
     status: raw.status ? String(raw.status) : 'Active',
+    imageUrl: image?.url ? String(image.url) : undefined,
   };
 }
 
@@ -209,6 +216,7 @@ function offerToProduct(offer: MenuOffer): MenuProduct {
     taxes: offer.taxes,
     taxData: offer.taxData,
     isOffer: true,
+    imageUrl: offer.imageUrl,
     inclusions: offer.inclusions,
     choices: offer.choices,
     drinks: offer.drinks,

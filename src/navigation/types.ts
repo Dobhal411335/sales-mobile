@@ -69,6 +69,7 @@ export type SalesStackParamList = {
     tableId?: string;
     taxBreakdown?: TaxBreakdownLine[];
     printJobId?: string | null;
+    printJobIds?: string[];
   };
   Orders: {filter?: 'ONLINE' | 'ALL'} | undefined;
   Booking: undefined;

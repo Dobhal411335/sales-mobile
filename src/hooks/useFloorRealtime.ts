@@ -14,7 +14,7 @@ const FLOOR_EVENTS = [
   'payment:completed',
 ] as const;
 
-const REFRESH_DEBOUNCE_MS = 300;
+const REFRESH_DEBOUNCE_MS = 800;
 
 function floorRoom(floorId: string): string {
   return `floor:${floorId}`;

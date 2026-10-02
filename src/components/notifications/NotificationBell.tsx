@@ -37,6 +37,7 @@ export function NotificationBell({navigation}: NotificationBellProps) {
 
   useEffect(() => {
     if (open) {
+      // Show cached preview immediately; refresh in background
       void refreshPreview();
     }
   }, [open, refreshPreview]);

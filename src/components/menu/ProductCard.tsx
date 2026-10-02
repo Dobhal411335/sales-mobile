@@ -5,6 +5,7 @@ import type {ItemStyle, MenuProduct} from '../../types/product';
 import {productNeedsOptions} from '../../types/product';
 import {formatCurrency} from '../../utils/currency';
 import {cleanOfferList, offerNeedsOptions} from '../../utils/offerDetails';
+import {toThumbnailUrl} from '../../menu/imageCache';
 
 interface ProductCardProps {
   product: MenuProduct;
@@ -55,7 +56,11 @@ function ProductCardComponent({
       ? product.variants[0].price
       : product.price;
   const isAvailable = product.inStock !== false;
-  const imageUrl = product.imageUrl;
+  const imageUrl = product.imageUrl
+    ? product.imageUrl.startsWith('file:')
+      ? product.imageUrl
+      : toThumbnailUrl(product.imageUrl)
+    : undefined;
 
   const theme = useMemo(() => {
     const idx = hashKey(product.id || product.name) % TILE_THEMES.length;

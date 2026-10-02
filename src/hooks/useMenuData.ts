@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import type {
   GridCols,
   ItemStyle,
@@ -10,18 +10,18 @@ import type {
   ProductHeadMapping,
   TaxRate,
 } from '../types/product';
-import {fetchMenuData, type MenuData} from '../services/menuService';
 import {useCartStore} from '../store/cartStore';
 import {scoreMenuSearch} from '../utils/menuSearch';
+import {
+  menuSyncManager,
+  type MenuSyncStatus,
+} from '../menu/menuSyncManager';
 
-let cachedMenuData: MenuData | null = null;
-let cacheTimestamp = 0;
-const MENU_CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes
 const LAYOUT_PREF_KEY = 'sales-order-layout-v2';
 
+/** @deprecated Prefer menuSyncManager.markStale() / sync — kept for callers */
 export function invalidateMenuCache(): void {
-  cachedMenuData = null;
-  cacheTimestamp = 0;
+  menuSyncManager.markStale();
 }
 
 interface UseMenuDataResult {
@@ -39,6 +39,8 @@ interface UseMenuDataResult {
   globalTaxes: TaxRate[];
   loading: boolean;
   error: string | null;
+  syncStatus: MenuSyncStatus;
+  lastSyncedAt: string | null;
   setActiveCategory: (category: string) => void;
   setActiveHead: (head: string) => void;
   setViewMode: (mode: MenuViewMode) => void;
@@ -49,12 +51,21 @@ interface UseMenuDataResult {
   reload: () => void;
 }
 
+function subscribeMenuSync(onStoreChange: () => void) {
+  return menuSyncManager.subscribe(() => onStoreChange());
+}
+
+function getMenuSyncSnapshot() {
+  return menuSyncManager.getState();
+}
+
 export function useMenuData(): UseMenuDataResult {
-  const [categories, setCategories] = useState<string[]>(['All']);
-  const [products, setProducts] = useState<MenuProduct[]>([]);
-  const [heads, setHeads] = useState<MenuHead[]>([{id: 'all', name: 'All'}]);
-  const [productHeads, setProductHeads] = useState<ProductHeadMapping[]>([]);
-  const [globalTaxes, setGlobalTaxesState] = useState<TaxRate[]>([]);
+  const syncState = useSyncExternalStore(
+    subscribeMenuSync,
+    getMenuSyncSnapshot,
+    getMenuSyncSnapshot,
+  );
+
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeHead, setActiveHead] = useState('All');
   const [viewMode, setViewMode] = useState<MenuViewMode>('list');
@@ -62,55 +73,39 @@ export function useMenuData(): UseMenuDataResult {
   const [itemStyle, setItemStyleState] = useState<ItemStyle>('list');
   const [gridCols, setGridColsState] = useState<GridCols>(2);
   const [searchQuery, setSearchQuery] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const layoutPrefsLoaded = useRef(false);
   const setGlobalTaxes = useCartStore((state) => state.setGlobalTaxes);
 
-  const loadMenu = useCallback(
-    async (force = false) => {
-      const isFresh =
-        cachedMenuData && Date.now() - cacheTimestamp < MENU_CACHE_TTL_MS;
-      if (!force && isFresh) {
-        const data = cachedMenuData!;
-        setCategories(data.categoryNames);
-        setProducts(data.products);
-        setHeads(data.heads);
-        setProductHeads(data.productHeads);
-        setGlobalTaxesState(data.globalTaxes);
-        setGlobalTaxes(data.globalTaxes);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        if (!cachedMenuData) {
-          setLoading(true);
-        }
-        setError(null);
-        const data = await fetchMenuData();
-        cachedMenuData = data;
-        cacheTimestamp = Date.now();
-        setCategories(data.categoryNames);
-        setProducts(data.products);
-        setHeads(data.heads);
-        setProductHeads(data.productHeads);
-        setGlobalTaxesState(data.globalTaxes);
-        setGlobalTaxes(data.globalTaxes);
-      } catch {
-        if (!cachedMenuData) {
-          setError('Unable to load menu. Check your connection and try again.');
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [setGlobalTaxes],
+  const products = useMemo(
+    () => syncState.menu?.products ?? [],
+    [syncState.menu?.products],
+  );
+  const heads = useMemo(
+    () => syncState.menu?.heads ?? [{id: 'all', name: 'All'}],
+    [syncState.menu?.heads],
+  );
+  const productHeads = useMemo(
+    () => syncState.menu?.productHeads ?? [],
+    [syncState.menu?.productHeads],
+  );
+  const globalTaxes = useMemo(
+    () => syncState.menu?.globalTaxes ?? [],
+    [syncState.menu?.globalTaxes],
+  );
+  const categories = useMemo(
+    () => syncState.menu?.categoryNames ?? ['All'],
+    [syncState.menu?.categoryNames],
   );
 
   useEffect(() => {
-    loadMenu();
-  }, [loadMenu]);
+    void menuSyncManager.ensureReady();
+  }, []);
+
+  useEffect(() => {
+    if (globalTaxes.length) {
+      setGlobalTaxes(globalTaxes);
+    }
+  }, [globalTaxes, setGlobalTaxes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,7 +165,6 @@ export function useMenuData(): UseMenuDataResult {
   const setPanelLayout = useCallback(
     (layout: PanelLayout) => {
       setPanelLayoutState(layout);
-      // Narrower menu column in 3-panel — default to 2 tile columns.
       if (layout === '3' && itemStyle === 'tiles') {
         setGridColsState(2);
       }
@@ -191,6 +185,14 @@ export function useMenuData(): UseMenuDataResult {
     setGridColsState(cols);
   }, []);
 
+  const productIdsByHead = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const ph of productHeads as ProductHeadMapping[]) {
+      map.set(ph.headName, new Set(ph.productIds));
+    }
+    return map;
+  }, [productHeads]);
+
   const filteredProducts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
@@ -202,7 +204,6 @@ export function useMenuData(): UseMenuDataResult {
         return false;
       }
 
-      // Offers via head (both panel modes)
       if (activeHead === 'Offer') {
         return Boolean(product.isOffer);
       }
@@ -210,7 +211,6 @@ export function useMenuData(): UseMenuDataResult {
         return false;
       }
 
-      // Category filter (2-panel dropdown + 3-panel sidebar)
       if (
         activeCategory !== 'All' &&
         activeCategory !== 'Offer' &&
@@ -219,13 +219,12 @@ export function useMenuData(): UseMenuDataResult {
         return false;
       }
 
-      // Head filter
       if (activeHead !== 'All') {
-        const mapping = productHeads.find((ph) => ph.headName === activeHead);
-        if (!mapping) {
+        const ids = productIdsByHead.get(activeHead);
+        if (!ids) {
           return product.category?.name === activeHead;
         }
-        return mapping.productIds.includes(product.id);
+        return ids.has(product.id);
       }
 
       return true;
@@ -259,7 +258,24 @@ export function useMenuData(): UseMenuDataResult {
           a.score - b.score || a.product.name.localeCompare(b.product.name),
       )
       .map((entry) => entry.product);
-  }, [products, productHeads, activeHead, activeCategory, searchQuery]);
+  }, [products, productIdsByHead, activeHead, activeCategory, searchQuery]);
+
+  const productCount = syncState.menu?.products?.length ?? 0;
+  const loading =
+    (productCount === 0 &&
+      (syncState.status === 'hydrating' ||
+        syncState.status === 'syncing' ||
+        syncState.status === 'idle')) ||
+    (!syncState.hasLocalData &&
+      (syncState.status === 'hydrating' ||
+        syncState.status === 'syncing' ||
+        syncState.status === 'idle'));
+
+  const error =
+    syncState.status === 'error' ||
+    (productCount === 0 && syncState.error)
+      ? syncState.error
+      : null;
 
   return {
     categories,
@@ -276,6 +292,8 @@ export function useMenuData(): UseMenuDataResult {
     globalTaxes,
     loading,
     error,
+    syncStatus: syncState.status,
+    lastSyncedAt: syncState.lastSyncedAt,
     setActiveCategory,
     setActiveHead,
     setViewMode,
@@ -284,7 +302,7 @@ export function useMenuData(): UseMenuDataResult {
     setGridCols,
     setSearchQuery,
     reload: () => {
-      void loadMenu(true);
+      void menuSyncManager.sync({forceFull: true});
     },
   };
 }

@@ -1,5 +1,5 @@
 import {useEffect, useRef} from 'react';
-import {AppState, type AppStateStatus} from 'react-native';
+import {AppState, Platform, type AppStateStatus} from 'react-native';
 import {config} from '../../constants/config';
 import {socketClient} from '../../socket/socket';
 import {
@@ -7,13 +7,19 @@ import {
   reportPrinterProbeResult,
 } from '../../services/printJobService';
 import {
+  canPrintLocally,
   drainQueuedNetworkJobs,
+  isBluetoothPrinter,
+  isBuiltInUsbPrinter,
   isNetworkPrinter,
-  pickNetworkPrinter,
+  pickLocalPrinter,
   printJobById,
   printerService,
+  wasPrintJobHandledLocally,
 } from '../../printer/printerService';
 import {probeNetworkPrinter} from '../../printer/networkPrinter';
+import {probeBuiltInUsbPrinter} from '../../printer/usbPrinter';
+import {probeBluetoothPrinter} from '../../printer/bluetoothPrinter';
 import {usePrinterStatusStore} from '../../store/printerStatusStore';
 import type {PrintJobEventPayload, PrinterConfig} from '../../types/printJob';
 
@@ -23,7 +29,7 @@ const PRINTER_REFRESH_MS = 60_000;
 /**
  * Background auto-print agent for mobile devices (iPads / Android tablets).
  * Listens for NEW_PRINT_JOB, drains QUEUED jobs on mount/resume/printer-online,
- * and probes network printer health for Settings status.
+ * and probes network + Android built-in USB printer health for Settings status.
  */
 export function MobilePrintAgent() {
   const printersRef = useRef<PrinterConfig[]>([]);
@@ -59,27 +65,51 @@ export function MobilePrintAgent() {
     }
   };
 
-  const probeAllNetworkPrinters = async (reportToServer = false) => {
+  const probeAllLocalPrinters = async (reportToServer = false) => {
     const printers = await refreshPrinters();
-    const network = printers.filter((p) => isNetworkPrinter(p));
+    const local = printers.filter((p) => canPrintLocally(p));
 
-    for (const printer of network) {
+    for (const printer of local) {
       const printerId = String(printer._id);
       if (probingRef.current.has(printerId)) continue;
       probingRef.current.add(printerId);
       setChecking(printerId);
 
       try {
-        const host = printer.host!;
-        const port = printer.port || config.DEFAULT_PRINTER_PORT;
-        const result = await probeNetworkPrinter({host, port});
-        const online = !!result.success;
+        let online = false;
+        let error: string | null = null;
+        let host: string | undefined = printer.host || undefined;
+        let port: number | undefined =
+          printer.port || config.DEFAULT_PRINTER_PORT;
+
+        if (isBuiltInUsbPrinter(printer)) {
+          const result = await probeBuiltInUsbPrinter();
+          online = !!result.success;
+          error = result.error || null;
+          host = result.portName || 'BUILTIN';
+          port = undefined;
+        } else if (isBluetoothPrinter(printer) && printer.bluetoothAddress) {
+          const result = await probeBluetoothPrinter(printer.bluetoothAddress);
+          online = !!result.success;
+          error = result.error || null;
+          host = printer.bluetoothAddress;
+          port = undefined;
+        } else if (isNetworkPrinter(printer) && printer.host) {
+          host = printer.host;
+          port = printer.port || config.DEFAULT_PRINTER_PORT;
+          const result = await probeNetworkPrinter({host, port});
+          online = !!result.success;
+          error = result.error || null;
+        } else {
+          probingRef.current.delete(printerId);
+          continue;
+        }
 
         setResult(printerId, {
           status: online ? 'ONLINE' : 'OFFLINE',
           host,
           port,
-          error: result.error || null,
+          error,
           checkedAt: new Date().toISOString(),
           source: 'mobile',
         });
@@ -87,7 +117,7 @@ export function MobilePrintAgent() {
         if (reportToServer) {
           await reportPrinterProbeResult(printerId, {
             reachable: online,
-            error: result.error,
+            error: error || undefined,
             source: 'mobile',
           });
         }
@@ -112,28 +142,41 @@ export function MobilePrintAgent() {
 
   useEffect(() => {
     let cancelled = false;
+    let bootTimer: ReturnType<typeof setTimeout> | null = null;
 
     const boot = async () => {
       if (cancelled) return;
       await refreshPrinters();
       if (cancelled) return;
-      await probeAllNetworkPrinters(false);
+      // Probe after UI is interactive — never block first paint / taps
+      await probeAllLocalPrinters(false);
       if (cancelled) return;
       await drainQueue();
     };
 
-    void boot();
+    bootTimer = setTimeout(() => {
+      void boot();
+    }, 1500);
+
     const refreshTimer = setInterval(() => {
       void refreshPrinters();
     }, PRINTER_REFRESH_MS);
     const healthTimer = setInterval(() => {
-      void probeAllNetworkPrinters(false);
+      void probeAllLocalPrinters(false);
     }, HEALTH_INTERVAL_MS);
 
+    let lastProbeAt = 0;
     const onAppState = (state: AppStateStatus) => {
       if (state === 'active') {
+        const now = Date.now();
+        // Skip redundant probe if we checked recently
+        if (now - lastProbeAt < 30_000) {
+          void drainQueue();
+          return;
+        }
+        lastProbeAt = now;
         void (async () => {
-          await probeAllNetworkPrinters(false);
+          await probeAllLocalPrinters(false);
           await drainQueue();
         })();
       }
@@ -142,6 +185,7 @@ export function MobilePrintAgent() {
 
     return () => {
       cancelled = true;
+      if (bootTimer) clearTimeout(bootTimer);
       clearInterval(refreshTimer);
       clearInterval(healthTimer);
       sub.remove();
@@ -160,11 +204,11 @@ export function MobilePrintAgent() {
       const onNewJob = async (payload: PrintJobEventPayload) => {
         const jobId = payload?.printJobId;
         if (!jobId || (payload?.status && payload.status !== 'QUEUED')) return;
+        if (wasPrintJobHandledLocally(jobId)) return;
 
-        if (
-          payload?.connectionType &&
-          String(payload.connectionType).toUpperCase() === 'USB'
-        ) {
+        const conn = String(payload?.connectionType || '').toUpperCase();
+        // Windows spooler USB stays on print-bridge (non-Android)
+        if (conn === 'USB' && Platform.OS !== 'android') {
           return;
         }
 
@@ -179,13 +223,79 @@ export function MobilePrintAgent() {
           // keep cached list
         }
 
-        const targetPrinter = pickNetworkPrinter(printersRef.current, {
+        let targetPrinter = pickLocalPrinter(printersRef.current, {
           printerId: payload?.printerId,
           printerTarget: payload?.printerTarget,
         });
 
-        if (!targetPrinter || !targetPrinter.host) {
+        // Fallback: any enabled USB printer on this Android POS tablet
+        if (
+          (!targetPrinter || !canPrintLocally(targetPrinter)) &&
+          Platform.OS === 'android'
+        ) {
+          targetPrinter =
+            printersRef.current.find((p) => isBuiltInUsbPrinter(p)) || null;
+        }
+
+        // Last resort on Android POS: if hardware probe succeeds, print anyway
+        // (covers empty printer list after reinstall / socket events with no conn)
+        if (
+          (!targetPrinter || !canPrintLocally(targetPrinter)) &&
+          Platform.OS === 'android'
+        ) {
+          const probe = await probeBuiltInUsbPrinter();
+          if (probe.success) {
+            targetPrinter = {
+              _id: payload?.printerId || 'builtin-fallback',
+              name: 'Built-in Receipt',
+              target: (payload?.printerTarget as PrinterConfig['target']) || 'KITCHEN',
+              connectionType: 'USB',
+              systemPrinterName: 'BUILTIN',
+              enabled: true,
+            };
+            console.warn(
+              '[MobilePrintAgent] using built-in USB fallback for job',
+              jobId,
+            );
+          }
+        }
+
+        if (!targetPrinter || !canPrintLocally(targetPrinter)) {
+          console.warn(
+            '[MobilePrintAgent] skip job — no local printer',
+            jobId,
+            'conn=',
+            conn,
+            'target=',
+            payload?.printerTarget,
+            'printers=',
+            printersRef.current.length,
+          );
           return;
+        }
+
+        if (isBuiltInUsbPrinter(targetPrinter)) {
+          const probe = await probeBuiltInUsbPrinter();
+          if (!probe.success) {
+            console.warn(
+              '[MobilePrintAgent] built-in USB not ready',
+              probe.error,
+            );
+            return;
+          }
+        }
+
+        if (isBluetoothPrinter(targetPrinter) && targetPrinter.bluetoothAddress) {
+          const probe = await probeBluetoothPrinter(
+            targetPrinter.bluetoothAddress,
+          );
+          if (!probe.success) {
+            console.warn(
+              '[MobilePrintAgent] bluetooth not ready',
+              probe.error,
+            );
+            return;
+          }
         }
 
         processingRef.current.add(jobId);
@@ -193,7 +303,10 @@ export function MobilePrintAgent() {
           await new Promise<void>((resolve) =>
             setTimeout(resolve, Math.floor(Math.random() * 200) + 50),
           );
-          await printJobById(jobId);
+          const result = await printJobById(jobId);
+          if (!result.success) {
+            console.warn('[MobilePrintAgent] print result', result.message);
+          }
         } catch (err) {
           console.warn('[MobilePrintAgent] print failed:', err);
         } finally {
@@ -208,10 +321,9 @@ export function MobilePrintAgent() {
         host?: string;
         port?: number;
         connectionType?: string;
+        systemPrinterName?: string;
+        bluetoothAddress?: string;
       }) => {
-        const conn = String(payload?.connectionType || '').toUpperCase();
-        if (conn === 'USB') return;
-
         let printer = printersRef.current.find(
           (p) => String(p._id) === String(payload?.printerId),
         );
@@ -226,8 +338,36 @@ export function MobilePrintAgent() {
             enabled: true,
           };
         }
+        if (
+          !printer &&
+          String(payload?.connectionType || '').toUpperCase() === 'BLUETOOTH' &&
+          payload?.bluetoothAddress
+        ) {
+          printer = {
+            _id: payload.printerId || 'test',
+            name: payload.name || 'Bluetooth Printer',
+            target: payload.target || 'RECEIPT',
+            connectionType: 'BLUETOOTH',
+            bluetoothAddress: payload.bluetoothAddress,
+            enabled: true,
+          };
+        }
+        if (
+          !printer &&
+          String(payload?.connectionType || '').toUpperCase() === 'USB' &&
+          payload?.systemPrinterName
+        ) {
+          printer = {
+            _id: payload.printerId || 'test',
+            name: payload.name || 'Built-in Receipt',
+            target: payload.target || 'RECEIPT',
+            connectionType: 'USB',
+            systemPrinterName: payload.systemPrinterName,
+            enabled: true,
+          };
+        }
 
-        if (printer && isNetworkPrinter(printer)) {
+        if (printer && canPrintLocally(printer)) {
           try {
             await printerService.testPrinterDirect(printer);
           } catch (err) {
@@ -241,11 +381,9 @@ export function MobilePrintAgent() {
         host?: string;
         port?: number;
         connectionType?: string;
+        systemPrinterName?: string;
         requestId?: string;
       }) => {
-        const conn = String(payload?.connectionType || '').toUpperCase();
-        if (conn === 'USB') return;
-
         const printerId = payload?.printerId;
         if (!printerId) return;
 
@@ -258,6 +396,69 @@ export function MobilePrintAgent() {
           const cached = printersRef.current.find(
             (p) => String(p._id) === String(printerId),
           );
+          const synthetic: PrinterConfig | null = cached
+            ? cached
+            : payload?.connectionType
+              ? {
+                  _id: printerId,
+                  name: 'Printer',
+                  target: 'RECEIPT',
+                  host: payload.host,
+                  port: payload.port,
+                  connectionType: payload.connectionType,
+                  systemPrinterName: payload.systemPrinterName,
+                  enabled: true,
+                }
+              : null;
+
+          if (synthetic && isBuiltInUsbPrinter(synthetic)) {
+            const result = await probeBuiltInUsbPrinter();
+            const online = !!result.success;
+            setResult(printerId, {
+              status: online ? 'ONLINE' : 'OFFLINE',
+              host: result.portName || 'BUILTIN',
+              error: result.error || null,
+              checkedAt: new Date().toISOString(),
+              source: 'mobile',
+            });
+            await reportPrinterProbeResult(printerId, {
+              reachable: online,
+              error: result.error,
+              source: 'mobile',
+              requestId: payload.requestId,
+            });
+            if (online) void drainQueue();
+            return;
+          }
+
+          if (
+            synthetic &&
+            isBluetoothPrinter(synthetic) &&
+            (payload as {bluetoothAddress?: string}).bluetoothAddress
+          ) {
+            const address =
+              (payload as {bluetoothAddress?: string}).bluetoothAddress ||
+              synthetic.bluetoothAddress ||
+              '';
+            const result = await probeBluetoothPrinter(address);
+            const online = !!result.success;
+            setResult(printerId, {
+              status: online ? 'ONLINE' : 'OFFLINE',
+              host: address,
+              error: result.error || null,
+              checkedAt: new Date().toISOString(),
+              source: 'mobile',
+            });
+            await reportPrinterProbeResult(printerId, {
+              reachable: online,
+              error: result.error,
+              source: 'mobile',
+              requestId: payload.requestId,
+            });
+            if (online) void drainQueue();
+            return;
+          }
+
           const host = payload.host || cached?.host;
           const port =
             payload.port || cached?.port || config.DEFAULT_PRINTER_PORT;

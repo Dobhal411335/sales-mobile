@@ -17,6 +17,10 @@ interface PopoverProps {
   contentStyle?: StyleProp<ViewStyle>;
 }
 
+/**
+ * Lightweight header menus. Uses Modal without animation so open feels instant
+ * on POS tablets (fade caused noticeable delay). Full forms still use TabletModal.
+ */
 export function Popover({
   visible,
   onClose,
@@ -24,11 +28,16 @@ export function Popover({
   align = 'end',
   contentStyle,
 }: PopoverProps) {
+  if (!visible) {
+    return null;
+  }
+
   return (
     <Modal
-      visible={visible}
+      visible
       transparent
-      animationType="fade"
+      animationType="none"
+      statusBarTranslucent
       onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <View
@@ -37,7 +46,8 @@ export function Popover({
             align === 'start' && styles.alignStart,
             align === 'center' && styles.alignCenter,
             align === 'end' && styles.alignEnd,
-          ]}>
+          ]}
+          pointerEvents="box-none">
           <Pressable
             style={[styles.content, contentStyle]}
             onPress={(event) => event.stopPropagation()}>
@@ -52,7 +62,7 @@ export function Popover({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+    backgroundColor: 'rgba(0,0,0,0.18)',
   },
   container: {
     flex: 1,

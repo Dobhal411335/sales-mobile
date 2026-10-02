@@ -7,6 +7,7 @@ import {
   Lock,
   LogOut,
   Printer,
+  RefreshCw,
   Settings2,
   TrendingUp,
 } from 'lucide-react-native';
@@ -33,7 +34,8 @@ const MENU_ITEMS: {
   {label: 'Today Sales', screen: 'TodaySales', Icon: TrendingUp},
   {label: 'Table Bookings', screen: 'Booking', Icon: CalendarDays},
   {label: 'Print Jobs', screen: 'PrintJobs', Icon: Printer},
-  {label: 'Printers', screen: 'PrintersSettings', Icon: Settings2},
+  {label: 'Printer settings', screen: 'PrintersSettings', Icon: Settings2},
+  {label: 'Sync products', screen: 'MenuSync', Icon: RefreshCw},
   {label: 'Notifications', screen: 'Notifications', Icon: Bell},
   {label: 'Day Close', screen: 'DayClose', Icon: Lock},
 ];

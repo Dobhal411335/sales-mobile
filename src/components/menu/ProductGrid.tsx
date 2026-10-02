@@ -1,15 +1,17 @@
-import React, {useMemo} from 'react';
+import React, {useCallback, useMemo} from 'react';
 import {
-  ActivityIndicator,
   StyleSheet,
   Text,
   useWindowDimensions,
   View,
   FlatList,
+  type ListRenderItem,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {GridCols, ItemStyle, MenuProduct} from '../../types/product';
 import {ProductCard} from './ProductCard';
+import {ProductGridSkeleton} from './ProductGridSkeleton';
+import {prefetchMenuImages} from '../../menu/imageCache';
 
 interface ProductGridProps {
   products: MenuProduct[];
@@ -34,20 +36,27 @@ export function ProductGrid({
     if (itemStyle === 'tiles') {
       return gridCols;
     }
-    // List/cards: 1–2 columns depending on available width
     return width >= 1100 ? 2 : 1;
   }, [itemStyle, gridCols, width]);
 
-  const data = useMemo(() => products, [products]);
-  const variant: ItemStyle =
-    itemStyle === 'tiles' ? 'tiles' : 'list';
+  const variant: ItemStyle = itemStyle === 'tiles' ? 'tiles' : 'list';
+
+  const renderItem = useCallback<ListRenderItem<MenuProduct>>(
+    ({item}) => (
+      <ProductCard product={item} onPress={onProductPress} variant={variant} />
+    ),
+    [onProductPress, variant],
+  );
+
+  const keyExtractor = useCallback((item: MenuProduct) => item.id, []);
+
+  const onViewableItemsChanged = useCallback(() => {
+    prefetchMenuImages(16);
+  }, []);
 
   if (loading) {
     return (
-      <View style={styles.centerState}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.stateText}>Loading menu...</Text>
-      </View>
+      <ProductGridSkeleton itemStyle={itemStyle} gridCols={gridCols} />
     );
   }
 
@@ -62,7 +71,7 @@ export function ProductGrid({
     );
   }
 
-  if (!data.length) {
+  if (!products.length) {
     return (
       <View style={styles.centerState}>
         <Text style={styles.stateText}>No items found.</Text>
@@ -72,19 +81,21 @@ export function ProductGrid({
 
   return (
     <FlatList
-      data={data}
-      key={`${variant}-${numColumns}`}
+      data={products}
+      // Remount only when column count changes (required by RN FlatList)
+      key={`cols-${numColumns}`}
       numColumns={numColumns}
-      keyExtractor={(item) => item.id}
+      keyExtractor={keyExtractor}
+      renderItem={renderItem}
       contentContainerStyle={styles.listContent}
       columnWrapperStyle={numColumns > 1 ? styles.columnWrap : undefined}
-      renderItem={({item}) => (
-        <ProductCard
-          product={item}
-          onPress={onProductPress}
-          variant={variant}
-        />
-      )}
+      initialNumToRender={12}
+      maxToRenderPerBatch={8}
+      windowSize={5}
+      updateCellsBatchingPeriod={50}
+      removeClippedSubviews
+      onViewableItemsChanged={onViewableItemsChanged}
+      viewabilityConfig={{itemVisiblePercentThreshold: 10}}
     />
   );
 }

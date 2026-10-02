@@ -1,4 +1,4 @@
-import React, {useMemo, useState} from 'react';
+import React, {useCallback, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   LayoutChangeEvent,
@@ -10,7 +10,7 @@ import {colors} from '../../constants/colors';
 import type {Floor, FloorTable, GridMode, TableSession} from '../../types/table';
 import {computeContentBounds, computeFitScale} from '../../utils/floorLayout';
 import {
-  findSessionForTable,
+  buildSessionByTableId,
   getTableCardSize,
   getTableDisplayState,
 } from '../../utils/tableStatus';
@@ -109,6 +109,19 @@ export function FloorCanvas({
     );
   }, [viewport.width, viewport.height, contentBounds.width, contentBounds.height]);
 
+  const sessionByTableId = useMemo(
+    () => buildSessionByTableId(sessions),
+    [sessions],
+  );
+
+  const handleTablePress = useCallback(
+    (table: FloorTable) => {
+      const session = sessionByTableId.get(String(table.id)) ?? null;
+      onTablePress(table, session);
+    },
+    [onTablePress, sessionByTableId],
+  );
+
   const handleLayout = (event: LayoutChangeEvent) => {
     const {width, height} = event.nativeEvent.layout;
     setViewport({width, height});
@@ -149,7 +162,7 @@ export function FloorCanvas({
               {gridMode === 'dots' ? <DotsGrid /> : null}
 
               {tables.map((table) => {
-                const session = findSessionForTable(sessions, table.id);
+                const session = sessionByTableId.get(String(table.id)) ?? null;
                 const displayState = getTableDisplayState(
                   table,
                   session,
@@ -179,7 +192,7 @@ export function FloorCanvas({
                       status={displayState.status}
                       currentUserId={currentUserId}
                       selected={selectedTableId === table.id}
-                      onPress={() => onTablePress(table, session)}
+                      onPress={() => handleTablePress(table)}
                     />
                   </View>
                 );

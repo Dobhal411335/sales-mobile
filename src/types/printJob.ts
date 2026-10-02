@@ -111,6 +111,9 @@ export interface PrinterReachability {
   requestId?: string | null;
 }
 
+export type PrinterOrderType = 'TAKE_AWAY' | 'DINE_IN' | 'DELIVERY';
+export type PrinterPaperWidthMm = 58 | 72 | 78 | 80;
+
 export interface PrinterConfig {
   _id: string;
   name: string;
@@ -120,6 +123,11 @@ export interface PrinterConfig {
   port?: number | null;
   connectionType?: string | null;
   systemPrinterName?: string | null;
+  bluetoothAddress?: string | null;
+  usbVendorId?: number | null;
+  usbProductId?: number | null;
+  paperWidthMm?: PrinterPaperWidthMm | number | null;
+  orderTypes?: PrinterOrderType[] | null;
   location?: string | null;
   enabled?: boolean;
   lastReachability?: PrinterReachability | null;
@@ -149,6 +157,11 @@ export interface PrintJobEventPayload {
   printerTarget?: PrinterTarget;
   printerId?: string | null;
   connectionType?: string | null;
+  systemPrinterName?: string | null;
+  bluetoothAddress?: string | null;
+  usbVendorId?: number | null;
+  usbProductId?: number | null;
+  paperWidthMm?: number | null;
   status?: PrintJobStatus;
   attemptCount?: number;
   createdAt?: string;

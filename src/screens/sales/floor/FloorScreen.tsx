@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useIsFocused} from '@react-navigation/native';
 import {FloorAttentionPanel} from '../../../components/floor/FloorAttentionPanel';
 import {FloorCanvas} from '../../../components/floor/FloorCanvas';
 import {
@@ -32,6 +33,7 @@ type Props = NativeStackScreenProps<SalesStackParamList, 'Floor'>;
 export function FloorScreen({navigation}: Props) {
   const {width} = useWindowDimensions();
   const showAttentionRail = width >= 780;
+  const isFocused = useIsFocused();
   const {user} = useAuth();
   const {
     floors,
@@ -54,7 +56,13 @@ export function FloorScreen({navigation}: Props) {
     retry,
   } = useFloorData();
 
-  const {connectionStatus} = useFloorRealtime(selectedFloorId, reload);
+  const focusedReload = useCallback(() => {
+    if (isFocused) {
+      reload();
+    }
+  }, [isFocused, reload]);
+
+  const {connectionStatus} = useFloorRealtime(selectedFloorId, focusedReload);
   const {walkInUnpaid, staffUnpaid, onlineOpen} = useFloorAttentionCounts();
 
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);

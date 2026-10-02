@@ -10,14 +10,11 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {Cart} from '../../../components/cart/Cart';
+import {CreateOrderCartPane} from '../../../components/cart/CreateOrderCartPane';
 import {TabletModal} from '../../../components/common/TabletModal';
-import {CategorySidebar} from '../../../components/menu/CategorySidebar';
-import {HeadList} from '../../../components/menu/HeadList';
-import {MenuListFilters} from '../../../components/menu/MenuListFilters';
+import {CreateOrderMenuPane} from '../../../components/menu/CreateOrderMenuPane';
 import {ModifierModal} from '../../../components/menu/ModifierModal';
 import {OfferOptionsModal} from '../../../components/menu/OfferOptionsModal';
-import {OrderLayoutMenu} from '../../../components/menu/OrderLayoutMenu';
-import {ProductGrid} from '../../../components/menu/ProductGrid';
 import {
   PartyNameForm,
   validatePartyNameForm,
@@ -46,6 +43,7 @@ import {
   submitOrder,
   toReceiptOrder,
 } from '../../../services/orderService';
+import {printerService} from '../../../printer/printerService';
 import {useCartStore} from '../../../store/cartStore';
 import {useOrderStore} from '../../../store/orderStore';
 import type {MenuProduct} from '../../../types/product';
@@ -114,6 +112,8 @@ export function CreateOrderScreen({navigation, route}: Props) {
     globalTaxes,
     loading: menuLoading,
     error: menuError,
+    syncStatus,
+    lastSyncedAt,
     setActiveCategory,
     setActiveHead,
     setPanelLayout,
@@ -142,16 +142,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
   const appliedDiscount = useCartStore((state) => state.appliedDiscount);
 
   const addItems = useCartStore((state) => state.addItems);
-  const updateQty = useCartStore((state) => state.updateQty);
-  const updateItemNotes = useCartStore((state) => state.updateItemNotes);
-  const removeItem = useCartStore((state) => state.removeItem);
-  const setOrderNote = useCartStore((state) => state.setOrderNote);
-  const clearCart = useCartStore((state) => state.clearCart);
   const setPartyFields = useCartStore((state) => state.setPartyFields);
   const setIsSubmitting = useCartStore((state) => state.setIsSubmitting);
   const applyKotResult = useCartStore((state) => state.applyKotResult);
   const getTotals = useCartStore((state) => state.getTotals);
-  const canPay = useCartStore((state) => state.canPay);
   const canSendKot = useCartStore((state) => state.canSendKot);
 
   const [modifierProduct, setModifierProduct] = useState<MenuProduct | null>(
@@ -350,6 +344,43 @@ export function CreateOrderScreen({navigation, route}: Props) {
           setKotReceiptOrder(receiptOrder);
           setActivePreviewMode(isBarTicket ? 'bar' : 'kot');
           setIsReprint(false);
+
+          // Local-first: print from kotPayload immediately; audit PrintJob async
+          const kotItems = result.data.kotPayload?.length
+            ? result.data.kotPayload
+            : [];
+          if (kotItems.length > 0) {
+            void printerService
+              .printKOT(
+                {
+                  order: receiptOrder,
+                  kotItems,
+                  ticketType: isBarTicket ? 'BAR_RECEIPT' : 'KOT',
+                  serverName: result.data.processedByName,
+                  guestCount: receiptOrder.guestCount,
+                  specialNote: receiptOrder.specialNote,
+                },
+                result.data.printJobId ?? null,
+              )
+              .then((printRes) => {
+                if (printRes.printedLocally) {
+                  toast.success(
+                    isBarTicket
+                      ? 'Bar ticket printed'
+                      : 'Kitchen ticket printed',
+                  );
+                } else if (!printRes.success && printRes.mode === 'native') {
+                  console.warn(
+                    '[CreateOrder] local print failed, queue remains:',
+                    printRes.message,
+                  );
+                }
+              })
+              .catch((err) => {
+                console.warn('[CreateOrder] local print error:', err);
+              });
+          }
+
           // Let the success toast show before the KOT preview modal covers it
           setTimeout(() => {
             setKotPreviewOpen(true);
@@ -562,11 +593,27 @@ export function CreateOrderScreen({navigation, route}: Props) {
     refetchOrder();
   }, [refetchOrder, setRemoteUpdatePending]);
 
-  const totals = getTotals();
   const kotModalTitle =
     activePreviewMode === 'bar' ? 'Bar Receipt' : 'Kitchen Order Ticket (KOT)';
 
   const showSessionLoader = sessionLoading && items.length === 0;
+
+  const syncBanner = useMemo(() => {
+    if (syncStatus === 'offline' || (syncStatus === 'error' && lastSyncedAt)) {
+      if (!lastSyncedAt) {
+        return 'Offline — showing last saved menu';
+      }
+      const mins = Math.max(
+        1,
+        Math.round((Date.now() - new Date(lastSyncedAt).getTime()) / 60000),
+      );
+      return `Offline / Last synced ${mins} min ago`;
+    }
+    if (syncStatus === 'syncing' && lastSyncedAt) {
+      return null;
+    }
+    return null;
+  }, [syncStatus, lastSyncedAt]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
@@ -589,109 +636,36 @@ export function CreateOrderScreen({navigation, route}: Props) {
       ) : null}
 
       <View style={styles.layout}>
-        {panelLayout === '3' ? (
-          <CategorySidebar
-            categories={categories}
-            activeCategory={activeCategory}
-            onSelectCategory={setActiveCategory}
-          />
-        ) : null}
+        <CreateOrderMenuPane
+          panelLayout={panelLayout}
+          categories={categories}
+          activeCategory={activeCategory}
+          onSelectCategory={setActiveCategory}
+          heads={heads}
+          activeHead={activeHead}
+          onSelectHead={setActiveHead}
+          searchQuery={searchQuery}
+          onChangeSearch={setSearchQuery}
+          itemStyle={effectiveItemStyle}
+          gridCols={gridCols}
+          onPanelLayout={setPanelLayout}
+          onItemStyle={setItemStyle}
+          onGridCols={setGridCols}
+          headerTitle={display.headerTitle}
+          partyLabel={display.partyLabel}
+          products={filteredProducts}
+          loading={menuLoading}
+          error={menuError}
+          onProductPress={handleProductPress}
+          syncBanner={syncBanner}
+          showSessionLoader={showSessionLoader}
+        />
 
-        <View style={styles.menuPane}>
-          <View style={styles.contextHeader}>
-            <View style={styles.contextHeaderText}>
-              <Text style={styles.screenTitle}>{display.headerTitle}</Text>
-              <Text style={styles.contextSubtitle}>{display.partyLabel}</Text>
-            </View>
-            <OrderLayoutMenu
-              panelLayout={panelLayout}
-              itemStyle={itemStyle}
-              gridCols={gridCols}
-              onPanelLayout={setPanelLayout}
-              onItemStyle={setItemStyle}
-              onGridCols={setGridCols}
-            />
-          </View>
-
-          <MenuListFilters
-            categories={categories}
-            activeCategory={activeCategory}
-            searchQuery={searchQuery}
-            onChangeSearch={setSearchQuery}
-            onSelectCategory={setActiveCategory}
-            showCategory={panelLayout === '2'}
-          />
-
-          <HeadList
-            heads={heads}
-            activeHead={activeHead}
-            onSelectHead={setActiveHead}
-          />
-
-          {showSessionLoader ? (
-            <View style={styles.loaderPane}>
-              <ActivityIndicator size="large" color={colors.primary} />
-              <Text style={styles.loaderText}>Loading order...</Text>
-            </View>
-          ) : (
-            <ProductGrid
-              products={filteredProducts}
-              loading={menuLoading}
-              error={menuError}
-              onProductPress={handleProductPress}
-              itemStyle={effectiveItemStyle}
-              gridCols={gridCols}
-            />
-          )}
-        </View>
-
-        <View
-          style={[
-            styles.cartPane,
-            panelLayout === '3' ? styles.cartPaneThree : null,
-          ]}>
-          <Cart
-            items={items}
-            orderNote={orderNote}
-            orderNumber={orderNumber}
-            totals={totals}
-            canSendKot={canSendKot()}
-            canPay={canPay()}
-            hasSentKot={hasSentKot}
-            onChangeNote={(note) => {
-              markDirty();
-              setOrderNote(note);
-            }}
-            onChangeItemNotes={(cartId, notes) => {
-              markDirty();
-              updateItemNotes(cartId, notes);
-            }}
-            onIncrease={(cartId) => {
-              const item = items.find((line) => line.cartId === cartId);
-              if (item) {
-                markDirty();
-                updateQty(cartId, item.qty + 1);
-              }
-            }}
-            onDecrease={(cartId) => {
-              const item = items.find((line) => line.cartId === cartId);
-              if (item) {
-                markDirty();
-                updateQty(cartId, item.qty - 1);
-              }
-            }}
-            onRemove={(cartId) => {
-              markDirty();
-              removeItem(cartId);
-            }}
-            onClearAll={() => {
-              markDirty();
-              clearCart();
-            }}
-            onSendKot={handleSendKot}
-            onPayNow={handlePayNow}
-          />
-        </View>
+        <CreateOrderCartPane
+          panelLayout={panelLayout}
+          onSendKot={handleSendKot}
+          onPayNow={handlePayNow}
+        />
       </View>
 
       <ModifierModal

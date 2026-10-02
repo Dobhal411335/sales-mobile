@@ -109,6 +109,13 @@ function onPrintJobUpdated(payload: PrintJobEventPayload): void {
   usePrintJobStore.getState().patchJobFromEvent(payload);
 }
 
+function onMenuStale(): void {
+  // Lazy import avoids circular deps with menu sync ↔ socket bootstrap
+  void import('../menu/menuSyncManager').then(({menuSyncManager}) => {
+    menuSyncManager.markStale();
+  });
+}
+
 function attachCoreSocketListeners(socket: Socket): void {
   if (coreListenersAttached) {
     return;
@@ -122,6 +129,7 @@ function attachCoreSocketListeners(socket: Socket): void {
   socket.on('auth:force-logout', onForceLogout);
   socket.on('NEW_PRINT_JOB', onNewPrintJob);
   socket.on('PRINT_JOB_UPDATED', onPrintJobUpdated);
+  socket.on('menu:stale', onMenuStale);
   coreListenersAttached = true;
 
   if (socket.connected) {
@@ -142,6 +150,7 @@ function detachCoreSocketListeners(socket: Socket): void {
   socket.off('auth:force-logout', onForceLogout);
   socket.off('NEW_PRINT_JOB', onNewPrintJob);
   socket.off('PRINT_JOB_UPDATED', onPrintJobUpdated);
+  socket.off('menu:stale', onMenuStale);
   coreListenersAttached = false;
 }
 

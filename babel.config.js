@@ -22,11 +22,29 @@ function loadEnvFile(envFilePath) {
   return env;
 }
 
-// .env = shared defaults; .env.local overrides (gitignored) for local Web API
+/**
+ * Release / production bundles must NOT pick up `.env.local` (emulator LAN URL).
+ * That was baking http://10.0.2.2:3000 into tablet APKs → "unable to connect".
+ */
+const isReleaseBuild =
+  process.env.NODE_ENV === 'production' ||
+  process.env.BABEL_ENV === 'production' ||
+  process.env.MOBILE_ENV === 'production' ||
+  process.argv.some((arg) =>
+    /(?:bundle|assemble|install|package)Release/i.test(String(arg)),
+  );
+
 const env = {
   ...loadEnvFile(path.resolve(__dirname, '.env')),
-  ...loadEnvFile(path.resolve(__dirname, '.env.local')),
+  ...(isReleaseBuild
+    ? loadEnvFile(path.resolve(__dirname, '.env.production'))
+    : loadEnvFile(path.resolve(__dirname, '.env.local'))),
 };
+
+// Guarantee a production backend URL for release if env files are missing.
+if (isReleaseBuild && !env.API_BASE_URL) {
+  env.API_BASE_URL = 'https://pos.tastybitesrestaurant.com';
+}
 
 function inlineEnvPlugin({types: t}) {
   return {

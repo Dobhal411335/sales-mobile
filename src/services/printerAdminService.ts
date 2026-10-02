@@ -1,4 +1,9 @@
-import type {PrinterConfig, PrinterTarget} from '../types/printJob';
+import type {
+  PrinterConfig,
+  PrinterOrderType,
+  PrinterPaperWidthMm,
+  PrinterTarget,
+} from '../types/printJob';
 import {getApiNotConfiguredMessage, isApiConfigured} from '../utils/apiGuard';
 import {api} from './api';
 
@@ -6,10 +11,15 @@ export interface PrinterUpsertPayload {
   name: string;
   target: PrinterTarget;
   purpose?: PrinterTarget;
-  connectionType?: 'NETWORK' | 'LAN' | 'USB';
+  connectionType?: 'NETWORK' | 'LAN' | 'USB' | 'BLUETOOTH';
   host?: string | null;
   ipAddress?: string | null;
   port?: number | null;
+  bluetoothAddress?: string | null;
+  usbVendorId?: number | null;
+  usbProductId?: number | null;
+  paperWidthMm?: PrinterPaperWidthMm | number | null;
+  orderTypes?: PrinterOrderType[] | null;
   location?: 'COUNTER' | 'KITCHEN' | 'BAR' | null;
   type?: string;
   enabled?: boolean;

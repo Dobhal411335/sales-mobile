@@ -4,6 +4,7 @@ import {persistCookiesFromResponse} from '../utils/cookieParser';
 import {
   buildCookieHeader,
   clearEmployeeSessionTokens,
+  setAuthTokens,
 } from '../utils/secureStorage';
 
 type RetryableConfig = InternalAxiosRequestConfig & {_retry?: boolean};
@@ -86,6 +87,12 @@ api.interceptors.request.use(async (requestConfig) => {
 api.interceptors.response.use(
   async (response) => {
     await persistCookiesFromResponse(response.headers as Record<string, unknown>);
+    const payload = response.data as
+      | {data?: {deviceToken?: string}}
+      | undefined;
+    if (payload?.data?.deviceToken) {
+      await setAuthTokens({deviceToken: payload.data.deviceToken});
+    }
     return response;
   },
   async (error: AxiosError) => {

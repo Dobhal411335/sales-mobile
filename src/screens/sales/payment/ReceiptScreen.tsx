@@ -1,4 +1,4 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,10 @@ import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
 import {config} from '../../../constants/config';
 import type {SalesStackParamList} from '../../../navigation/types';
+import {
+  formatMoneyForDisplay,
+  showCustomerDisplay,
+} from '../../../display/customerDisplay';
 import {printerService} from '../../../printer/printerService';
 import {reprintTicket} from '../../../services/printJobService';
 import {releaseTableSession} from '../../../services/sessionService';
@@ -53,6 +57,7 @@ export function ReceiptScreen({navigation, route}: Props) {
   );
   const [isReprint, setIsReprint] = useState(Boolean(orderSnapshot.isReprint));
   const [reprinting, setReprinting] = useState(false);
+  const localPrintStarted = useRef(false);
 
   const effectiveTaxBreakdown = taxBreakdown ?? orderSnapshot.taxBreakdown;
   const isTableSession = orderType === 'table' && Boolean(sessionId);
@@ -63,6 +68,69 @@ export function ReceiptScreen({navigation, route}: Props) {
     ? orderSnapshot.paymentSplits
     : [];
   const isMultiSplit = splitRows.length > 1;
+
+  // Local-first customer receipt: print immediately from paid snapshot
+  useEffect(() => {
+    if (localPrintStarted.current) return;
+    if (orderSnapshot.isReprint) return;
+    localPrintStarted.current = true;
+
+    const jobIds =
+      Array.isArray(printJobIds) && printJobIds.length > 0
+        ? printJobIds
+        : primaryPrintJobId
+          ? [primaryPrintJobId]
+          : [null];
+
+    void (async () => {
+      for (const jobId of jobIds) {
+        try {
+          const result = await printerService.printBill(
+            {
+              order: orderSnapshot,
+              taxBreakdown: effectiveTaxBreakdown,
+              guestCount: orderSnapshot.guestCount,
+              restaurantName:
+                orderSnapshot.restaurantName || config.APP_NAME.toUpperCase(),
+              isReprint: false,
+            },
+            jobId,
+          );
+          if (result.printedLocally) {
+            setPrintMessage(result.message || 'Receipt printed');
+          }
+        } catch (err) {
+          console.warn('[ReceiptScreen] local print error:', err);
+        }
+      }
+    })();
+  }, [
+    effectiveTaxBreakdown,
+    orderSnapshot,
+    primaryPrintJobId,
+    printJobIds,
+  ]);
+
+  // Show paid total on customer-facing secondary display
+  useEffect(() => {
+    const lines = (orderSnapshot.items || []).slice(0, 12).map((item) => ({
+      name: String(item.name || 'Item'),
+      qty: Number(item.qty) || 1,
+      priceText: formatMoneyForDisplay(
+        (Number(item.price) || 0) * (Number(item.qty) || 1),
+      ),
+    }));
+    void showCustomerDisplay({
+      brand:
+        orderSnapshot.restaurantName || config.APP_NAME.toUpperCase(),
+      title: 'Payment received',
+      totalLabel: 'PAID',
+      totalText: formatMoneyForDisplay(grandTotal),
+      footer: 'Thank you — please come again',
+      mode: 'paid',
+      lines,
+    });
+  }, [grandTotal, orderSnapshot]);
 
   const goToFloor = useCallback(() => {
     resetOrderState();

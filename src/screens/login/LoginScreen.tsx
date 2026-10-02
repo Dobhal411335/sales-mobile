@@ -98,7 +98,7 @@ export function LoginScreen() {
     const result = await activateAndLogin({
       employeeId: pendingCredentials.employeeId,
       password: pendingCredentials.password,
-      activationCode,
+      activationCode: activationCode.trim().toUpperCase(),
     });
 
     if (result.success) {

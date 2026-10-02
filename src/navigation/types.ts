@@ -78,5 +78,6 @@ export type SalesStackParamList = {
   Notifications: undefined;
   PrintJobs: {jobId?: string} | undefined;
   PrintersSettings: undefined;
+  MenuSync: undefined;
   DayClose: undefined;
 };

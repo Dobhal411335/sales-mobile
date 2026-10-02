@@ -34,7 +34,7 @@ const ATTENTION_ITEMS: {
 }[] = [
   {
     id: 'walking',
-    label: 'Walk-in unpaid',
+    label: 'Take Away',
     countKey: 'walkInUnpaid',
     Icon: ShoppingBag,
     border: '#FED7AA',

@@ -8,7 +8,10 @@ import type {
   PasscodeCredentials,
 } from '../types/auth';
 import {isDeviceActivationRequired, mapAuthError} from '../utils/authErrors';
-import {clearEmployeeSessionTokens} from '../utils/secureStorage';
+import {
+  clearEmployeeSessionTokens,
+  setAuthTokens,
+} from '../utils/secureStorage';
 
 interface ApiEnvelope<T> {
   success: boolean;
@@ -35,11 +38,17 @@ export async function activateDevice(
   credentials: ActivateDeviceCredentials,
 ): Promise<void> {
   try {
-    await api.post<ApiEnvelope<never>>('/api/employee/auth/activate-device', {
+    const response = await api.post<
+      ApiEnvelope<{deviceToken?: string}>
+    >('/api/employee/auth/activate-device', {
       employeeId: credentials.employeeId.trim(),
       password: credentials.password,
       activationCode: credentials.activationCode.trim().toUpperCase(),
     });
+    const deviceToken = response.data?.data?.deviceToken;
+    if (deviceToken) {
+      await setAuthTokens({deviceToken});
+    }
   } catch (error) {
     throw new Error(mapAuthError(error, 'Activation failed.'));
   }

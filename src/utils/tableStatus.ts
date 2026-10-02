@@ -29,6 +29,20 @@ export function findSessionForTable(
   );
 }
 
+/** Build O(1) lookup map including linked tables. */
+export function buildSessionByTableId(
+  sessions: TableSession[],
+): Map<string, TableSession> {
+  const map = new Map<string, TableSession>();
+  for (const session of sessions) {
+    map.set(String(session.tableId), session);
+    for (const linkedId of session.linkedTableIds || []) {
+      map.set(String(linkedId), session);
+    }
+  }
+  return map;
+}
+
 export function resolveTableDisplayStatus(
   session: TableSession | null,
   currentUserId: string | null,

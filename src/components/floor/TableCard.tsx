@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {memo} from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {TABLE_STATUS_STYLES} from '../../constants/tableStatus';
 import {colors} from '../../constants/colors';
@@ -18,7 +18,7 @@ interface TableCardProps {
   onPress: () => void;
 }
 
-export function TableCard({
+function TableCardComponent({
   table,
   session,
   status,
@@ -92,6 +92,8 @@ export function TableCard({
     </Pressable>
   );
 }
+
+export const TableCard = memo(TableCardComponent);
 
 const styles = StyleSheet.create({
   card: {

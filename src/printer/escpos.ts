@@ -1,6 +1,7 @@
 /* eslint-disable no-bitwise */
 /**
- * ESC/POS byte builder for 80mm thermal printers (Font A, 48 cols / 576 dots).
+ * ESC/POS byte builder for thermal printers (Font A).
+ * Default 80mm = 48 cols / 576 dots. Narrower paper uses fewer columns.
  * Compatible with network thermal printers (LAN / Wi-Fi) on port 9100.
  * Layout matches KitchenOrderTicket, BarReceipt, and CustomerReceipt templates.
  */
@@ -15,6 +16,31 @@ const LF = 0x0a;
 
 /** Printable columns for Font A on 576-dot (≈80mm) paper */
 export const WIDTH = 48;
+
+/** Active layout width for the ticket currently being built */
+let activeWidth = WIDTH;
+
+/**
+ * Map saved paperWidthMm → Font A columns (≈12 dots/char).
+ * 58→32, 72→42, 78→46, 80→48
+ */
+export function colsForPaperWidthMm(mm?: number | null): number {
+  const n = Number(mm);
+  if (n === 58) return 32;
+  if (n === 72) return 42;
+  if (n === 78) return 46;
+  return 48;
+}
+
+function withPaperWidthMm<T>(mm: number | null | undefined, fn: () => T): T {
+  const prev = activeWidth;
+  activeWidth = colsForPaperWidthMm(mm);
+  try {
+    return fn();
+  } finally {
+    activeWidth = prev;
+  }
+}
 
 const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 
@@ -111,7 +137,11 @@ export function encoder(): EscPosEncoder {
       return self;
     },
     cut() {
-      self.raw([GS, 0x56, 0x00]);
+      // Feed a few lines past the tear/cutter, then partial cut.
+      // Full cut (GS V 0) on many built-in 80mm heads advances a long blank
+      // strip instead of cutting — prefer feed + half-cut form.
+      self.raw([LF, LF]);
+      self.raw([GS, 0x56, 0x41, 0x02]); // feed 2 units then partial cut
       return self;
     },
     toUint8Array(): Uint8Array {
@@ -132,7 +162,7 @@ export function encoder(): EscPosEncoder {
   return self;
 }
 
-export function divider(char = '-', width = WIDTH): string {
+export function divider(char = '-', width = activeWidth): string {
   return char.repeat(width);
 }
 
@@ -146,7 +176,9 @@ export function toPrinterText(str: unknown): string {
     .replace(/[–—−]/g, '-')
     .replace(/[‘’‛]/g, "'")
     .replace(/[“”„]/g, '"')
-    .replace(/[^\x20-\x7E\n]/g, '');
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/[^\x20-\x7E]/g, '')
+    .trim();
 }
 
 export function money(n: unknown, opts: {signed?: boolean} = {}): string {
@@ -160,7 +192,7 @@ export function money(n: unknown, opts: {signed?: boolean} = {}): string {
   return `$${abs}`;
 }
 
-export function formatTwoColumnLine(label: string, value: string, width = WIDTH): string {
+export function formatTwoColumnLine(label: string, value: string, width = activeWidth): string {
   const l = toPrinterText(label);
   const r = toPrinterText(value);
   if (l.length + r.length >= width) {
@@ -174,7 +206,7 @@ export function formatTwoColumnLine(label: string, value: string, width = WIDTH)
   return `${l}${' '.repeat(spaces)}${r}`;
 }
 
-export function wrapText(text: string, width = WIDTH): string[] {
+export function wrapText(text: string, width = activeWidth): string[] {
   const s = toPrinterText(text).trim();
   if (!s) return [];
   if (s.length <= width) return [s];
@@ -190,7 +222,7 @@ export function wrapText(text: string, width = WIDTH): string[] {
   return lines;
 }
 
-function writeWrapped(e: EscPosEncoder, text: string, width = WIDTH): void {
+function writeWrapped(e: EscPosEncoder, text: string, width = activeWidth): void {
   for (const line of wrapText(text, width)) e.line(line);
 }
 
@@ -433,7 +465,7 @@ function writeTicketItem(
   }
 }
 
-export function formatKotItemLine(name: string, qty: number, width = WIDTH): string {
+export function formatKotItemLine(name: string, qty: number, width = activeWidth): string {
   const left = `${qty}x  ${name || 'Item'}`;
   const lines = wrapText(left, width);
   return lines[0] || left;
@@ -443,7 +475,7 @@ export function formatReceiptItemLine(
   name: string,
   qty: number,
   unitPrice: number,
-  width = WIDTH,
+  width = activeWidth,
 ): string {
   const lineTotal = (Number(unitPrice) || 0) * (Number(qty) || 1);
   const right = money(lineTotal);
@@ -460,7 +492,7 @@ function writeReceiptItem(
   const left = Number(qty) > 1 ? `${qty} x ${name}` : name;
   const right = money((Number(item.price) || 0) * Number(qty || 1));
   const first = formatTwoColumnLine(left, right);
-  const maxLeft = WIDTH - right.length - 1;
+  const maxLeft = activeWidth - right.length - 1;
   if (toPrinterText(left).length > maxLeft) {
     e.line(first);
     const overflow = toPrinterText(left).slice(maxLeft - 3);
@@ -480,31 +512,36 @@ export interface TestTicketParams {
   port?: number;
   connectionType?: string;
   systemPrinterName?: string;
+  paperWidthMm?: number | null;
 }
 
 export function buildTestTicket(params: TestTicketParams): string {
-  const {name, target, host, port, connectionType, systemPrinterName} = params;
-  const e = encoder();
-  e.init();
-  e.align(1).bold(true).line(config.APP_NAME.toUpperCase()).bold(false);
-  e.line('PRINTER TEST');
-  e.resetStyle();
-  e.line(divider());
-  e.line(`Printer: ${name || 'Test'}`);
-  e.line(`Target:  ${target || '-'}`);
-  e.line(`Conn:    ${connectionType || '-'}`);
-  if (systemPrinterName) {
-    e.line(`System:  ${systemPrinterName}`);
-  } else if (host) {
-    e.line(`Address: ${host}:${port || config.DEFAULT_PRINTER_PORT}`);
-  }
-  e.line(`Width:   ${WIDTH} cols (Font A / 576 dots)`);
-  e.line(divider());
-  e.align(1).line(toPrinterText(new Date().toLocaleString()));
-  e.resetStyle();
-  e.line('');
-  e.cut();
-  return e.toBase64();
+  return withPaperWidthMm(params.paperWidthMm, () => {
+    const {name, target, host, port, connectionType, systemPrinterName} = params;
+    const e = encoder();
+    e.init();
+    e.align(1).bold(true).line(config.APP_NAME.toUpperCase()).bold(false);
+    e.line('PRINTER TEST');
+    e.resetStyle();
+    e.line(divider());
+    e.line(`Printer: ${name || 'Test'}`);
+    e.line(`Target:  ${target || '-'}`);
+    e.line(`Conn:    ${connectionType || '-'}`);
+    if (systemPrinterName) {
+      e.line(`System:  ${systemPrinterName}`);
+    } else if (host) {
+      e.line(`Address: ${host}:${port || config.DEFAULT_PRINTER_PORT}`);
+    }
+    e.line(
+      `Width:   ${activeWidth} cols / ${Number(params.paperWidthMm) || 80}mm`,
+    );
+    e.line(divider());
+    e.align(1).line(toPrinterText(new Date().toLocaleString()));
+    e.resetStyle();
+    e.line('');
+    e.cut();
+    return e.toBase64();
+  });
 }
 
 export interface KotTicketParams {
@@ -515,9 +552,16 @@ export interface KotTicketParams {
   serverName?: string | null;
   guestCount?: number | string | null;
   isReprint?: boolean;
+  paperWidthMm?: number | null;
 }
 
 export function buildKotTicket(params: KotTicketParams): string {
+  return withPaperWidthMm(params.paperWidthMm, () =>
+    buildKotTicketInner(params),
+  );
+}
+
+function buildKotTicketInner(params: KotTicketParams): string {
   const {
     job,
     order,
@@ -607,7 +651,6 @@ export function buildKotTicket(params: KotTicketParams): string {
       e.line(divider('-'));
       for (const item of grouped[group]) {
         writeTicketItem(e, item, {qtySep: 'x'});
-        e.line('');
       }
     }
   }
@@ -626,6 +669,10 @@ export function buildKotTicket(params: KotTicketParams): string {
 }
 
 export function buildBarTicket(params: KotTicketParams): string {
+  return withPaperWidthMm(params.paperWidthMm, () => buildBarTicketInner(params));
+}
+
+function buildBarTicketInner(params: KotTicketParams): string {
   const {
     job,
     order,
@@ -732,9 +779,16 @@ export interface ReceiptTicketParams {
   serverName?: string | null;
   guestCount?: number | string | null;
   isReprint?: boolean;
+  paperWidthMm?: number | null;
 }
 
 export function buildReceiptTicket(params: ReceiptTicketParams): string {
+  return withPaperWidthMm(params.paperWidthMm, () =>
+    buildReceiptTicketInner(params),
+  );
+}
+
+function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   const {
     job,
     order,
@@ -1065,6 +1119,7 @@ export interface BuildTicketFromJobParams {
   serverName?: string | null;
   guestCount?: number | string | null;
   isReprint?: boolean;
+  paperWidthMm?: number | null;
 }
 
 export function buildTicketFromJob(params: BuildTicketFromJobParams): string {
@@ -1077,6 +1132,7 @@ export function buildTicketFromJob(params: BuildTicketFromJobParams): string {
     serverName,
     guestCount,
     isReprint,
+    paperWidthMm,
   } = params;
 
   const reprintFlag =
@@ -1095,6 +1151,7 @@ export function buildTicketFromJob(params: BuildTicketFromJobParams): string {
       serverName,
       guestCount,
       isReprint: reprintFlag,
+      paperWidthMm,
     });
   }
   if (printType === 'BAR_RECEIPT') {
@@ -1106,6 +1163,7 @@ export function buildTicketFromJob(params: BuildTicketFromJobParams): string {
       serverName,
       guestCount,
       isReprint: reprintFlag,
+      paperWidthMm,
     });
   }
   return buildKotTicket({
@@ -1116,5 +1174,6 @@ export function buildTicketFromJob(params: BuildTicketFromJobParams): string {
     serverName,
     guestCount,
     isReprint: reprintFlag,
+    paperWidthMm,
   });
 }

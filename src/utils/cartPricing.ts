@@ -4,7 +4,12 @@
  */
 import type {AppliedDiscount, CartLineItem, CartTotals} from '../types/cart';
 import type {TaxRate} from '../types/product';
-import {cartChoiceSelectionsKey, normalizeChoiceSelections} from './productChoices';
+import {
+  cartChoiceSelectionsKey,
+  cartCustomExtrasKey,
+  getItemLineTotal,
+  normalizeChoiceSelections,
+} from './productChoices';
 
 export function calculateItemTax(
   item: {taxes?: TaxRate[]},
@@ -34,7 +39,7 @@ export function buildCartTotals(
 ): CartTotals {
   const subtotal =
     Math.round(
-      items.reduce((sum, item) => sum + item.price * item.qty, 0) * 100,
+      items.reduce((sum, item) => sum + getItemLineTotal(item), 0) * 100,
     ) / 100;
   const rawTaxTotal = items.reduce((sum, item) => sum + item.tax * item.qty, 0);
 
@@ -65,6 +70,17 @@ function sortedOptions(options: string[] = []): string[] {
   return [...options].sort();
 }
 
+function normalizeLineSeat(value: unknown): number | null {
+  if (value === undefined || value === null || value === '' || value === 'table') {
+    return null;
+  }
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) {
+    return null;
+  }
+  return Math.floor(n);
+}
+
 export function isSameCartLine(a: CartLineItem, b: CartLineItem): boolean {
   return (
     a.id === b.id &&
@@ -72,13 +88,15 @@ export function isSameCartLine(a: CartLineItem, b: CartLineItem): boolean {
     (a.preparationStyle || '') === (b.preparationStyle || '') &&
     a.price === b.price &&
     Boolean(a.isOffer) === Boolean(b.isOffer) &&
+    normalizeLineSeat(a.seatNumber) === normalizeLineSeat(b.seatNumber) &&
     String(a.notes || '').trim() === String(b.notes || '').trim() &&
     JSON.stringify(sortedOptions(a.options)) ===
       JSON.stringify(sortedOptions(b.options)) &&
     cartChoiceSelectionsKey(a.choiceSelections) ===
       cartChoiceSelectionsKey(b.choiceSelections) &&
     cartChoiceSelectionsKey(a.addonChoiceSelections) ===
-      cartChoiceSelectionsKey(b.addonChoiceSelections)
+      cartChoiceSelectionsKey(b.addonChoiceSelections) &&
+    cartCustomExtrasKey(a.customExtras) === cartCustomExtrasKey(b.customExtras)
   );
 }
 
@@ -111,12 +129,14 @@ export function getCartFingerprint(items: CartLineItem[]): string {
       size: item.size,
       price: item.price,
       preparationStyle: item.preparationStyle,
+      seatNumber: normalizeLineSeat(item.seatNumber),
       notes: String(item.notes || '').trim(),
       options: sortedOptions(item.options),
       choiceSelections: normalizeChoiceSelections(item.choiceSelections),
       addonChoiceSelections: normalizeChoiceSelections(
         item.addonChoiceSelections,
       ),
+      customExtras: cartCustomExtrasKey(item.customExtras),
     })),
   );
 }

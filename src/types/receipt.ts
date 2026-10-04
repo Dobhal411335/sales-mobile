@@ -16,10 +16,13 @@ export interface KotLineItem {
   drinks?: string[];
   choiceSelections?: Array<{name: string; subChoices: string[]}>;
   addonChoiceSelections?: Array<{name: string; subChoices: string[]}>;
+  customExtras?: Array<{name: string; price: number}>;
   modifier?: string;
   preparationStyle?: string;
   notes?: string;
   isOffer?: boolean;
+  seatNumber?: number | null;
+  seat?: string | number;
 }
 
 export interface TaxBreakdownLine {
@@ -36,6 +39,7 @@ export interface OrderPaymentSplit {
   cardType?: string | null;
   tipAmount?: number;
   paidAt?: string;
+  seatNumber?: number | null;
 }
 
 export interface ReceiptOrder {

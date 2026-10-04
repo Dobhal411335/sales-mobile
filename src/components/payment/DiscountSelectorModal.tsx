@@ -12,6 +12,7 @@ interface DiscountSelectorModalProps {
   onSelect: (code: string) => void;
 }
 
+
 export function DiscountSelectorModal({
   visible,
   discounts,

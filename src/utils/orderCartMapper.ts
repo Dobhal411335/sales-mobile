@@ -8,7 +8,10 @@ import {
   cleanOfferList,
   isOfferItem,
 } from './offerDetails';
-import {normalizeChoiceSelections} from './productChoices';
+import {
+  normalizeChoiceSelections,
+  normalizeCustomExtras,
+} from './productChoices';
 
 export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineItem[] {
   return items.map((item, idx) => {
@@ -68,9 +71,21 @@ export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineIte
       addonChoiceSelections: normalizeChoiceSelections(
         item.addonChoiceSelections,
       ),
+      customExtras: normalizeCustomExtras(item.customExtras),
       modifier: parts.length > 0 ? parts.join(' | ') : undefined,
       notes: String(item.notes || '').trim() || undefined,
       cartId: item.cartId || `r-${Date.now()}-${idx}`,
+      seatNumber: (() => {
+        if (
+          item.seatNumber === undefined ||
+          item.seatNumber === null ||
+          (item.seatNumber as unknown) === ''
+        ) {
+          return null;
+        }
+        const n = Number(item.seatNumber);
+        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+      })(),
     };
   });
 }

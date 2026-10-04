@@ -1,4 +1,4 @@
-import React, {memo, useCallback} from 'react';
+import React, {memo, useCallback, useEffect} from 'react';
 import {StyleSheet, View} from 'react-native';
 import {Cart} from '../cart/Cart';
 import {colors} from '../../constants/colors';
@@ -9,14 +9,23 @@ interface CreateOrderCartPaneProps {
   panelLayout: '2' | '3';
   onSendKot: () => void;
   onPayNow: () => void;
+  /** Manager / Master Terminal only — Staff cannot pay from Create Order. */
+  canCollectPayment?: boolean;
+  seatCount?: number;
+  showSeatTabs?: boolean;
 }
 
 function CreateOrderCartPaneComponent({
   panelLayout,
   onSendKot,
   onPayNow,
+  canCollectPayment = true,
+  seatCount = 0,
+  showSeatTabs = false,
 }: CreateOrderCartPaneProps) {
   const items = useCartStore((s) => s.items);
+  const activeSeatNumber = useCartStore((s) => s.activeSeatNumber);
+  const setActiveSeatNumber = useCartStore((s) => s.setActiveSeatNumber);
   const orderNote = useCartStore((s) => s.orderNote);
   const orderNumber = useCartStore((s) => s.orderNumber);
   const hasSentKot = useCartStore((s) => s.hasSentKot);
@@ -36,6 +45,24 @@ function CreateOrderCartPaneComponent({
     }
   }, [setDirty]);
 
+  useEffect(() => {
+    if (!showSeatTabs) {
+      setActiveSeatNumber(null);
+      return;
+    }
+    if (
+      activeSeatNumber != null &&
+      (activeSeatNumber < 1 || activeSeatNumber > seatCount)
+    ) {
+      setActiveSeatNumber(null);
+    }
+  }, [
+    showSeatTabs,
+    seatCount,
+    activeSeatNumber,
+    setActiveSeatNumber,
+  ]);
+
   const totals = getTotals();
 
   return (
@@ -50,8 +77,12 @@ function CreateOrderCartPaneComponent({
         orderNumber={orderNumber}
         totals={totals}
         canSendKot={canSendKot()}
-        canPay={canPay()}
+        canPay={canPay() && canCollectPayment}
         hasSentKot={hasSentKot}
+        showSeatTabs={showSeatTabs}
+        seatCount={seatCount}
+        activeSeatNumber={activeSeatNumber}
+        onSelectSeat={setActiveSeatNumber}
         onChangeNote={(note) => {
           markDirty();
           setOrderNote(note);

@@ -1,6 +1,11 @@
-import type {CartLineItem, ChoiceSelection} from '../types/cart';
+import type {CartLineItem} from '../types/cart';
 import type {KotLineItem} from '../types/receipt';
 import {isOfferItem, getOfferDetailLines} from './offerDetails';
+import {
+  getItemExtraOptions,
+  normalizeChoiceSelections,
+  normalizeCustomExtras,
+} from './productChoices';
 
 export function formatReceiptDate(dateInput?: string): string {
   const date = dateInput ? new Date(dateInput) : new Date();
@@ -36,14 +41,19 @@ export function formatTableNumbersWithFloor(
   return '';
 }
 
+/**
+ * Kitchen + customer tickets share this so extras, addons, and choices
+ * print the same way on both.
+ * Nested addon qtys (e.g. "Hot Sauce ×3") are listed per sub-choice for chefs.
+ */
 export function getReceiptModifierLines(
   item: KotLineItem | CartLineItem,
-): Array<{kind: string; text: string}> {
-  const lines: Array<{kind: string; text: string}> = [];
+): Array<{kind: string; text: string; price?: number}> {
+  const lines: Array<{kind: string; text: string; price?: number}> = [];
 
   const style = String(item.preparationStyle || '').trim();
   if (style) {
-    lines.push({kind: 'style', text: style});
+    lines.push({kind: 'style', text: `+ ${style}`});
   }
 
   if (isOfferItem(item)) {
@@ -53,53 +63,66 @@ export function getReceiptModifierLines(
     return lines;
   }
 
-  if (item.modifier) {
-    lines.push({kind: 'modifier', text: item.modifier});
+  for (const group of normalizeChoiceSelections(item.choiceSelections)) {
+    lines.push({kind: 'choice', text: `${group.name}:`});
+    for (const sub of group.subChoices) {
+      lines.push({kind: 'choice-item', text: `• ${sub}`});
+    }
   }
 
-  if (item.options?.length) {
-    item.options.forEach((opt) => {
-      lines.push({kind: 'option', text: opt});
+  for (const group of normalizeChoiceSelections(item.addonChoiceSelections)) {
+    lines.push({kind: 'addon-choice', text: `${group.name}:`});
+    for (const sub of group.subChoices) {
+      lines.push({kind: 'addon-choice-item', text: `• ${sub}`});
+    }
+  }
+
+  for (const opt of getItemExtraOptions(item)) {
+    const label = String(opt || '').trim();
+    if (label) {
+      lines.push({kind: 'extra', text: `+ ${label}`});
+    }
+  }
+
+  for (const extra of normalizeCustomExtras(
+    (item as CartLineItem).customExtras,
+  )) {
+    lines.push({
+      kind: 'custom-extra',
+      text: `+ ${extra.name}`,
+      price: extra.price,
     });
   }
 
-  if (item.choices?.length) {
-    item.choices.forEach((choice) => {
-      lines.push({kind: 'choice', text: choice});
-    });
-  }
-
-  if (item.drinks?.length) {
-    item.drinks.forEach((drink) => {
-      lines.push({kind: 'drink', text: drink});
-    });
-  }
-
-  const choiceSelections = item.choiceSelections ?? [];
-  choiceSelections.forEach((selection: ChoiceSelection) => {
-    if (selection.subChoices?.length) {
-      lines.push({
-        kind: 'choice',
-        text: `${selection.name}: ${selection.subChoices.join(', ')}`,
+  // Legacy fallback when structured selections are missing
+  if (
+    lines.length === (style ? 1 : 0) &&
+    !item.choiceSelections?.length &&
+    !item.addonChoiceSelections?.length
+  ) {
+    if (item.modifier) {
+      lines.push({kind: 'modifier', text: String(item.modifier)});
+    }
+    if (item.choices?.length) {
+      item.choices.forEach((choice) => {
+        lines.push({kind: 'choice', text: choice});
       });
     }
-  });
-
-  const addonSelections = item.addonChoiceSelections ?? [];
-  addonSelections.forEach((selection: ChoiceSelection) => {
-    if (selection.subChoices?.length) {
-      lines.push({
-        kind: 'addon',
-        text: `${selection.name}: ${selection.subChoices.join(', ')}`,
+    if (item.drinks?.length) {
+      item.drinks.forEach((drink) => {
+        lines.push({kind: 'drink', text: drink});
       });
     }
-  });
+  }
 
   return lines;
 }
 
 export function cartLineToKotItem(line: CartLineItem): KotLineItem {
   const notes = String(line.notes || '').trim();
+  const rawSeat = Number(line.seatNumber);
+  const seatNumber =
+    Number.isFinite(rawSeat) && rawSeat >= 1 ? Math.floor(rawSeat) : null;
   return {
     name: line.name,
     qty: line.qty,
@@ -111,10 +134,17 @@ export function cartLineToKotItem(line: CartLineItem): KotLineItem {
     drinks: line.drinks,
     choiceSelections: line.choiceSelections,
     addonChoiceSelections: line.addonChoiceSelections,
+    customExtras: normalizeCustomExtras(line.customExtras),
     modifier: line.modifier,
     preparationStyle: line.preparationStyle || undefined,
     notes: notes || undefined,
     isOffer: line.isOffer,
+    seatNumber,
+    ...(seatNumber != null
+      ? {seat: seatNumber}
+      : line.seatNumber === null
+        ? {seat: 'Table', seatNumber: null}
+        : {}),
   };
 }
 

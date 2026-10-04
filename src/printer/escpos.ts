@@ -380,7 +380,7 @@ function isStyleOption(opt: unknown, preparationStyle?: string): boolean {
 export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
   const lines: string[] = [];
   const isOffer = isOfferItem(item);
-  const style = String(item?.preparationStyle || (!isOffer ? item?.modifier : '') || '').trim();
+  const style = String(item?.preparationStyle || '').trim();
   if (style) lines.push(`+ ${style}`);
 
   if (isOffer) {
@@ -402,21 +402,72 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
   if (Array.isArray(item?.choiceSelections)) {
     for (const group of item.choiceSelections) {
       const name = String(group?.name || '').trim();
-      const sub = cleanList(group?.subChoices).join(', ');
-      if (name && sub) lines.push(`${name}: ${sub}`);
+      const subs = cleanList(group?.subChoices);
+      if (!name || !subs.length) continue;
+      lines.push(`${name}:`);
+      for (const sub of subs) {
+        lines.push(`  - ${sub}`);
+      }
     }
   }
   if (Array.isArray(item?.addonChoiceSelections)) {
     for (const group of item.addonChoiceSelections) {
       const name = String(group?.name || '').trim();
-      const sub = cleanList(group?.subChoices).join(', ');
-      if (name && sub) lines.push(`${name}: ${sub}`);
+      const subs = cleanList(group?.subChoices);
+      if (!name || !subs.length) continue;
+      lines.push(`${name}:`);
+      for (const sub of subs) {
+        // Preserves qty labels from Order.addonChoiceSelections, e.g. "Hot Sauce ×3"
+        lines.push(`  - ${sub}`);
+      }
     }
   }
   for (const opt of item?.options || []) {
     if (isStyleOption(opt, item?.preparationStyle as string | undefined)) continue;
     const label = String(opt || '').trim();
     if (label) lines.push(`+ ${label}`);
+  }
+
+  // Legacy fallback when structured selections are missing
+  if (
+    lines.length === (style ? 1 : 0) &&
+    !item?.choiceSelections?.length &&
+    !item?.addonChoiceSelections?.length
+  ) {
+    const legacy = String(item?.modifier || '').trim();
+    if (legacy) lines.push(legacy);
+  }
+
+  return lines;
+}
+
+function customExtrasUnitTotal(list: unknown): number {
+  if (!Array.isArray(list)) return 0;
+  return list.reduce((sum: number, entry: {name?: string; price?: number}) => {
+    const price = Number(entry?.price);
+    if (!String(entry?.name || '').trim() || !Number.isFinite(price) || price < 0) {
+      return sum;
+    }
+    return sum + price;
+  }, 0);
+}
+
+/** KOT: name only. Bill: name + price when includePrices. */
+function getCustomExtraLines(
+  item?: AnyTicketItem | null,
+  {includePrices = false} = {},
+): string[] {
+  if (!Array.isArray(item?.customExtras)) return [];
+  const lines: string[] = [];
+  for (const extra of item.customExtras as Array<{name?: string; price?: number}>) {
+    const label = String(extra?.name || '').trim();
+    if (!label) continue;
+    const price = Number(extra?.price);
+    if (includePrices && Number.isFinite(price) && price >= 0) {
+      lines.push(`+ ${label} (+$${price.toFixed(2)})`);
+    } else {
+      lines.push(`+ ${label}`);
+    }
   }
   return lines;
 }
@@ -434,13 +485,20 @@ function buildTicketItemName(
   }
   if (includeSeats) {
     const seatBits: unknown[] = [];
-    if (item.seat) seatBits.push(item.seat);
+    if (item.seat != null && item.seat !== '') seatBits.push(item.seat);
+    else if (item.seatNumber != null && item.seatNumber !== '') {
+      seatBits.push(item.seatNumber);
+    }
     if (Array.isArray(item.seats)) {
       item.seats.filter(Boolean).forEach((s) => seatBits.push(s));
     }
     if (seatBits.length) {
       name += ` (${seatBits
-        .map((s) => `S${String(s).replace(/^S/i, '')}`)
+        .map((s) => {
+          const raw = String(s);
+          if (/^table$/i.test(raw)) return 'Table';
+          return `S${raw.replace(/^S/i, '')}`;
+        })
         .join(', ')})`;
     }
   }
@@ -462,6 +520,15 @@ function writeTicketItem(
   }
   for (const line of getReceiptModifierLines(item)) {
     writeWrapped(e, `       ${line}`);
+  }
+  for (const line of getCustomExtraLines(item, {includePrices: false})) {
+    writeWrapped(e, `       ${line}`);
+  }
+  if (item.notes || item.specialInstructions) {
+    writeWrapped(
+      e,
+      `       Note: ${toPrinterText(item.notes || item.specialInstructions)}`,
+    );
   }
 }
 
@@ -490,7 +557,9 @@ function writeReceiptItem(
   const qty = item.qty ?? 1;
   const name = buildTicketItemName(item);
   const left = Number(qty) > 1 ? `${qty} x ${name}` : name;
-  const right = money((Number(item.price) || 0) * Number(qty || 1));
+  const unit =
+    (Number(item.price) || 0) + customExtrasUnitTotal(item.customExtras);
+  const right = money(unit * Number(qty || 1));
   const first = formatTwoColumnLine(left, right);
   const maxLeft = activeWidth - right.length - 1;
   if (toPrinterText(left).length > maxLeft) {
@@ -502,6 +571,15 @@ function writeReceiptItem(
   }
   for (const line of getReceiptModifierLines(item)) {
     writeWrapped(e, `   ${line}`);
+  }
+  for (const line of getCustomExtraLines(item, {includePrices: true})) {
+    writeWrapped(e, `   ${line}`);
+  }
+  if (item.notes || item.specialInstructions) {
+    writeWrapped(
+      e,
+      `   Note: ${toPrinterText(item.notes || item.specialInstructions)}`,
+    );
   }
 }
 
@@ -633,24 +711,63 @@ function buildKotTicketInner(params: KotTicketParams): string {
 
   e.line(divider('='));
 
-  const grouped: Record<string, AnyTicketItem[]> = {};
-  for (const item of items) {
-    const groupName = isOfferItem(item)
-      ? 'Offers'
-      : item.category || 'ITEMS';
-    if (!grouped[groupName]) grouped[groupName] = [];
-    grouped[groupName].push(item);
-  }
+  const normalizeSeat = (item: AnyTicketItem) => {
+    if (item?.seatNumber != null && item.seatNumber !== '') {
+      const n = Number(item.seatNumber);
+      return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+    }
+    if (
+      item?.seat != null &&
+      item.seat !== '' &&
+      !/^table$/i.test(String(item.seat))
+    ) {
+      const n = Number(item.seat);
+      return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+    }
+    return null;
+  };
 
-  const groups = Object.keys(grouped);
-  if (!groups.length) {
+  const showSeatHeaders = items.some((it) => normalizeSeat(it) != null);
+  const seatMap = new Map<
+    string,
+    {seat: number | null; label: string; byCategory: Record<string, AnyTicketItem[]>}
+  >();
+  for (const item of items) {
+    const seat = normalizeSeat(item);
+    const key = seat == null ? 'table' : String(seat);
+    if (!seatMap.has(key)) {
+      seatMap.set(key, {
+        seat,
+        label: seat == null ? 'TABLE' : `SEAT ${seat}`,
+        byCategory: {},
+      });
+    }
+    const g = seatMap.get(key)!;
+    const cat = isOfferItem(item) ? 'Offers' : item.category || 'ITEMS';
+    if (!g.byCategory[cat]) g.byCategory[cat] = [];
+    g.byCategory[cat].push(item);
+  }
+  const seatGroups = [
+    ...[...seatMap.values()]
+      .filter((g) => g.seat != null)
+      .sort((a, b) => (a.seat as number) - (b.seat as number)),
+    ...(seatMap.has('table') ? [seatMap.get('table')!] : []),
+  ];
+
+  if (!seatGroups.length) {
     e.line('(no items)');
   } else {
-    for (const group of groups) {
-      e.bold(true).line(toPrinterText(String(group).toUpperCase())).bold(false);
-      e.line(divider('-'));
-      for (const item of grouped[group]) {
-        writeTicketItem(e, item, {qtySep: 'x'});
+    for (const seatGroup of seatGroups) {
+      if (showSeatHeaders) {
+        e.bold(true).line(toPrinterText(seatGroup.label)).bold(false);
+        e.line(divider('='));
+      }
+      for (const cat of Object.keys(seatGroup.byCategory)) {
+        e.bold(true).line(toPrinterText(String(cat).toUpperCase())).bold(false);
+        e.line(divider('-'));
+        for (const item of seatGroup.byCategory[cat]) {
+          writeTicketItem(e, item, {qtySep: 'x'});
+        }
       }
     }
   }
@@ -927,8 +1044,6 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
     giftUsed > 0 || cash > 0 || card > 0 || Boolean(methodStr);
 
   const rawItems = ((order?.items || []) as unknown[]) as AnyTicketItem[];
-  const regularItems = rawItems.filter((item) => !isOfferItem(item));
-  const offerItems = rawItems.filter((item) => isOfferItem(item));
 
   const discountPct = (() => {
     if (order?.discountPercent != null && Number(order.discountPercent) > 0) {
@@ -1038,14 +1153,65 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   e.bold(true).line(formatTwoColumnLine('ITEM', 'AMOUNT')).bold(false);
   e.line(divider('-'));
 
-  for (const item of regularItems) writeReceiptItem(e, item);
-  if (offerItems.length) {
-    if (regularItems.length) e.line(divider('-'));
-    e.bold(true).line('OFFERS').bold(false);
-    e.line(divider('-'));
-    for (const item of offerItems) writeReceiptItem(e, item);
+  // Seat-wise bill (matches Web CustomerReceipt / mobile ReceiptPreview)
+  const normalizeBillSeat = (item: AnyTicketItem) => {
+    if (item?.seatNumber != null && item.seatNumber !== '') {
+      const n = Number(item.seatNumber);
+      return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+    }
+    if (
+      item?.seat != null &&
+      item.seat !== '' &&
+      !/^table$/i.test(String(item.seat))
+    ) {
+      const n = Number(item.seat);
+      return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+    }
+    return null;
+  };
+  const showBillSeatHeaders = rawItems.some((it) => normalizeBillSeat(it) != null);
+  const billSeatMap = new Map<
+    string,
+    {seat: number | null; label: string; items: AnyTicketItem[]}
+  >();
+  for (const item of rawItems) {
+    const seat = normalizeBillSeat(item);
+    const key = seat == null ? 'table' : String(seat);
+    if (!billSeatMap.has(key)) {
+      billSeatMap.set(key, {
+        seat,
+        label: seat == null ? 'Table' : `Seat ${seat}`,
+        items: [],
+      });
+    }
+    billSeatMap.get(key)!.items.push(item);
   }
-  if (!rawItems.length) e.line('(no items)');
+  const billSeatGroups = [
+    ...[...billSeatMap.values()]
+      .filter((g) => g.seat != null)
+      .sort((a, b) => (a.seat as number) - (b.seat as number)),
+    ...(billSeatMap.has('table') ? [billSeatMap.get('table')!] : []),
+  ];
+
+  if (!billSeatGroups.length) {
+    e.line('(no items)');
+  } else {
+    for (const group of billSeatGroups) {
+      if (showBillSeatHeaders) {
+        e.bold(true).line(toPrinterText(group.label.toUpperCase())).bold(false);
+        e.line(divider('-'));
+      }
+      const seatRegular = group.items.filter((item) => !isOfferItem(item));
+      const seatOffers = group.items.filter((item) => isOfferItem(item));
+      for (const item of seatRegular) writeReceiptItem(e, item);
+      if (seatOffers.length) {
+        if (seatRegular.length) e.line(divider('-'));
+        e.bold(true).line('OFFERS').bold(false);
+        e.line(divider('-'));
+        for (const item of seatOffers) writeReceiptItem(e, item);
+      }
+    }
+  }
 
   e.line(divider('-'));
   e.line(formatTwoColumnLine('Subtotal', money(order?.subTotal)));

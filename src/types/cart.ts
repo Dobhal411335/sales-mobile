@@ -5,6 +5,11 @@ export interface ChoiceSelection {
   subChoices: string[];
 }
 
+export interface CustomExtra {
+  name: string;
+  price: number;
+}
+
 export interface CartLineItem {
   cartId: string;
   id: string;
@@ -26,9 +31,13 @@ export interface CartLineItem {
   drinks?: string[];
   choiceSelections?: ChoiceSelection[];
   addonChoiceSelections?: ChoiceSelection[];
+  /** Free-text extras from POS (name + price). */
+  customExtras?: CustomExtra[];
   modifier?: string;
   notes?: string;
   taxes?: TaxRate[];
+  /** 1-based seat; null/undefined = shared Table bucket */
+  seatNumber?: number | null;
 }
 
 export interface CartTotals {

@@ -9,7 +9,6 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {Cart} from '../../../components/cart/Cart';
 import {CreateOrderCartPane} from '../../../components/cart/CreateOrderCartPane';
 import {TabletModal} from '../../../components/common/TabletModal';
 import {CreateOrderMenuPane} from '../../../components/menu/CreateOrderMenuPane';
@@ -53,7 +52,7 @@ import {
   buildOfferCartLine,
   buildSimpleCartLine,
 } from '../../../utils/cartBuilder';
-import {isStaffRole} from '../../../utils/floorRoles';
+import {canPayFromCreateOrder} from '../../../utils/floorRoles';
 import {offerNeedsOptions} from '../../../utils/offerDetails';
 import {resolvePartyName} from '../../../utils/partyName';
 
@@ -142,6 +141,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
   const appliedDiscount = useCartStore((state) => state.appliedDiscount);
 
   const addItems = useCartStore((state) => state.addItems);
+  const activeSeatNumber = useCartStore((state) => state.activeSeatNumber);
   const setPartyFields = useCartStore((state) => state.setPartyFields);
   const setIsSubmitting = useCartStore((state) => state.setIsSubmitting);
   const applyKotResult = useCartStore((state) => state.applyKotResult);
@@ -216,6 +216,20 @@ export function CreateOrderScreen({navigation, route}: Props) {
     [display.tableNumber, display.floorName],
   );
 
+  const resolveSeatNumber = useCallback(() => {
+    if (orderType !== 'table') {
+      return null;
+    }
+    const n = Number(activeSeatNumber);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+  }, [activeSeatNumber, orderType]);
+
+  const stampSeat = useCallback(
+    <T extends {seatNumber?: number | null}>(lines: T[]): T[] =>
+      lines.map((line) => ({...line, seatNumber: resolveSeatNumber()})),
+    [resolveSeatNumber],
+  );
+
   const handleProductPress = useCallback(
     (product: MenuProduct) => {
       if (product.isOffer) {
@@ -225,7 +239,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
           return;
         }
         markDirty();
-        addItems([buildOfferCartLine(product, {}, globalTaxes)]);
+        addItems(stampSeat([buildOfferCartLine(product, {}, globalTaxes)]));
         return;
       }
 
@@ -235,9 +249,9 @@ export function CreateOrderScreen({navigation, route}: Props) {
         return;
       }
       markDirty();
-      addItems([buildSimpleCartLine(product, globalTaxes)]);
+      addItems(stampSeat([buildSimpleCartLine(product, globalTaxes)]));
     },
-    [addItems, globalTaxes, markDirty],
+    [addItems, globalTaxes, markDirty, stampSeat],
   );
 
   const handleSendKot = useCallback(() => {
@@ -466,12 +480,15 @@ export function CreateOrderScreen({navigation, route}: Props) {
     });
   }, [employees, staffForId, staffOrderReason, submitKotOrder]);
 
+  // Match web Create Order: only Manager / Master Terminal (and admin) can pay here.
+  const canCollectPayment = canPayFromCreateOrder(currentUser?.role);
+
   const handlePayNow = useCallback(() => {
-    if (isStaffRole(currentUser?.role)) {
+    if (!canPayFromCreateOrder(currentUser?.role)) {
       toast.error('Payments must be completed at the main counter.');
       Alert.alert(
         'Main Counter Payment',
-        'Staff members cannot process payment directly at the table. Please complete this payment at the main counter.',
+        'Only Manager or Master Terminal can process payment from the order page. Please complete this payment at the main counter (Today\'s Orders).',
         [
           {text: 'Stay Here', style: 'cancel'},
           {
@@ -665,6 +682,12 @@ export function CreateOrderScreen({navigation, route}: Props) {
           panelLayout={panelLayout}
           onSendKot={handleSendKot}
           onPayNow={handlePayNow}
+          canCollectPayment={canCollectPayment}
+          showSeatTabs={orderType === 'table'}
+          seatCount={Math.max(
+            1,
+            Math.floor(Number(orderContext?.guestCount) || 1),
+          )}
         />
       </View>
 
@@ -678,7 +701,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
         }}
         onAdd={(lines) => {
           markDirty();
-          addItems(lines);
+          addItems(stampSeat(lines));
         }}
       />
 
@@ -692,7 +715,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
         }}
         onAdd={(lines) => {
           markDirty();
-          addItems(lines);
+          addItems(stampSeat(lines));
         }}
       />
 

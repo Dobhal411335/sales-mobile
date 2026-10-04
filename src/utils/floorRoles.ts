@@ -8,6 +8,14 @@ const PRINTER_MANAGER_ROLES = new Set([
   'MANAGER TERMINAL',
 ]);
 
+/** Roles allowed to collect payment from Create Order (table / walk-in / staff). */
+const CREATE_ORDER_PAY_ROLES = new Set([
+  'ADMIN',
+  'SUPER ADMIN',
+  'MASTER TERMINAL',
+  'MANAGER TERMINAL',
+]);
+
 export function isSalesAdminRole(role?: string | null): boolean {
   if (!role) {
     return false;
@@ -33,5 +41,16 @@ export function isStaffRole(role?: string | null): boolean {
     return false;
   }
   return String(role).trim().toUpperCase() === 'STAFF';
+}
+
+/**
+ * Only Manager / Master Terminal (and admin) may Pay Now from Create Order.
+ * Staff and other floor roles must use Today's Orders / main counter.
+ */
+export function canPayFromCreateOrder(role?: string | null): boolean {
+  if (!role) {
+    return false;
+  }
+  return CREATE_ORDER_PAY_ROLES.has(String(role).trim().toUpperCase());
 }
 

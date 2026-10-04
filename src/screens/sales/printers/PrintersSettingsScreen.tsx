@@ -157,7 +157,7 @@ function connectionLabel(printer: PrinterConfig): string {
   return printer.systemPrinterName || conn || '—';
 }
 
-export function PrintersSettingsScreen(_props: Props) {
+export function PrintersSettingsScreen({navigation}: Props) {
   const {user} = useAuth();
   const canEdit = canManagePrinters(user?.role);
   const liveById = usePrinterStatusStore((s) => s.byId);
@@ -857,9 +857,15 @@ export function PrintersSettingsScreen(_props: Props) {
         </Text>
       )}
 
-      {customerDisplayInfo ? (
-        <Text style={styles.hint}>{customerDisplayInfo}</Text>
-      ) : null}
+      <Pressable
+        style={styles.displayLink}
+        onPress={() => navigation.navigate('CustomerDisplaySettings')}>
+        <Text style={styles.displayLinkTitle}>Customer display</Text>
+        <Text style={styles.hint}>
+          {customerDisplayInfo ||
+            'Preview totals and adjust what guests see on the secondary screen.'}
+        </Text>
+      </Pressable>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -1410,6 +1416,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight,
   },
   discoveredRowMuted: {opacity: 0.85},
+  displayLink: {
+    marginTop: 4,
+    marginBottom: 4,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: 4,
+  },
+  displayLinkTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
+  },
   addBtn: {marginTop: 16},
   form: {
     marginTop: 16,

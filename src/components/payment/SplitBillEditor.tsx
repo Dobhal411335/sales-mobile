@@ -12,12 +12,19 @@ import type {CardTypeName, PaymentSplitDraft} from '../../types/payment';
 import {formatCurrency} from '../../utils/currency';
 import {roundMoney} from '../../utils/receiptFormat';
 import {CardTypeSelector} from './CardTypeSelector';
+import {buildSeatSplitRows, groupItemsBySeat} from '../../utils/seatHelpers';
+import type {CartLineItem} from '../../types/cart';
+
+export type SplitMode = 'custom' | 'by_seat';
 
 interface SplitBillEditorProps {
   splitDue: number;
   giftUsed: number;
   rows: PaymentSplitDraft[];
   onChangeRows: (rows: PaymentSplitDraft[]) => void;
+  splitMode?: SplitMode;
+  onSplitModeChange?: (mode: SplitMode) => void;
+  orderItems?: CartLineItem[];
 }
 
 function makeRow(
@@ -43,6 +50,9 @@ export function SplitBillEditor({
   giftUsed,
   rows,
   onChangeRows,
+  splitMode = 'custom',
+  onSplitModeChange,
+  orderItems = [],
 }: SplitBillEditorProps) {
   const allocated = useMemo(
     () =>
@@ -54,6 +64,28 @@ export function SplitBillEditor({
   const remaining = roundMoney(splitDue - allocated);
   const giftCovers = giftUsed > 0 && splitDue < 0.01;
   const balanced = Math.abs(remaining) < 0.01;
+  const canSplitBySeat = groupItemsBySeat(orderItems).length >= 2;
+  const isBySeat = splitMode === 'by_seat';
+
+  const applySeatSplits = () => {
+    const seatRows = buildSeatSplitRows({
+      items: orderItems,
+      totalAmount: splitDue,
+    });
+    if (seatRows.length < 2) {
+      return;
+    }
+    onChangeRows(
+      seatRows.map((row, i) => ({
+        id: `seat-split-${row.seatNumber ?? 'table'}-${i}`,
+        name: row.name,
+        amount: Number(row.amount || 0).toFixed(2),
+        method: 'Card' as const,
+        cardType: '',
+        seatNumber: row.seatNumber,
+      })),
+    );
+  };
 
   const updateRow = (id: string, patch: Partial<PaymentSplitDraft>) => {
     onChangeRows(rows.map((row) => (row.id === id ? {...row, ...patch} : row)));
@@ -112,37 +144,81 @@ export function SplitBillEditor({
 
   return (
     <View style={styles.container}>
-      <View style={styles.helperRow}>
+      <View style={styles.modeRow}>
         <Pressable
-          style={styles.helperBtn}
-          onPress={() => splitEqually(rows.length)}
-          accessibilityRole="button"
-          accessibilityLabel="Split equally">
-          <Text style={styles.helperBtnText}>Equal ({rows.length})</Text>
+          style={[styles.modeChip, !isBySeat && styles.modeChipActive]}
+          onPress={() => {
+            onSplitModeChange?.('custom');
+            onChangeRows(createDefaultSplitRows());
+          }}>
+          <Text style={[styles.modeChipText, !isBySeat && styles.modeChipTextActive]}>
+            Custom
+          </Text>
         </Pressable>
         <Pressable
-          style={styles.helperBtn}
-          onPress={() => splitEqually(rows.length + 1)}
-          accessibilityRole="button"
-          accessibilityLabel="Add one equal share">
-          <Text style={styles.helperBtnText}>+1 Equal</Text>
-        </Pressable>
-        <Pressable
-          style={styles.helperBtn}
-          onPress={fillRemainingOnLast}
-          accessibilityRole="button"
-          accessibilityLabel="Fill remaining on last payer">
-          <Text style={styles.helperBtnText}>Fill last</Text>
-        </Pressable>
-        <Pressable
-          style={styles.helperBtn}
-          onPress={addRow}
-          accessibilityRole="button"
-          accessibilityLabel="Add payer">
-          <Plus size={14} color={colors.primary} strokeWidth={2.5} />
-          <Text style={styles.helperBtnText}>Payer</Text>
+          style={[
+            styles.modeChip,
+            isBySeat && styles.modeChipActive,
+            !canSplitBySeat && styles.modeChipDisabled,
+          ]}
+          disabled={!canSplitBySeat}
+          onPress={() => {
+            onSplitModeChange?.('by_seat');
+            applySeatSplits();
+          }}>
+          <Text
+            style={[
+              styles.modeChipText,
+              isBySeat && styles.modeChipTextActive,
+            ]}>
+            By seat
+          </Text>
         </Pressable>
       </View>
+
+      {isBySeat ? (
+        <View style={styles.helperRow}>
+          <Pressable
+            style={styles.helperBtn}
+            onPress={applySeatSplits}
+            accessibilityRole="button"
+            accessibilityLabel="Recalculate seat splits">
+            <Text style={styles.helperBtnText}>Recalc seats</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.helperRow}>
+          <Pressable
+            style={styles.helperBtn}
+            onPress={() => splitEqually(rows.length)}
+            accessibilityRole="button"
+            accessibilityLabel="Split equally">
+            <Text style={styles.helperBtnText}>Equal ({rows.length})</Text>
+          </Pressable>
+          <Pressable
+            style={styles.helperBtn}
+            onPress={() => splitEqually(rows.length + 1)}
+            accessibilityRole="button"
+            accessibilityLabel="Add one equal share">
+            <Text style={styles.helperBtnText}>+1 Equal</Text>
+          </Pressable>
+          <Pressable
+            style={styles.helperBtn}
+            onPress={fillRemainingOnLast}
+            accessibilityRole="button"
+            accessibilityLabel="Fill remaining on last payer">
+            <Text style={styles.helperBtnText}>Fill last</Text>
+          </Pressable>
+          <Pressable
+            style={styles.helperBtn}
+            onPress={addRow}
+            accessibilityRole="button"
+            accessibilityLabel="Add payer">
+            <Plus size={14} color={colors.primary} strokeWidth={2.5} />
+            <Text style={styles.helperBtnText}>Payer</Text>
+          </Pressable>
+        </View>
+      )}
 
       <View style={styles.summaryBox}>
         <View style={styles.summaryRow}>
@@ -182,8 +258,10 @@ export function SplitBillEditor({
       {rows.map((row, index) => (
         <View key={row.id} style={styles.rowCard}>
           <View style={styles.rowHeader}>
-            <Text style={styles.rowTitle}>Payer {index + 1}</Text>
-            {rows.length > 2 ? (
+            <Text style={styles.rowTitle}>
+              {isBySeat ? row.name || `Seat ${index + 1}` : `Payer ${index + 1}`}
+            </Text>
+            {!isBySeat && rows.length > 2 ? (
               <Pressable
                 onPress={() => removeRow(row.id)}
                 hitSlop={8}
@@ -196,7 +274,8 @@ export function SplitBillEditor({
 
           <Text style={styles.fieldLabel}>NAME (on receipt)</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, isBySeat ? styles.inputReadonly : null]}
+            editable={!isBySeat}
             value={row.name}
             onChangeText={(name) => updateRow(row.id, {name})}
             placeholder={`Guest ${String.fromCharCode(65 + index)}`}
@@ -281,6 +360,38 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: colors.primary,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: '#F4F4F5',
+  },
+  modeChip: {
+    flex: 1,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modeChipActive: {
+    backgroundColor: colors.surface,
+  },
+  modeChipDisabled: {
+    opacity: 0.4,
+  },
+  modeChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+  },
+  modeChipTextActive: {
+    color: colors.text,
+  },
+  inputReadonly: {
+    backgroundColor: '#F4F4F5',
   },
   summaryBox: {
     borderWidth: 1,

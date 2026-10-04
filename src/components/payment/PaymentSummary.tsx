@@ -22,8 +22,13 @@ import type {
   ServiceTaxConfig,
 } from '../../types/payment';
 import {formatCurrency} from '../../utils/currency';
-import {roundMoney} from '../../utils/receiptFormat';
+import {
+  getItemLineTotal,
+  normalizeCustomExtras,
+} from '../../utils/productChoices';
+import {getReceiptModifierLines, roundMoney} from '../../utils/receiptFormat';
 import {formatServiceTaxRate} from '../../utils/serviceCharge';
+import {groupItemsBySeat} from '../../utils/seatHelpers';
 
 interface PaymentSummaryProps {
   orderNumber?: string | null;
@@ -120,6 +125,8 @@ export function PaymentSummary({
         : null;
 
   const totalItemCount = items.reduce((sum, item) => sum + item.qty, 0);
+  const seatGroups = groupItemsBySeat(items);
+  const showSeatHeaders = seatGroups.some((g) => g.seatNumber != null);
 
   return (
     <ScrollView
@@ -384,16 +391,88 @@ export function PaymentSummary({
 
           {itemsExpanded ? (
             <View style={styles.itemsList}>
-              {items.map((item) => (
-                <View key={item.cartId} style={styles.itemRow}>
-                  <Text style={styles.itemName} numberOfLines={2}>
-                    {item.qty}× {item.name}
-                  </Text>
-                  <Text style={styles.itemPrice}>
-                    {formatCurrency(roundMoney(item.price * item.qty))}
-                  </Text>
-                </View>
-              ))}
+              {seatGroups.map((group) => {
+                const seatSubtotal = group.items.reduce(
+                  (sum, item) => sum + roundMoney(getItemLineTotal(item)),
+                  0,
+                );
+                const seatQty = group.items.reduce(
+                  (sum, item) => sum + (Number(item.qty) || 0),
+                  0,
+                );
+                return (
+                  <View key={group.label} style={styles.seatCard}>
+                    {showSeatHeaders ? (
+                      <View style={styles.seatCardHeader}>
+                        <Text style={styles.seatGroupTitle}>{group.label}</Text>
+                        <Text style={styles.seatCardMeta}>
+                          {seatQty} item{seatQty === 1 ? '' : 's'} ·{' '}
+                          {formatCurrency(seatSubtotal)}
+                        </Text>
+                      </View>
+                    ) : null}
+                    <View style={styles.seatCardBody}>
+                      {group.items.map((item, idx) => {
+                        const modifierLines = getReceiptModifierLines(item);
+                        const customExtras = normalizeCustomExtras(
+                          item.customExtras,
+                        );
+                        const showSize =
+                          Boolean(item.size) && item.size !== 'Standard';
+                        return (
+                          <View
+                            key={item.cartId || `${group.label}-${idx}`}
+                            style={styles.itemBlock}>
+                            <View style={styles.itemRow}>
+                              <Text style={styles.itemName} numberOfLines={3}>
+                                {item.isOffer ? 'OFFER ' : ''}
+                                {item.productCode
+                                  ? `${item.productCode} `
+                                  : ''}
+                                {item.qty}× {item.name}
+                                {showSize ? ` (${item.size})` : ''}
+                              </Text>
+                              <Text style={styles.itemPrice}>
+                                {formatCurrency(
+                                  roundMoney(getItemLineTotal(item)),
+                                )}
+                              </Text>
+                            </View>
+                            {modifierLines.map((line, lineIdx) => (
+                              <Text
+                                key={`${line.kind}-${lineIdx}`}
+                                style={[
+                                  styles.itemDetail,
+                                  (line.kind === 'choice-item' ||
+                                    line.kind === 'addon-choice-item') &&
+                                    styles.itemDetailIndent,
+                                ]}>
+                                {line.text}
+                                {line.kind === 'custom-extra' &&
+                                line.price != null
+                                  ? ` (+${formatCurrency(Number(line.price))})`
+                                  : ''}
+                              </Text>
+                            ))}
+                            {customExtras.length === 0 &&
+                            item.modifier &&
+                            modifierLines.length === 0 ? (
+                              <Text style={styles.itemDetail} numberOfLines={3}>
+                                {item.modifier}
+                              </Text>
+                            ) : null}
+                            {item.notes ? (
+                              <Text style={styles.itemRemark} numberOfLines={3}>
+                                Remark: {item.notes}
+                              </Text>
+                            ) : null}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </View>
+                );
+              })}
             </View>
           ) : null}
         </View>
@@ -701,23 +780,78 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F4F4F5',
     padding: 12,
+    gap: 10,
+    backgroundColor: '#FAFAFA',
+  },
+  seatCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E4E4E7',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  seatCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#F4F4F5',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E4E4E7',
+  },
+  seatGroupTitle: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#18181B',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  seatCardMeta: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#71717A',
+  },
+  seatCardBody: {
+    padding: 12,
+    gap: 10,
+  },
+  itemBlock: {
+    gap: 3,
   },
   itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
   },
   itemName: {
     flex: 1,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#18181B',
     paddingRight: 8,
   },
   itemPrice: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#18181B',
+  },
+  itemDetail: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#52525B',
+    paddingLeft: 2,
+  },
+  itemDetailIndent: {
+    paddingLeft: 12,
+    color: '#0369A1',
+  },
+  itemRemark: {
+    fontSize: 11,
+    fontWeight: '700',
+    fontStyle: 'italic',
+    color: '#92400E',
+    paddingLeft: 2,
   },
 });

@@ -64,6 +64,7 @@ export interface PaymentSplitPayload {
   amount: number;
   method: 'Cash' | 'Card';
   cardType?: string | null;
+  seatNumber?: number | null;
 }
 
 /** Local editor row for Split Bill UI. */
@@ -73,6 +74,7 @@ export interface PaymentSplitDraft {
   amount: string;
   method: 'Cash' | 'Card';
   cardType: string;
+  seatNumber?: number | null;
 }
 
 export type BillMode = 'full' | 'split';

@@ -12,8 +12,15 @@ import {colors} from '../../constants/colors';
 import type {CartLineItem, ChoiceSelection} from '../../types/cart';
 import type {MenuProduct, ProductAddon, TaxRate} from '../../types/product';
 import {calculateItemTax, nextCartId} from '../../utils/cartPricing';
-import {normalizeChoiceOptions} from '../../utils/productChoices';
+import {
+  buildAddonChoiceSelectionsFromQtyMaps,
+  normalizeAddonChoiceQtyMap,
+  normalizeChoiceOptions,
+  sumAddonChoiceQtyMap,
+  validateAddonNestedChoiceQtys,
+} from '../../utils/productChoices';
 import {formatCurrency} from '../../utils/currency';
+import {buildModifiedRequestRemark} from '../../utils/modifiedRequestRemark';
 
 interface ModifierModalProps {
   visible: boolean;
@@ -25,23 +32,39 @@ interface ModifierModalProps {
 
 type AddonState = {
   qty: number;
-  choicesByGroup: Record<number, string[]>;
+  choicesByGroup: Record<number, Record<string, number>>;
 };
 
 function getAddonKey(addon: ProductAddon): string {
   return String(addon.id || addon.name || '');
 }
 
-function buildAddonChoiceSelections(
-  addon: ProductAddon,
-  choicesByGroup: Record<number, string[]> = {},
-): ChoiceSelection[] {
-  return normalizeChoiceOptions(addon.choiceOptions)
-    .map((group, index) => ({
-      name: group.name,
-      subChoices: choicesByGroup[index] || [],
-    }))
-    .filter((group) => group.subChoices.length > 0);
+function clampChoicesToAddonQty(
+  choicesByGroup: Record<number, Record<string, number>>,
+  nestedCount: number,
+  nextQty: number,
+): Record<number, Record<string, number>> {
+  if (nextQty <= 0 || nestedCount <= 0) {
+    return {};
+  }
+  const clamped: Record<number, Record<string, number>> = {};
+  for (let groupIndex = 0; groupIndex < nestedCount; groupIndex += 1) {
+    const map = normalizeAddonChoiceQtyMap(choicesByGroup[groupIndex]);
+    let remaining = nextQty;
+    const nextMap: Record<string, number> = {};
+    for (const [sub, count] of Object.entries(map)) {
+      if (remaining <= 0) {
+        break;
+      }
+      const take = Math.min(count, remaining);
+      if (take > 0) {
+        nextMap[sub] = take;
+        remaining -= take;
+      }
+    }
+    clamped[groupIndex] = nextMap;
+  }
+  return clamped;
 }
 
 function Stepper({
@@ -50,36 +73,83 @@ function Stepper({
   label,
   price,
   flat = false,
+  compact = false,
+  min = 0,
+  max,
 }: {
   value: number;
   onChange: (next: number) => void;
   label: string;
   price?: number;
   flat?: boolean;
+  compact?: boolean;
+  min?: number;
+  max?: number;
 }) {
+  const canDecrease = value > min;
+  const canIncrease = max === undefined || value < max;
+
   return (
-    <View style={[styles.stepperRow, flat && styles.stepperRowFlat]}>
-      <View style={styles.stepperLabelWrap}>
-        <Text style={styles.stepperLabel}>{label}</Text>
+    <View
+      style={[
+        styles.stepperRow,
+        flat && styles.stepperRowFlat,
+        compact && styles.stepperRowCompact,
+      ]}>
+      <View style={[styles.stepperLabelWrap, compact && styles.stepperLabelWrapCompact]}>
+        <Text
+          style={[styles.stepperLabel, compact && styles.stepperLabelCompact]}
+          numberOfLines={compact ? 2 : undefined}>
+          {label}
+        </Text>
         {price !== undefined ? (
           <Text style={styles.stepperPrice}>{formatCurrency(price)}</Text>
         ) : null}
       </View>
-      <View style={styles.stepperControls}>
+      <View style={[styles.stepperControls, compact && styles.stepperControlsCompact]}>
         <Pressable
-          style={styles.stepperButton}
-          onPress={() => onChange(Math.max(0, value - 1))}
+          style={[
+            styles.stepperButton,
+            compact && styles.stepperButtonCompact,
+            !canDecrease && styles.stepperButtonDisabled,
+          ]}
+          onPress={() => onChange(Math.max(min, value - 1))}
+          disabled={!canDecrease}
           accessibilityRole="button"
           accessibilityLabel={`Decrease ${label}`}>
-          <Text style={styles.stepperButtonText}>−</Text>
+          <Text
+            style={[
+              styles.stepperButtonText,
+              compact && styles.stepperButtonTextCompact,
+            ]}>
+            −
+          </Text>
         </Pressable>
-        <Text style={styles.stepperValue}>{value}</Text>
+        <Text
+          style={[styles.stepperValue, compact && styles.stepperValueCompact]}>
+          {value}
+        </Text>
         <Pressable
-          style={styles.stepperButton}
-          onPress={() => onChange(value + 1)}
+          style={[
+            styles.stepperButton,
+            compact && styles.stepperButtonCompact,
+            !canIncrease && styles.stepperButtonDisabled,
+          ]}
+          onPress={() =>
+            onChange(
+              max === undefined ? value + 1 : Math.min(max, value + 1),
+            )
+          }
+          disabled={!canIncrease}
           accessibilityRole="button"
           accessibilityLabel={`Increase ${label}`}>
-          <Text style={styles.stepperButtonText}>+</Text>
+          <Text
+            style={[
+              styles.stepperButtonText,
+              compact && styles.stepperButtonTextCompact,
+            ]}>
+            +
+          </Text>
         </Pressable>
       </View>
     </View>
@@ -126,7 +196,8 @@ export function ModifierModal({
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
   >({});
-  const [itemNotes, setItemNotes] = useState('');
+  const [noteWithout, setNoteWithout] = useState('');
+  const [noteAdd, setNoteAdd] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -138,13 +209,19 @@ export function ModifierModal({
     setAddonStateByKey({});
     setSelectedChoices({});
     setSelectedStyle(stylesList.length === 1 ? stylesList[0] : '');
-    setItemNotes('');
+    setNoteWithout('');
+    setNoteAdd('');
     setError(null);
   }, [product, visible]);
 
   const choiceGroups = useMemo(
     () => normalizeChoiceOptions(product?.choiceOptions),
     [product],
+  );
+
+  const remarkPreview = useMemo(
+    () => buildModifiedRequestRemark(noteWithout, noteAdd),
+    [noteWithout, noteAdd],
   );
 
   const toggleChoice = (groupName: string, subChoice: string) => {
@@ -163,17 +240,70 @@ export function ModifierModal({
   const setAddonQty = (addon: ProductAddon, qty: number) => {
     const key = getAddonKey(addon);
     const next = Math.max(0, Math.floor(qty));
+    const nestedCount = normalizeChoiceOptions(addon.choiceOptions).length;
     setAddonStateByKey((prev) => {
       const copy = {...prev};
       if (next <= 0) {
         delete copy[key];
       } else {
+        const prevEntry = copy[key];
         copy[key] = {
           qty: next,
-          choicesByGroup: copy[key]?.choicesByGroup || {},
+          choicesByGroup: clampChoicesToAddonQty(
+            prevEntry?.choicesByGroup || {},
+            nestedCount,
+            next,
+          ),
         };
       }
       return copy;
+    });
+  };
+
+  const setAddonSubChoiceQty = (
+    addon: ProductAddon,
+    groupIndex: number,
+    subChoice: string,
+    nextQty: number,
+  ) => {
+    const key = getAddonKey(addon);
+    setAddonStateByKey((prev) => {
+      const entry = prev[key];
+      const addonQty = Number(entry?.qty) || 0;
+      if (addonQty <= 0) {
+        return prev;
+      }
+
+      const groupMap = normalizeAddonChoiceQtyMap(
+        entry?.choicesByGroup?.[groupIndex],
+      );
+      const current = Number(groupMap[subChoice]) || 0;
+      const others = sumAddonChoiceQtyMap(groupMap) - current;
+      const capped = Math.max(
+        0,
+        Math.min(
+          Math.floor(Number(nextQty) || 0),
+          Math.max(0, addonQty - others),
+        ),
+      );
+
+      const nextMap = {...groupMap};
+      if (capped <= 0) {
+        delete nextMap[subChoice];
+      } else {
+        nextMap[subChoice] = capped;
+      }
+
+      return {
+        ...prev,
+        [key]: {
+          qty: addonQty,
+          choicesByGroup: {
+            ...(entry?.choicesByGroup || {}),
+            [groupIndex]: nextMap,
+          },
+        },
+      };
     });
   };
 
@@ -183,7 +313,7 @@ export function ModifierModal({
     }
 
     const lines: CartLineItem[] = [];
-    const notes = String(itemNotes || '').trim();
+    const notes = buildModifiedRequestRemark(noteWithout, noteAdd);
     const choiceSelections: ChoiceSelection[] = Object.entries(selectedChoices)
       .map(([name, subChoices]) => ({name, subChoices}))
       .filter((group) => group.subChoices.length > 0);
@@ -234,13 +364,13 @@ export function ModifierModal({
       }
       const price = addon.price ?? 0;
       const tax = calculateItemTax(product, price, globalTaxes);
-      const addonChoiceSelections = buildAddonChoiceSelections(
+      const addonChoiceSelections = buildAddonChoiceSelectionsFromQtyMaps(
         addon,
         entry.choicesByGroup,
       );
-      const choiceParts = addonChoiceSelections.flatMap((group) =>
-        group.subChoices.map((value) => `${group.name}: ${value}`),
-      );
+      const choiceSummary = addonChoiceSelections
+        .map((group) => `${group.name}: ${group.subChoices.join(', ')}`)
+        .join(' · ');
       lines.push({
         cartId: nextCartId(),
         id: product.id,
@@ -256,9 +386,9 @@ export function ModifierModal({
         preparationStyle: selectedStyle || null,
         options: [addon.name],
         addonChoiceSelections,
-        modifier: [`Addons: ${addon.name}`, ...choiceParts]
-          .filter(Boolean)
-          .join(' | '),
+        modifier: choiceSummary
+          ? `Addons: ${addon.name} · ${choiceSummary}`
+          : `Addons: ${addon.name}`,
         notes,
       });
     });
@@ -310,6 +440,30 @@ export function ModifierModal({
       return;
     }
 
+    for (const addon of product.addons || []) {
+      const key = getAddonKey(addon);
+      const entry = addonStateByKey[key];
+      if (!entry || entry.qty <= 0) {
+        continue;
+      }
+      const nested = normalizeChoiceOptions(addon.choiceOptions);
+      if (!nested.length) {
+        continue;
+      }
+      const check = validateAddonNestedChoiceQtys(
+        addon,
+        entry.qty,
+        entry.choicesByGroup || {},
+      );
+      if (!check.ok) {
+        setError(
+          check.errors[0]?.message ||
+            `Nested choices for ${addon.name} must equal addon quantity.`,
+        );
+        return;
+      }
+    }
+
     const lines = buildLines();
     if (!lines.length) {
       setError('Select a variant or extra');
@@ -350,20 +504,22 @@ export function ModifierModal({
             {product.variants?.length ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Variants</Text>
-                {product.variants.map((variant) => (
-                  <Stepper
-                    key={variant.size}
-                    label={variant.size}
-                    price={variant.price}
-                    value={variantQtyBySize[variant.size] || 0}
-                    onChange={(qty) =>
-                      setVariantQtyBySize((prev) => ({
-                        ...prev,
-                        [variant.size]: qty,
-                      }))
-                    }
-                  />
-                ))}
+                <View style={styles.variantList}>
+                  {product.variants.map((variant) => (
+                    <Stepper
+                      key={variant.size}
+                      label={variant.size}
+                      price={variant.price}
+                      value={variantQtyBySize[variant.size] || 0}
+                      onChange={(qty) =>
+                        setVariantQtyBySize((prev) => ({
+                          ...prev,
+                          [variant.size]: qty,
+                        }))
+                      }
+                    />
+                  ))}
+                </View>
               </View>
             ) : null}
 
@@ -409,7 +565,7 @@ export function ModifierModal({
 
             {product.addons?.length ? (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Extras</Text>
+                <Text style={styles.sectionTitle}>Addons</Text>
                 {product.addons.map((addon) => {
                   const addonKey = getAddonKey(addon);
                   const entry = addonStateByKey[addonKey];
@@ -419,7 +575,6 @@ export function ModifierModal({
                     addon.choiceOptions,
                   );
                   const active = qty > 0;
-
                   return (
                     <View
                       key={addonKey}
@@ -435,59 +590,87 @@ export function ModifierModal({
                         onChange={(nextQty) => setAddonQty(addon, nextQty)}
                       />
 
-                      {qty > 0 && addonChoiceGroups.length > 0 ? (
+                      {addonChoiceGroups.length > 0 ? (
                         <View style={styles.addonChoices}>
-                          {addonChoiceGroups.map((group, groupIndex) => (
-                            <View
-                              key={`${addonKey}-${group.name}-${groupIndex}`}
-                              style={styles.addonChoiceGroup}>
-                              <Text style={styles.addonChoiceTitle}>
-                                {group.name}
-                              </Text>
-                              <View style={styles.choiceGrid}>
-                                {group.subChoices.map((choice) => {
-                                  const selected = (
-                                    choicesByGroup[groupIndex] || []
-                                  ).includes(choice);
-                                  return (
-                                    <ChoiceChip
-                                      key={`${addonKey}-${group.name}-${choice}`}
-                                      label={choice}
-                                      active={selected}
-                                      onPress={() => {
-                                        setAddonStateByKey((prev) => {
-                                          const current = prev[addonKey];
-                                          if (!current || current.qty <= 0) {
-                                            return prev;
+                          {qty <= 0 ? (
+                            <Text style={styles.addonChoiceHint}>
+                              Set addon quantity above to choose options
+                            </Text>
+                          ) : null}
+                          {addonChoiceGroups.map((group, groupIndex) => {
+                            const qtyMap = normalizeAddonChoiceQtyMap(
+                              choicesByGroup[groupIndex],
+                            );
+                            const selectedTotal = sumAddonChoiceQtyMap(qtyMap);
+                            const mismatch = qty > 0 && selectedTotal !== qty;
+                            const over = selectedTotal > qty;
+
+                            return (
+                              <View
+                                key={`${addonKey}-${group.name}-${groupIndex}`}
+                                style={styles.addonChoiceGroup}>
+                                <View style={styles.addonChoiceHeader}>
+                                  <Text style={styles.addonChoiceTitle}>
+                                    {group.name}
+                                  </Text>
+                                  <Text
+                                    style={[
+                                      styles.addonChoiceCount,
+                                      mismatch
+                                        ? styles.addonChoiceCountError
+                                        : selectedTotal === qty && qty > 0
+                                          ? styles.addonChoiceCountOk
+                                          : null,
+                                    ]}>
+                                    {selectedTotal} / {qty} selected
+                                  </Text>
+                                </View>
+                                <View style={styles.subChoiceList}>
+                                  {group.subChoices.map((choice) => {
+                                    const subQty = Number(qtyMap[choice]) || 0;
+                                    const others = selectedTotal - subQty;
+                                    const maxForSub = Math.max(
+                                      0,
+                                      qty - Math.max(0, others),
+                                    );
+                                    return (
+                                      <View
+                                        key={`${addonKey}-${group.name}-${choice}`}
+                                        style={[
+                                          styles.subChoiceRow,
+                                          subQty > 0 && styles.subChoiceRowActive,
+                                          qty <= 0 && styles.subChoiceRowDisabled,
+                                        ]}>
+                                        <Stepper
+                                          label={choice}
+                                          value={subQty}
+                                          min={0}
+                                          max={maxForSub}
+                                          flat
+                                          compact
+                                          onChange={(next) =>
+                                            setAddonSubChoiceQty(
+                                              addon,
+                                              groupIndex,
+                                              choice,
+                                              next,
+                                            )
                                           }
-                                          const list =
-                                            current.choicesByGroup?.[
-                                              groupIndex
-                                            ] || [];
-                                          const nextChoices = list.includes(
-                                            choice,
-                                          )
-                                            ? list.filter((v) => v !== choice)
-                                            : [...list, choice];
-                                          return {
-                                            ...prev,
-                                            [addonKey]: {
-                                              ...current,
-                                              choicesByGroup: {
-                                                ...(current.choicesByGroup ||
-                                                  {}),
-                                                [groupIndex]: nextChoices,
-                                              },
-                                            },
-                                          };
-                                        });
-                                      }}
-                                    />
-                                  );
-                                })}
+                                        />
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                                {mismatch ? (
+                                  <Text style={styles.addonChoiceError}>
+                                    {over
+                                      ? `Too many selections (${selectedTotal}). Must equal addon qty (${qty}).`
+                                      : `Select more options (${selectedTotal} of ${qty}). Nested choices must match addon quantity.`}
+                                  </Text>
+                                ) : null}
                               </View>
-                            </View>
-                          ))}
+                            );
+                          })}
                         </View>
                       ) : null}
                     </View>
@@ -497,17 +680,49 @@ export function ModifierModal({
             ) : null}
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Special request / remark</Text>
-              <TextInput
-                style={styles.notesInput}
-                value={itemNotes}
-                onChangeText={setItemNotes}
-                onBlur={() => setItemNotes((prev) => prev.trim())}
-                placeholder="e.g. No onions, extra sauce..."
-                placeholderTextColor={colors.textSecondary}
-                multiline
-                accessibilityLabel="Special request or remark"
-              />
+              <Text style={styles.sectionTitle}>
+                Modified Request:{' '}
+                <Text style={styles.sectionTitleMuted}>
+                  Please prepare the order
+                </Text>
+              </Text>
+              <View style={styles.modifiedRequestFields}>
+                <View style={styles.modifiedRequestRow}>
+                  <Text style={styles.modifiedRequestLabel}>Without</Text>
+                  <TextInput
+                    style={styles.modifiedRequestInput}
+                    value={noteWithout}
+                    onChangeText={setNoteWithout}
+                    onBlur={() => setNoteWithout(prev => prev.trim())}
+                    placeholder="Type Here"
+                    placeholderTextColor={colors.textSecondary}
+                    maxLength={80}
+                    accessibilityLabel="Without"
+                  />
+                </View>
+                <View style={styles.modifiedRequestRow}>
+                  <Text style={styles.modifiedRequestLabel}>Add</Text>
+                  <TextInput
+                    style={styles.modifiedRequestInput}
+                    value={noteAdd}
+                    onChangeText={setNoteAdd}
+                    onBlur={() => setNoteAdd(prev => prev.trim())}
+                    placeholder="Type Here"
+                    placeholderTextColor={colors.textSecondary}
+                    maxLength={80}
+                    accessibilityLabel="Add"
+                  />
+                </View>
+              </View>
+              {remarkPreview ? (
+                <Text style={styles.modifiedRequestPreview}>
+                  {remarkPreview}
+                </Text>
+              ) : (
+                <Text style={styles.modifiedRequestHint}>
+                  Optional — sent to the kitchen with this item
+                </Text>
+              )}
             </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -593,6 +808,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 8,
   },
+  variantList: {
+    gap: 8,
+  },
   stepperRow: {
     minHeight: 48,
     borderWidth: 1,
@@ -611,14 +829,28 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     backgroundColor: 'transparent',
   },
+  stepperRowCompact: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    minHeight: 0,
+    gap: 8,
+  },
   stepperLabelWrap: {
     flex: 1,
     paddingRight: 12,
+  },
+  stepperLabelWrapCompact: {
+    flex: 0,
+    paddingRight: 0,
   },
   stepperLabel: {
     fontSize: 15,
     fontWeight: '700',
     color: colors.text,
+  },
+  stepperLabelCompact: {
+    fontSize: 13,
+    lineHeight: 17,
   },
   stepperPrice: {
     marginTop: 2,
@@ -631,6 +863,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  stepperControlsCompact: {
+    gap: 8,
+    justifyContent: 'flex-start',
+  },
   stepperButton: {
     width: 40,
     height: 40,
@@ -641,10 +877,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.surface,
   },
+  stepperButtonCompact: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+  },
+  stepperButtonDisabled: {
+    opacity: 0.4,
+  },
   stepperButtonText: {
     fontSize: 20,
     fontWeight: '700',
     color: colors.text,
+  },
+  stepperButtonTextCompact: {
+    fontSize: 18,
   },
   stepperValue: {
     minWidth: 24,
@@ -652,6 +899,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: colors.text,
+  },
+  stepperValueCompact: {
+    minWidth: 20,
+    fontSize: 15,
   },
   choiceGrid: {
     flexDirection: 'row',
@@ -721,13 +972,63 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     gap: 12,
   },
+  addonChoiceHint: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
   addonChoiceGroup: {
+    gap: 8,
+  },
+  addonChoiceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 8,
   },
   addonChoiceTitle: {
     fontSize: 12,
     fontWeight: '800',
-    color: colors.text,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  addonChoiceCount: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.textSecondary,
+  },
+  addonChoiceCountError: {
+    color: colors.error,
+  },
+  addonChoiceCountOk: {
+    color: '#059669',
+  },
+  addonChoiceError: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.error,
+  },
+  subChoiceList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  subChoiceRow: {
+    width: '48.5%',
+    maxWidth: '48.5%',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  subChoiceRowActive: {
+    borderColor: colors.primary,
+  },
+  subChoiceRowDisabled: {
+    opacity: 0.5,
   },
   errorText: {
     fontSize: 14,
@@ -735,17 +1036,51 @@ const styles = StyleSheet.create({
     color: colors.error,
     marginBottom: 8,
   },
-  notesInput: {
-    minHeight: 56,
-    maxHeight: 100,
+  sectionTitleMuted: {
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  modifiedRequestFields: {
+    gap: 10,
+  },
+  modifiedRequestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  modifiedRequestLabel: {
+    width: 64,
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  modifiedRequestInput: {
+    flex: 1,
+    minHeight: 40,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: '#F5E6D8',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     fontSize: 14,
     color: colors.text,
-    backgroundColor: colors.cream,
+    backgroundColor: '#FFFFFF',
+  },
+  modifiedRequestPreview: {
+    marginTop: 10,
+    borderRadius: 12,
+    backgroundColor: '#F8E8E4',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 12,
+    fontWeight: '500',
+    lineHeight: 18,
+    color: '#3F3F46',
+  },
+  modifiedRequestHint: {
+    marginTop: 8,
+    fontSize: 11,
+    color: colors.textSecondary,
   },
   footer: {
     flexDirection: 'row',

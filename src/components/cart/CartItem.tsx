@@ -4,7 +4,11 @@ import {Trash2} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem} from '../../types/cart';
 import {formatCurrency} from '../../utils/currency';
-import {normalizeChoiceSelections} from '../../utils/productChoices';
+import {
+  getItemLineTotal,
+  normalizeChoiceSelections,
+  normalizeCustomExtras,
+} from '../../utils/productChoices';
 
 interface CartItemProps {
   item: CartLineItem;
@@ -61,13 +65,16 @@ function CartItemComponent({
   onRemove,
   onChangeNotes,
 }: CartItemProps) {
-  const lineTotal = item.price * item.qty;
+  const lineTotal = getItemLineTotal(item);
   const choiceGroups = item.isOffer
     ? []
     : normalizeChoiceSelections(item.choiceSelections);
   const addonGroups = item.isOffer
     ? []
     : normalizeChoiceSelections(item.addonChoiceSelections);
+  const customExtras = item.isOffer
+    ? []
+    : normalizeCustomExtras(item.customExtras);
   const showSizeInName = Boolean(item.size && item.size !== 'Standard');
 
   return (
@@ -87,13 +94,34 @@ function CartItemComponent({
               ) : null}
             </Text>
           </View>
-          {item.modifier ? (
+          {item.modifier &&
+          choiceGroups.length === 0 &&
+          addonGroups.length === 0 &&
+          customExtras.length === 0 ? (
             <Text style={styles.modifier} numberOfLines={4}>
               {item.modifier}
             </Text>
           ) : null}
+          {item.options?.length && item.size === 'Extra' ? (
+            <Text style={styles.modifier} numberOfLines={2}>
+              {item.options.join(', ')}
+            </Text>
+          ) : null}
+          {item.preparationStyle ? (
+            <Text style={styles.modifier} numberOfLines={1}>
+              {item.preparationStyle}
+            </Text>
+          ) : null}
           <ChoiceChips groups={choiceGroups} tone="choice" />
           <ChoiceChips groups={addonGroups} tone="addon" />
+          {customExtras.map((extra, extraIdx) => (
+            <Text
+              key={`${extra.name}-${extraIdx}`}
+              style={styles.modifier}
+              numberOfLines={2}>
+              + {extra.name} (+{formatCurrency(extra.price)})
+            </Text>
+          ))}
         </View>
         <Text style={styles.price}>{formatCurrency(lineTotal)}</Text>
       </View>

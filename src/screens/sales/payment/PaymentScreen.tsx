@@ -21,6 +21,7 @@ import {PaymentSummary} from '../../../components/payment/PaymentSummary';
 import {
   createDefaultSplitRows,
   SplitBillEditor,
+  type SplitMode,
 } from '../../../components/payment/SplitBillEditor';
 import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
@@ -40,7 +41,8 @@ import {fetchTodayOrders} from '../../../services/todayOrdersService';
 import {useStaffEmployees, getStaffEmployeeName} from '../../../hooks/useStaffEmployees';
 import type {PaymentApiOrder} from '../../../types/payment';
 import type {TaxBreakdownLine} from '../../../types/receipt';
-import type {ApiOrder} from '../../../types/order';
+import type {ApiOrder, ApiOrderItem} from '../../../types/order';
+import {buildCartFromOrderItems} from '../../../utils/orderCartMapper';
 import {STAFF_DISCOUNT_CODE, buildStaffDiscountState} from '../../../utils/staffDiscount';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {useCartStore} from '../../../store/cartStore';
@@ -204,23 +206,9 @@ export function PaymentScreen({navigation, route}: Props) {
               }
 
               if (match.items?.length || match.totalAmount != null) {
-                const cartItems = (match.items || []).map((item, idx) => ({
-                  id: `today-${idx}`,
-                  cartId: `today-${idx}`,
-                  name: item.name,
-                  productCode: '',
-                  category: item.category || 'ITEMS',
-                  price: item.price,
-                  tax: 0,
-                  serviceCharge: 0,
-                  qty: item.qty,
-                  size: item.size,
-                  preparationStyle: item.preparationStyle,
-                  options: item.options,
-                  productType:
-                    (item.productType as 'KITCHEN' | 'BAR' | undefined) ||
-                    'KITCHEN',
-                }));
+                const cartItems = buildCartFromOrderItems(
+                  (match.items || []) as ApiOrderItem[],
+                );
                 const status = String(match.status || '').toUpperCase();
                 const hasSentKot =
                   Boolean(match.onlineKotSentAt) ||
@@ -262,23 +250,9 @@ export function PaymentScreen({navigation, route}: Props) {
             }
 
             if (paymentSeed) {
-              const cartItems = (paymentSeed.items || []).map((item, idx) => ({
-                id: `seed-${idx}`,
-                cartId: `seed-${idx}`,
-                name: item.name,
-                productCode: '',
-                category: item.category || 'ITEMS',
-                price: item.price,
-                tax: 0,
-                serviceCharge: 0,
-                qty: item.qty,
-                size: item.size,
-                preparationStyle: item.preparationStyle,
-                options: item.options,
-                productType:
-                  (item.productType as 'KITCHEN' | 'BAR' | undefined) ||
-                  'KITCHEN',
-              }));
+              const cartItems = buildCartFromOrderItems(
+                (paymentSeed.items || []) as ApiOrderItem[],
+              );
               const status = String(paymentSeed.status || '').toUpperCase();
               hydrateFromOrder({
                 items: cartItems,
@@ -384,19 +358,9 @@ export function PaymentScreen({navigation, route}: Props) {
           }
           const match = today.data?.find((row) => row._id === resolvedOrderId);
           if (match?.items?.length) {
-            const cartItems = match.items.map((item, idx) => ({
-              id: `mock-${idx}`,
-              cartId: `mock-${idx}`,
-              name: item.name,
-              productCode: '',
-              category: 'ITEMS',
-              price: item.price,
-              tax: (item as unknown as {tax?: number}).tax ?? 0,
-              serviceCharge: 0,
-              qty: item.qty,
-              size: item.size,
-              modifier: item.preparationStyle,
-            }));
+            const cartItems = buildCartFromOrderItems(
+              match.items as ApiOrderItem[],
+            );
             hydrateFromOrder({
               items: cartItems,
               orderNumber: match.orderNumber,
@@ -424,22 +388,9 @@ export function PaymentScreen({navigation, route}: Props) {
       } catch {
         if (!cancelled) {
           if (paymentSeed && activeOrderId) {
-            const cartItems = (paymentSeed.items || []).map((item, idx) => ({
-              id: `seed-${idx}`,
-              cartId: `seed-${idx}`,
-              name: item.name,
-              productCode: '',
-              category: item.category || 'ITEMS',
-              price: item.price,
-              tax: 0,
-              serviceCharge: 0,
-              qty: item.qty,
-              size: item.size,
-              preparationStyle: item.preparationStyle,
-              options: item.options,
-              productType:
-                (item.productType as 'KITCHEN' | 'BAR' | undefined) || 'KITCHEN',
-            }));
+            const cartItems = buildCartFromOrderItems(
+              (paymentSeed.items || []) as ApiOrderItem[],
+            );
             hydrateFromOrder({
               items: cartItems,
               orderNumber: routeOrderNumber || String(activeOrderId),
@@ -525,6 +476,7 @@ export function PaymentScreen({navigation, route}: Props) {
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodKey>('Card');
   const [billMode, setBillMode] = useState<BillMode>('full');
+  const [splitMode, setSplitMode] = useState<SplitMode>('custom');
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplitDraft[]>(() =>
     createDefaultSplitRows(),
   );
@@ -1009,6 +961,7 @@ export function PaymentScreen({navigation, route}: Props) {
           amount: number;
           method: 'Cash' | 'Card';
           cardType: string | null;
+          seatNumber: number | null;
         }>
       | null = null;
 
@@ -1026,6 +979,10 @@ export function PaymentScreen({navigation, route}: Props) {
             row.method === 'Card'
               ? String(row.cardType || '').trim() || null
               : null,
+          seatNumber:
+            row.seatNumber === undefined || row.seatNumber === null
+              ? null
+              : Number(row.seatNumber),
         }));
         resolvedCashAmount = roundMoney(
           splitsPayload
@@ -1418,6 +1375,9 @@ export function PaymentScreen({navigation, route}: Props) {
             giftUsed={giftUsedPreview}
             rows={paymentSplits}
             onChangeRows={setPaymentSplits}
+            splitMode={splitMode}
+            onSplitModeChange={setSplitMode}
+            orderItems={items}
           />
         </>
       ) : (

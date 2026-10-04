@@ -101,19 +101,57 @@ function mapOrderApiError(error: unknown): string {
 function normalizeKotItems(raw: unknown[]): KotLineItem[] {
   return raw.map((item) => {
     const row = item as Record<string, unknown>;
-    const notes = row.notes ? String(row.notes).trim() : '';
-    return {
+    // Preserve full line shape (seat, customExtras, choices) so KOT/bill
+    // can group under SEAT headers like Web PrintPreviewModal.
+    return cartLineToKotItem({
+      cartId: String(row.cartId || `kot-${Math.random().toString(36).slice(2, 8)}`),
+      id: String(row.menuItemId || row.id || ''),
       name: String(row.name ?? ''),
-      qty: Number(row.qty) || 1,
       productCode: row.productCode ? String(row.productCode) : undefined,
-      category: row.category ? String(row.category) : undefined,
+      category: row.category ? String(row.category) : 'ITEMS',
+      price: Number(row.price) || 0,
+      tax: Number(row.tax) || 0,
+      qty: Number(row.qty) || 1,
       size: row.size ? String(row.size) : undefined,
       options: Array.isArray(row.options)
         ? row.options.map((v) => String(v))
         : undefined,
-      notes: notes || undefined,
+      choices: Array.isArray(row.choices)
+        ? row.choices.map((v) => String(v))
+        : undefined,
+      drinks: Array.isArray(row.drinks)
+        ? row.drinks.map((v) => String(v))
+        : undefined,
+      inclusions: Array.isArray(row.inclusions)
+        ? row.inclusions.map((v) => String(v))
+        : undefined,
+      choiceSelections: Array.isArray(row.choiceSelections)
+        ? (row.choiceSelections as CartLineItem['choiceSelections'])
+        : undefined,
+      addonChoiceSelections: Array.isArray(row.addonChoiceSelections)
+        ? (row.addonChoiceSelections as CartLineItem['addonChoiceSelections'])
+        : undefined,
+      customExtras: Array.isArray(row.customExtras)
+        ? (row.customExtras as CartLineItem['customExtras'])
+        : undefined,
+      preparationStyle: row.preparationStyle
+        ? String(row.preparationStyle)
+        : null,
+      modifier: row.modifier ? String(row.modifier) : undefined,
+      notes: row.notes ? String(row.notes).trim() : undefined,
       isOffer: Boolean(row.isOffer),
-    };
+      seatNumber: (() => {
+        if (
+          row.seatNumber === undefined ||
+          row.seatNumber === null ||
+          row.seatNumber === ''
+        ) {
+          return null;
+        }
+        const n = Number(row.seatNumber);
+        return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+      })(),
+    });
   });
 }
 

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useMemo, useState} from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   TextInput,
   View,
   FlatList,
+  ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem, CartTotals} from '../../types/cart';
@@ -13,6 +14,7 @@ import {ConfirmDialog} from '../common/ConfirmDialog';
 import {ShoppingCart} from 'lucide-react-native';
 import {CartItem} from './CartItem';
 import {CartSummary} from './CartSummary';
+import {formatSeatLabel, normalizeSeatNumber} from '../../utils/seatHelpers';
 
 interface CartProps {
   items: CartLineItem[];
@@ -22,6 +24,10 @@ interface CartProps {
   canSendKot: boolean;
   canPay: boolean;
   hasSentKot: boolean;
+  showSeatTabs?: boolean;
+  seatCount?: number;
+  activeSeatNumber?: number | null;
+  onSelectSeat?: (seat: number | null) => void;
   onChangeNote: (note: string) => void;
   onChangeItemNotes: (cartId: string, notes: string) => void;
   onIncrease: (cartId: string) => void;
@@ -40,6 +46,10 @@ export function Cart({
   canSendKot,
   canPay,
   hasSentKot,
+  showSeatTabs = false,
+  seatCount = 0,
+  activeSeatNumber = null,
+  onSelectSeat,
   onChangeNote,
   onChangeItemNotes,
   onIncrease,
@@ -51,6 +61,19 @@ export function Cart({
 }: CartProps) {
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const itemCount = items.reduce((sum, item) => sum + item.qty, 0);
+
+  const visibleItems = useMemo(() => {
+    if (!showSeatTabs || seatCount < 1) {
+      return items;
+    }
+    const active = normalizeSeatNumber(activeSeatNumber);
+    return items.filter(
+      (i) => normalizeSeatNumber(i.seatNumber) === active,
+    );
+  }, [items, seatCount, showSeatTabs, activeSeatNumber]);
+
+  const activeSeatLabel =
+    activeSeatNumber == null ? 'Table' : formatSeatLabel(activeSeatNumber);
 
   return (
     <View style={styles.cart}>
@@ -80,14 +103,74 @@ export function Cart({
         ) : null}
       </View>
 
-      {items.length === 0 ? (
+      {showSeatTabs && seatCount > 0 ? (
+        <View style={styles.seatTabsWrap}>
+          <Text style={styles.seatTabsLabel}>Order for</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <Pressable
+              onPress={() => onSelectSeat?.(null)}
+              style={[
+                styles.seatChip,
+                activeSeatNumber == null ? styles.seatChipActiveDark : null,
+              ]}>
+              <Text
+                style={[
+                  styles.seatChipText,
+                  activeSeatNumber == null ? styles.seatChipTextActive : null,
+                ]}>
+                Table
+                {(() => {
+                  const qty = items
+                    .filter((i) => normalizeSeatNumber(i.seatNumber) == null)
+                    .reduce((s, i) => s + i.qty, 0);
+                  return qty > 0 ? ` (${qty})` : '';
+                })()}
+              </Text>
+            </Pressable>
+            {Array.from({length: seatCount}, (_, i) => i + 1).map((seat) => {
+              const active = activeSeatNumber === seat;
+              const qty = items
+                .filter((i) => normalizeSeatNumber(i.seatNumber) === seat)
+                .reduce((s, i) => s + i.qty, 0);
+              return (
+                <Pressable
+                  key={seat}
+                  onPress={() => onSelectSeat?.(seat)}
+                  style={[
+                    styles.seatChip,
+                    active ? styles.seatChipActive : null,
+                  ]}>
+                  <Text
+                    style={[
+                      styles.seatChipText,
+                      active ? styles.seatChipTextActive : null,
+                    ]}>
+                    Seat {seat}
+                    {qty > 0 ? ` (${qty})` : ''}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
+
+      {visibleItems.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>No items added</Text>
-          <Text style={styles.emptyText}>Tap a menu item to begin order.</Text>
+          <Text style={styles.emptyTitle}>
+            {showSeatTabs && items.length > 0
+              ? `No items for ${activeSeatLabel}`
+              : 'No items added'}
+          </Text>
+          <Text style={styles.emptyText}>
+            {showSeatTabs
+              ? `Tap a menu item to add to ${activeSeatLabel}.`
+              : 'Tap a menu item to begin order.'}
+          </Text>
         </View>
       ) : (
         <FlatList
-          data={items}
+          data={visibleItems}
           keyExtractor={(item) => item.cartId}
           style={styles.list}
           contentContainerStyle={styles.listContent}
@@ -229,6 +312,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.error,
+  },
+  seatTabsWrap: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
+    gap: 6,
+  },
+  seatTabsLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  seatChip: {
+    marginRight: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  seatChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  seatChipActiveDark: {
+    backgroundColor: colors.text,
+    borderColor: colors.text,
+  },
+  seatChipText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  seatChipTextActive: {
+    color: colors.surface,
   },
   emptyState: {
     flex: 1,

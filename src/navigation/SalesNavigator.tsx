@@ -17,6 +17,7 @@ import {PaymentScreen} from '../screens/sales/payment/PaymentScreen';
 import {ReceiptScreen} from '../screens/sales/payment/ReceiptScreen';
 import {PrintJobsScreen} from '../screens/sales/print-jobs/PrintJobsScreen';
 import {PrintersSettingsScreen} from '../screens/sales/printers/PrintersSettingsScreen';
+import {CustomerDisplaySettingsScreen} from '../screens/sales/display/CustomerDisplaySettingsScreen';
 import {MenuSyncScreen} from '../screens/sales/menu-sync/MenuSyncScreen';
 import {ReportsScreen} from '../screens/sales/reports/ReportsScreen';
 import {WalkInHubScreen} from '../screens/sales/walk-in/WalkInHubScreen';
@@ -89,6 +90,11 @@ export function SalesNavigator() {
           name="PrintersSettings"
           component={PrintersSettingsScreen}
           options={{title: 'Printer settings'}}
+        />
+        <Stack.Screen
+          name="CustomerDisplaySettings"
+          component={CustomerDisplaySettingsScreen}
+          options={{title: 'Customer display'}}
         />
         <Stack.Screen
           name="MenuSync"

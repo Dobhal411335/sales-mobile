@@ -22,6 +22,10 @@ import {
   formatMoneyForDisplay,
   showCustomerDisplay,
 } from '../../../display/customerDisplay';
+import {
+  getCustomerDisplaySettings,
+  hydrateCustomerDisplaySettings,
+} from '../../../display/customerDisplaySettings';
 import {printerService} from '../../../printer/printerService';
 import {reprintTicket} from '../../../services/printJobService';
 import {releaseTableSession} from '../../../services/sessionService';
@@ -113,23 +117,32 @@ export function ReceiptScreen({navigation, route}: Props) {
 
   // Show paid total on customer-facing secondary display
   useEffect(() => {
-    const lines = (orderSnapshot.items || []).slice(0, 12).map((item) => ({
-      name: String(item.name || 'Item'),
-      qty: Number(item.qty) || 1,
-      priceText: formatMoneyForDisplay(
-        (Number(item.price) || 0) * (Number(item.qty) || 1),
-      ),
-    }));
-    void showCustomerDisplay({
-      brand:
-        orderSnapshot.restaurantName || config.APP_NAME.toUpperCase(),
-      title: 'Payment received',
-      totalLabel: 'PAID',
-      totalText: formatMoneyForDisplay(grandTotal),
-      footer: 'Thank you — please come again',
-      mode: 'paid',
-      lines,
-    });
+    void (async () => {
+      const settings = await hydrateCustomerDisplaySettings();
+      if (!settings.enabled) return;
+      const lines = settings.showLineItems
+        ? (orderSnapshot.items || []).slice(0, 12).map((item) => ({
+            name: String(item.name || 'Item'),
+            qty: Number(item.qty) || 1,
+            priceText: formatMoneyForDisplay(
+              (Number(item.price) || 0) * (Number(item.qty) || 1),
+            ),
+          }))
+        : [];
+      const brand =
+        settings.brand.trim() ||
+        orderSnapshot.restaurantName ||
+        config.APP_NAME.toUpperCase();
+      void showCustomerDisplay({
+        brand,
+        title: 'Payment received',
+        totalLabel: 'PAID',
+        totalText: formatMoneyForDisplay(grandTotal),
+        footer: settings.paidFooter || getCustomerDisplaySettings().paidFooter,
+        mode: 'paid',
+        lines,
+      });
+    })();
   }, [grandTotal, orderSnapshot]);
 
   const goToFloor = useCallback(() => {

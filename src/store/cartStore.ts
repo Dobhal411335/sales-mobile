@@ -25,6 +25,8 @@ interface PartyFields {
 
 interface CartState extends PartyFields {
   items: CartLineItem[];
+  /** null = Table shared bucket; 1..N = seat */
+  activeSeatNumber: number | null;
   orderNote: string;
   appliedDiscount: AppliedDiscount | null;
   hasSentKot: boolean;
@@ -39,6 +41,7 @@ interface CartState extends PartyFields {
   ticketType: TicketType;
   serverName: string | null;
   setGlobalTaxes: (taxes: TaxRate[]) => void;
+  setActiveSeatNumber: (seat: number | null) => void;
   addItems: (items: CartLineItem[]) => void;
   updateQty: (cartId: string, qty: number) => void;
   updateItemNotes: (cartId: string, notes: string) => void;
@@ -108,6 +111,7 @@ const initialOrderFields = {
 
 export const useCartStore = create<CartState>((set, get) => ({
   items: [],
+  activeSeatNumber: null,
   orderNote: '',
   appliedDiscount: null,
   globalTaxes: [],
@@ -116,6 +120,8 @@ export const useCartStore = create<CartState>((set, get) => ({
   ...initialOrderFields,
 
   setGlobalTaxes: (taxes) => set({globalTaxes: taxes}),
+
+  setActiveSeatNumber: (seat) => set({activeSeatNumber: seat}),
 
   setPartyFields: (fields) => set(fields),
 
@@ -179,6 +185,7 @@ export const useCartStore = create<CartState>((set, get) => ({
   clearCart: () =>
     set({
       items: [],
+      activeSeatNumber: null,
       orderNote: '',
       appliedDiscount: null,
       ...initialPartyFields,
@@ -188,6 +195,7 @@ export const useCartStore = create<CartState>((set, get) => ({
   resetOrderState: () =>
     set({
       items: [],
+      activeSeatNumber: null,
       orderNote: '',
       appliedDiscount: null,
       ...initialPartyFields,

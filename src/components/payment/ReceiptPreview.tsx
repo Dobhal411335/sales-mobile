@@ -12,6 +12,7 @@ import type {
 import {formatCurrency} from '../../utils/currency';
 import {isOfferItem} from '../../utils/offerDetails';
 import {formatTableLocation, getDirectSalePartyLabel} from '../../utils/orderDisplay';
+import {getItemLineTotal} from '../../utils/productChoices';
 import {
   formatReceiptDate,
   formatTableNumbersWithFloor,
@@ -56,24 +57,78 @@ function resolvePartyLabel(order?: Partial<ReceiptOrder> | null): string {
   return getDirectSalePartyLabel(order);
 }
 
-function groupKotItems(
+function normalizePreviewSeat(item: unknown): number | null {
+  const obj = item as {seatNumber?: unknown; seat?: unknown};
+  if (obj?.seatNumber != null && obj.seatNumber !== '') {
+    const n = Number(obj.seatNumber);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+  }
+  if (
+    obj?.seat != null &&
+    obj.seat !== '' &&
+    !/^table$/i.test(String(obj.seat))
+  ) {
+    const n = Number(obj.seat);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : null;
+  }
+  return null;
+}
+
+function groupKotItemsBySeat(
   items: Array<KotLineItem | CartLineItem>,
-): Record<string, Array<KotLineItem | CartLineItem>> {
-  const groups: Record<string, Array<KotLineItem | CartLineItem>> = {};
-  items.forEach((item) => {
-    const groupName = isOfferItem(item) ? 'Offers' : item.category || 'ITEMS';
-    if (!groups[groupName]) {
-      groups[groupName] = [];
+  {kotStyle = true}: {kotStyle?: boolean} = {},
+): Array<{
+  seat: number | null;
+  label: string;
+  byCategory: Record<string, Array<KotLineItem | CartLineItem>>;
+}> {
+  const map = new Map<
+    string,
+    {
+      seat: number | null;
+      label: string;
+      byCategory: Record<string, Array<KotLineItem | CartLineItem>>;
     }
-    groups[groupName].push(item);
+  >();
+  items.forEach((item) => {
+    const seat = normalizePreviewSeat(item);
+    const key = seat == null ? 'table' : String(seat);
+    if (!map.has(key)) {
+      map.set(key, {
+        seat,
+        label: kotStyle
+          ? seat == null
+            ? 'TABLE'
+            : `SEAT ${seat}`
+          : seat == null
+            ? 'Table'
+            : `Seat ${seat}`,
+        byCategory: {},
+      });
+    }
+    const g = map.get(key)!;
+    const cat = isOfferItem(item) ? 'Offers' : item.category || 'ITEMS';
+    if (!g.byCategory[cat]) g.byCategory[cat] = [];
+    g.byCategory[cat].push(item);
   });
-  return groups;
+  const numbered = [...map.values()]
+    .filter((g) => g.seat != null)
+    .sort((a, b) => (a.seat as number) - (b.seat as number));
+  const table = map.get('table');
+  return table ? [...numbered, table] : numbered;
 }
 
 function getItemSeats(item: unknown): string[] {
-  const obj = item as {seat?: unknown; seats?: unknown[]};
+  const obj = item as {
+    seat?: unknown;
+    seats?: unknown[];
+    seatNumber?: unknown;
+  };
   const seatBits: string[] = [];
-  if (obj?.seat) seatBits.push(String(obj.seat));
+  if (obj?.seat != null && obj.seat !== '') seatBits.push(String(obj.seat));
+  else if (obj?.seatNumber != null && obj.seatNumber !== '') {
+    seatBits.push(String(obj.seatNumber));
+  }
   if (Array.isArray(obj?.seats)) {
     obj.seats.filter(Boolean).forEach((s) => seatBits.push(String(s)));
   }
@@ -127,7 +182,8 @@ function KotReceiptBody({
       : order.guestCount != null
         ? order.guestCount
         : null;
-  const grouped = groupKotItems(items);
+  const seatGroups = groupKotItemsBySeat(items);
+  const showSeatHeaders = items.some((it) => normalizePreviewSeat(it) != null);
 
   return (
     <>
@@ -173,47 +229,60 @@ function KotReceiptBody({
 
       <View style={styles.divider} />
 
-      {Object.entries(grouped).map(([group, groupItems]) => (
-        <View key={group} style={styles.categoryBlock}>
-          <Text style={styles.categoryTitle}>{group.toUpperCase()}</Text>
-          {groupItems.map((item, index) => {
-            const modifierLines = getReceiptModifierLines(item);
-            const itemNotes =
-              (item as {notes?: string; specialInstructions?: string}).notes ||
-              (item as {notes?: string; specialInstructions?: string})
-                .specialInstructions;
-            const seat = (item as {seat?: string}).seat;
-            const course = (item as {course?: string}).course;
+      {seatGroups.map((seatGroup) => (
+        <View key={seatGroup.label} style={styles.categoryBlock}>
+          {showSeatHeaders ? (
+            <Text style={[styles.categoryTitle, {marginBottom: 6}]}>
+              {seatGroup.label}
+            </Text>
+          ) : null}
+          {Object.entries(seatGroup.byCategory).map(([group, groupItems]) => (
+            <View key={`${seatGroup.label}-${group}`}>
+              <Text style={styles.categoryTitle}>{group.toUpperCase()}</Text>
+              {groupItems.map((item, index) => {
+                const modifierLines = getReceiptModifierLines(item);
+                const itemNotes =
+                  (item as {notes?: string; specialInstructions?: string})
+                    .notes ||
+                  (item as {notes?: string; specialInstructions?: string})
+                    .specialInstructions;
+                const course = (item as {course?: string}).course;
 
-            return (
-              <View key={`${item.name}-${index}`} style={styles.itemBlock}>
-                <Text style={styles.itemLine}>
-                  <Text style={styles.itemQty}>{item.qty} × </Text>
-                  <Text style={styles.itemName}>
-                    {item.productCode ? `${item.productCode} ` : ''}
-                    {item.name}
-                    {item.size && item.size !== 'Standard'
-                      ? ` (${item.size})`
-                      : ''}
-                  </Text>
-                </Text>
-                {seat ? (
-                  <Text style={styles.itemMetaLine}>Seat: {seat}</Text>
-                ) : null}
-                {course ? (
-                  <Text style={styles.itemMetaLine}>Course: {course}</Text>
-                ) : null}
-                {modifierLines.map((line, lineIdx) => (
-                  <Text key={lineIdx} style={styles.modifierLine}>
-                    + {line.text}
-                  </Text>
-                ))}
-                {itemNotes ? (
-                  <Text style={styles.itemNoteLine}>Note: {itemNotes}</Text>
-                ) : null}
-              </View>
-            );
-          })}
+                return (
+                  <View key={`${item.name}-${index}`} style={styles.itemBlock}>
+                    <Text style={styles.itemLine}>
+                      <Text style={styles.itemQty}>{item.qty} × </Text>
+                      <Text style={styles.itemName}>
+                        {item.productCode ? `${item.productCode} ` : ''}
+                        {item.name}
+                        {item.size && item.size !== 'Standard'
+                          ? ` (${item.size})`
+                          : ''}
+                      </Text>
+                    </Text>
+                    {course ? (
+                      <Text style={styles.itemMetaLine}>Course: {course}</Text>
+                    ) : null}
+                    {modifierLines.map((line, lineIdx) => (
+                      <Text
+                        key={`${line.kind}-${lineIdx}`}
+                        style={[
+                          styles.modifierLine,
+                          (line.kind === 'choice-item' ||
+                            line.kind === 'addon-choice-item') &&
+                            styles.modifierLineIndent,
+                        ]}>
+                        {line.text}
+                      </Text>
+                    ))}
+                    {itemNotes ? (
+                      <Text style={styles.itemNoteLine}>Note: {itemNotes}</Text>
+                    ) : null}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
         </View>
       ))}
 
@@ -374,8 +443,15 @@ function BarReceiptBody({
                 <Text style={styles.itemMetaLine}>Course: {course}</Text>
               ) : null}
               {modifierLines.map((line, lineIdx) => (
-                <Text key={lineIdx} style={styles.modifierLine}>
-                  + {line.text}
+                <Text
+                  key={`${line.kind}-${lineIdx}`}
+                  style={[
+                    styles.modifierLine,
+                    (line.kind === 'choice-item' ||
+                      line.kind === 'addon-choice-item') &&
+                      styles.modifierLineIndent,
+                  ]}>
+                  {line.text}
                 </Text>
               ))}
               {itemNotes ? (
@@ -554,12 +630,13 @@ function CustomerReceiptBody({
     giftUsed > 0 || cash > 0 || card > 0 || methodStr,
   );
 
-  const regularItems = items.filter((item) => !isOfferItem(item));
-  const offerItems = items.filter((item) => isOfferItem(item));
+  const showSeatHeaders = items.some((it) => normalizePreviewSeat(it) != null);
+  const seatGroups = groupKotItemsBySeat(items, {kotStyle: false});
 
   const renderReceiptItem = (item: CartLineItem, idx: number | string) => {
     const modifierLines = getReceiptModifierLines(item);
-    const lineTotal = (Number(item.price) || 0) * (Number(item.qty) || 1);
+    const lineTotal = getItemLineTotal(item);
+    const notes = String(item.notes || '').trim();
 
     return (
       <View key={idx} style={styles.customerItem}>
@@ -575,10 +652,25 @@ function CustomerReceiptBody({
           </Text>
         </View>
         {modifierLines.map((line, lineIdx) => (
-          <Text key={lineIdx} style={styles.modifierLine}>
-            + {line.text}
+          <Text
+            key={`${line.kind}-${lineIdx}`}
+            style={[
+              styles.modifierLine,
+              (line.kind === 'choice-item' ||
+                line.kind === 'addon-choice-item') &&
+                styles.modifierLineIndent,
+            ]}>
+            {line.text}
+            {line.kind === 'custom-extra' && line.price != null
+              ? ` (+${formatCurrency(Number(line.price))})`
+              : ''}
           </Text>
         ))}
+        {notes ? (
+          <Text style={[styles.modifierLine, {fontStyle: 'italic'}]}>
+            Note: {notes}
+          </Text>
+        ) : null}
       </View>
     );
   };
@@ -651,18 +743,41 @@ function CustomerReceiptBody({
 
       <View style={styles.divider} />
 
-      {regularItems.map((item, idx) => renderReceiptItem(item, idx))}
-
-      {offerItems.length > 0 ? (
-        <View style={styles.offersBlock}>
-          {regularItems.length > 0 ? <View style={styles.divider} /> : null}
-          <Text style={styles.offersTitle}>OFFERS</Text>
-          <View style={styles.dividerDashed} />
-          {offerItems.map((item, idx) =>
-            renderReceiptItem(item, `offer-${idx}`),
-          )}
-        </View>
-      ) : null}
+      {seatGroups.map((group) => {
+        const regularItems = group.byCategory
+          ? Object.values(group.byCategory)
+              .flat()
+              .filter((item) => !isOfferItem(item))
+          : [];
+        const offerItems = group.byCategory
+          ? Object.values(group.byCategory)
+              .flat()
+              .filter((item) => isOfferItem(item))
+          : [];
+        return (
+          <View key={group.label}>
+            {showSeatHeaders ? (
+              <Text style={styles.seatHeader}>{group.label}</Text>
+            ) : null}
+            {regularItems.map((item, idx) =>
+              renderReceiptItem(item as CartLineItem, `${group.label}-r-${idx}`),
+            )}
+            {offerItems.length > 0 ? (
+              <View style={styles.offersBlock}>
+                {regularItems.length > 0 ? <View style={styles.divider} /> : null}
+                <Text style={styles.offersTitle}>OFFERS</Text>
+                <View style={styles.dividerDashed} />
+                {offerItems.map((item, idx) =>
+                  renderReceiptItem(
+                    item as CartLineItem,
+                    `${group.label}-o-${idx}`,
+                  ),
+                )}
+              </View>
+            ) : null}
+          </View>
+        );
+      })}
 
       <View style={styles.divider} />
 
@@ -997,6 +1112,18 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     paddingTop: 4,
   },
+  seatHeader: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: colors.text,
+    textTransform: 'uppercase',
+    marginTop: 6,
+    marginBottom: 4,
+    paddingBottom: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.text,
+    fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
+  },
   offersTitle: {
     fontSize: 10,
     fontWeight: '900',
@@ -1042,6 +1169,10 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     marginTop: 1,
     fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
+  },
+  modifierLineIndent: {
+    paddingLeft: 24,
+    fontStyle: 'normal',
   },
   notesBox: {
     padding: 7,

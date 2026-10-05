@@ -1,6 +1,5 @@
 import React, {useCallback} from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -14,6 +13,7 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {ArrowLeft, Percent, RefreshCw, Users} from 'lucide-react-native';
 import {OrderHubCard} from '../../../components/sales/OrderHubCard';
 import {OrderHubStats} from '../../../components/sales/OrderHubStats';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
 import {useOrderHub} from '../../../hooks/useOrderHub';
@@ -193,7 +193,8 @@ export function StaffHubScreen({navigation}: Props) {
         ? 'No paid staff orders yet today'
         : 'No staff orders today';
 
-  const showOrderList = !loading && !error;
+  const showOrderList = !error || filtered.length > 0;
+  const showOrdersSkeleton = loading && filtered.length === 0;
 
   const filterLabel =
     filter === 'OPEN'
@@ -252,11 +253,8 @@ export function StaffHubScreen({navigation}: Props) {
             </Text>
           </View>
 
-          {employeesLoading ? (
-            <View style={styles.sidebarCentered}>
-              <ActivityIndicator color={colors.primary} />
-              <Text style={styles.loadingText}>Loading employees…</Text>
-            </View>
+          {employeesLoading && employees.length === 0 ? (
+            <SalesPageSkeleton variant="employeeSidebar" rows={8} />
           ) : employees.length === 0 ? (
             <View style={styles.sidebarEmpty}>
               <Users size={22} color={colors.primary} strokeWidth={2} />
@@ -318,6 +316,10 @@ export function StaffHubScreen({navigation}: Props) {
           data={showOrderList ? filtered : []}
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.listContent}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -332,12 +334,9 @@ export function StaffHubScreen({navigation}: Props) {
                 {filterLabel}{' '}
                 <Text style={styles.listCount}>({filtered.length})</Text>
               </Text>
-              {loading ? (
-                <View style={styles.centeredInline}>
-                  <ActivityIndicator color={colors.primary} />
-                  <Text style={styles.loadingText}>Loading staff orders…</Text>
-                </View>
-              ) : error ? (
+              {showOrdersSkeleton ? (
+                <SalesPageSkeleton variant="orderList" rows={4} />
+              ) : error && filtered.length === 0 ? (
                 <View style={styles.centeredInline}>
                   <Text style={styles.errorText}>{error}</Text>
                 </View>

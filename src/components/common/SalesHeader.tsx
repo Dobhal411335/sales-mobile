@@ -27,6 +27,10 @@ import {
   ShoppingBag,
 } from 'lucide-react-native';
 import {ProfileMenu} from './ProfileMenu';
+import {
+  navigateFast,
+  prefetchSalesScreen,
+} from '../../navigation/prefetchSalesScreens';
 
 type SalesRouteName = keyof SalesStackParamList;
 
@@ -46,6 +50,12 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [pendingBookings, setPendingBookings] = useState(0);
   const [unpaidOrders, setUnpaidOrders] = useState(0);
+
+  useEffect(() => {
+    // Warm tab destinations as soon as header mounts.
+    prefetchSalesScreen('Orders');
+    prefetchSalesScreen('Booking');
+  }, []);
 
   const refreshPendingCount = useCallback(async () => {
     const result = await fetchPendingReservationCount();
@@ -69,7 +79,7 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
   useEffect(() => {
     void refreshPendingCount();
     void refreshUnpaidCount();
-  }, [refreshPendingCount, refreshUnpaidCount, route.name]);
+  }, [refreshPendingCount, refreshUnpaidCount]);
 
   useEffect(() => {
     const socket = socketClient.getInstance();
@@ -136,7 +146,7 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
                   ]}
                   onPress={() => {
                     if (!active) {
-                      navigation.navigate(tab.route);
+                      navigateFast(navigation, tab.route);
                     }
                   }}
                   accessibilityRole="button"

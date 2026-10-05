@@ -45,6 +45,11 @@ import {
 import {printerService} from '../../../printer/printerService';
 import {useCartStore} from '../../../store/cartStore';
 import {useOrderStore} from '../../../store/orderStore';
+import {
+  clearOrderDraft,
+  saveOrderDraft,
+  useOrderOutboxStore,
+} from '../../../store/orderOutboxStore';
 import type {MenuProduct} from '../../../types/product';
 import type {KotLineItem, ReceiptOrder} from '../../../types/receipt';
 import {productNeedsOptions} from '../../../types/product';
@@ -60,16 +65,32 @@ type Props = NativeStackScreenProps<SalesStackParamList, 'CreateOrder'>;
 
 export function CreateOrderScreen({navigation, route}: Props) {
   const {user: currentUser} = useAuth();
-  const {orderType, tableId, sessionId, orderId, staffId, fresh} =
-    route.params ?? {};
-
-  const {refetchOrder, persistDirectOrderId} = useOrderSession({
+  const {
     orderType,
     tableId,
     sessionId,
     orderId,
     staffId,
     fresh,
+    freshSession,
+    seedTableNumber,
+    seedFloorName,
+    seedFloorId,
+    seedGuestCount,
+  } = route.params ?? {};
+
+  const {refetchOrder, persistDirectOrderId, scopeKey} = useOrderSession({
+    orderType,
+    tableId,
+    sessionId,
+    orderId,
+    staffId,
+    fresh,
+    freshSession,
+    seedTableNumber,
+    seedFloorName,
+    seedFloorId,
+    seedGuestCount,
   });
 
   useEffect(() => {
@@ -104,7 +125,6 @@ export function CreateOrderScreen({navigation, route}: Props) {
     activeCategory,
     activeHead,
     panelLayout,
-    itemStyle,
     gridCols,
     searchQuery,
     filteredProducts,
@@ -116,12 +136,9 @@ export function CreateOrderScreen({navigation, route}: Props) {
     setActiveCategory,
     setActiveHead,
     setPanelLayout,
-    setItemStyle,
     setGridCols,
     setSearchQuery,
   } = useMenuData();
-
-  const effectiveItemStyle = itemStyle;
 
   const items = useCartStore((state) => state.items);
   const orderNote = useCartStore((state) => state.orderNote);
@@ -147,6 +164,17 @@ export function CreateOrderScreen({navigation, route}: Props) {
   const applyKotResult = useCartStore((state) => state.applyKotResult);
   const getTotals = useCartStore((state) => state.getTotals);
   const canSendKot = useCartStore((state) => state.canSendKot);
+
+  // Persist local cart draft so Create Order survives brief offline gaps.
+  useEffect(() => {
+    if (!scopeKey || items.length === 0) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      void saveOrderDraft(scopeKey, items);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [scopeKey, items]);
 
   const [modifierProduct, setModifierProduct] = useState<MenuProduct | null>(
     null,
@@ -203,7 +231,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
     return unsubscribe;
   }, [navigation]);
 
-  const isWalkIn = orderType === 'walking';
+  const isTakeAway = orderType === 'takeaway';
   const isStaffOrder = orderType === 'staff';
 
   const tableLabel = useMemo(
@@ -306,10 +334,25 @@ export function CreateOrderScreen({navigation, route}: Props) {
 
         const result = await submitOrder(payload);
         if (!result.success || !result.data) {
+          const isNetwork =
+            !result.message ||
+            /connection|network|unable to send/i.test(result.message);
+          if (isNetwork) {
+            await useOrderOutboxStore.getState().enqueue(payload);
+            toast.success('Saved offline — will sync when online');
+            setPartyModalOpen(false);
+            setStaffModalOpen(false);
+            setDirty(false);
+            return;
+          }
           Alert.alert('Unable to send order', result.message ?? 'Try again.');
           setPartyModalOpen(false);
           setStaffModalOpen(false);
           return;
+        }
+
+        if (scopeKey) {
+          void clearOrderDraft(scopeKey);
         }
 
         // Close modal immediately so UI feels instant
@@ -336,7 +379,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
           partyName: resolvedPartyName,
         });
 
-        if (result.data._id && (orderType === 'walking' || orderType === 'staff')) {
+        if (result.data._id && (orderType === 'takeaway' || orderType === 'staff')) {
           await persistDirectOrderId(result.data._id);
         }
 
@@ -401,12 +444,42 @@ export function CreateOrderScreen({navigation, route}: Props) {
           }, 700);
         }
       } catch {
-        Alert.alert(
-          'Unable to send order',
-          'Check your connection and try again.',
-        );
-        setPartyModalOpen(false);
-        setStaffModalOpen(false);
+        try {
+          const offlinePayload = buildSubmitPayloadFromCart(
+            items,
+            globalTaxes,
+            appliedDiscount,
+            orderNote,
+            {
+              sessionId: sessionId ?? null,
+              orderId: activeOrderId ?? undefined,
+              tableNo: orderContext?.tableNumber,
+              floorName: orderContext?.floorName,
+              guestName: guestName.trim() || undefined,
+              partyName: resolvedPartyName,
+              contactNumber: guestPhone.trim() || null,
+              guestCountryCode: guestPhone.trim() ? guestCountryCode : null,
+              guestEmail: guestEmail.trim() || null,
+              guestCount: orderContext?.guestCount ?? null,
+              orderType,
+              source: extras.source ?? orderContext?.source,
+              staffForId: extras.staffForId,
+              staffOrderReason: extras.staffOrderReason ?? null,
+            },
+          );
+          await useOrderOutboxStore.getState().enqueue(offlinePayload);
+          toast.success('Saved offline — will sync when online');
+          setPartyModalOpen(false);
+          setStaffModalOpen(false);
+          setDirty(false);
+        } catch {
+          Alert.alert(
+            'Unable to send order',
+            'Check your connection and try again.',
+          );
+          setPartyModalOpen(false);
+          setStaffModalOpen(false);
+        }
       } finally {
         submittingRef.current = false;
         setIsSubmitting(false);
@@ -430,6 +503,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
       orderNote,
       orderType,
       persistDirectOrderId,
+      scopeKey,
       sessionId,
       setDirty,
       setIsSubmitting,
@@ -447,19 +521,19 @@ export function CreateOrderScreen({navigation, route}: Props) {
     }
 
     const resolved = resolvePartyName(undefined, guestName, {
-      isWalkIn,
+      isTakeAway,
       orderType,
       tableLabel,
       guestCount: orderContext?.guestCount,
     });
 
-    const source = isWalkIn ? 'WALK_IN' : orderContext?.source;
+    const source = isTakeAway ? 'WALK_IN' : orderContext?.source;
     submitKotOrder(resolved, {source});
   }, [
     guestEmail,
     guestPhone,
     guestName,
-    isWalkIn,
+    isTakeAway,
     orderType,
     tableLabel,
     orderContext?.guestCount,
@@ -663,10 +737,8 @@ export function CreateOrderScreen({navigation, route}: Props) {
           onSelectHead={setActiveHead}
           searchQuery={searchQuery}
           onChangeSearch={setSearchQuery}
-          itemStyle={effectiveItemStyle}
           gridCols={gridCols}
           onPanelLayout={setPanelLayout}
-          onItemStyle={setItemStyle}
           onGridCols={setGridCols}
           headerTitle={display.headerTitle}
           partyLabel={display.partyLabel}
@@ -682,6 +754,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
           panelLayout={panelLayout}
           onSendKot={handleSendKot}
           onPayNow={handlePayNow}
+          onGoToOrders={() => navigation.navigate('Orders')}
           canCollectPayment={canCollectPayment}
           showSeatTabs={orderType === 'table'}
           seatCount={Math.max(
@@ -691,37 +764,42 @@ export function CreateOrderScreen({navigation, route}: Props) {
         />
       </View>
 
-      <ModifierModal
-        visible={modifierOpen}
-        product={modifierProduct}
-        globalTaxes={globalTaxes}
-        onClose={() => {
-          setModifierOpen(false);
-          setModifierProduct(null);
-        }}
-        onAdd={(lines) => {
-          markDirty();
-          addItems(stampSeat(lines));
-        }}
-      />
+      {modifierOpen && modifierProduct ? (
+        <ModifierModal
+          visible={modifierOpen}
+          product={modifierProduct}
+          globalTaxes={globalTaxes}
+          onClose={() => {
+            setModifierOpen(false);
+            setModifierProduct(null);
+          }}
+          onAdd={(lines) => {
+            markDirty();
+            addItems(stampSeat(lines));
+          }}
+        />
+      ) : null}
 
-      <OfferOptionsModal
-        visible={offerOpen}
-        offer={offerProduct}
-        globalTaxes={globalTaxes}
-        onClose={() => {
-          setOfferOpen(false);
-          setOfferProduct(null);
-        }}
-        onAdd={(lines) => {
-          markDirty();
-          addItems(stampSeat(lines));
-        }}
-      />
+      {offerOpen && offerProduct ? (
+        <OfferOptionsModal
+          visible={offerOpen}
+          offer={offerProduct}
+          globalTaxes={globalTaxes}
+          onClose={() => {
+            setOfferOpen(false);
+            setOfferProduct(null);
+          }}
+          onAdd={(lines) => {
+            markDirty();
+            addItems(stampSeat(lines));
+          }}
+        />
+      ) : null}
 
+      {partyModalOpen ? (
       <TabletModal
         visible={partyModalOpen}
-        title={isWalkIn ? 'Bill under whose name?' : 'Party Name'}
+        title={isTakeAway ? 'Bill under whose name?' : 'Party Name'}
         onClose={() => setPartyModalOpen(false)}
         maxWidth={480}
         footerActions={[
@@ -765,7 +843,9 @@ export function CreateOrderScreen({navigation, route}: Props) {
           guestCount={orderContext?.guestCount}
         />
       </TabletModal>
+      ) : null}
 
+      {staffModalOpen ? (
       <TabletModal
         visible={staffModalOpen}
         title="Staff Order"
@@ -799,7 +879,9 @@ export function CreateOrderScreen({navigation, route}: Props) {
           }}
         />
       </TabletModal>
+      ) : null}
 
+      {kotPreviewOpen && kotReceiptOrder ? (
       <TabletModal
         visible={kotPreviewOpen}
         title={kotModalTitle}
@@ -918,6 +1000,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
             : undefined
         }
       />
+      ) : null}
     </SafeAreaView>
   );
 }

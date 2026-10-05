@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react-native';
 import {colors} from '../../../constants/colors';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import type {SalesStackParamList} from '../../../navigation/types';
 import type {
   SalesDateRange,
@@ -148,8 +149,8 @@ export function TodaySalesScreen({navigation}: Props) {
 
   useFocusEffect(
     useCallback(() => {
-      loadOrders(orders.length > 0);
-    }, [loadOrders, orders.length]),
+      void loadOrders(true);
+    }, [loadOrders]),
   );
 
   // Live Socket real-time updates
@@ -363,10 +364,8 @@ export function TodaySalesScreen({navigation}: Props) {
         )}
 
         {/* KPI STATS ROW */}
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#f97316" />
-          </View>
+        {loading && orders.length === 0 ? (
+          <SalesPageSkeleton variant="metricCards" rows={4} />
         ) : (
           <View
             style={[

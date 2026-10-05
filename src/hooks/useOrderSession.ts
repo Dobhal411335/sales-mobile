@@ -21,6 +21,7 @@ import {
 import {fetchOrderById, fetchOrderBySession} from '../services/orderService';
 import {fetchTableSession} from '../services/sessionService';
 import type {ApiOrder} from '../types/order';
+import {perfTimed} from '../utils/perfLog';
 
 interface UseOrderSessionParams {
   orderType?: OrderType;
@@ -29,6 +30,11 @@ interface UseOrderSessionParams {
   orderId?: string;
   staffId?: string;
   fresh?: boolean;
+  freshSession?: boolean;
+  seedTableNumber?: string;
+  seedFloorName?: string;
+  seedFloorId?: string;
+  seedGuestCount?: number;
 }
 
 function buildScopeKey(params: UseOrderSessionParams): string {
@@ -39,6 +45,7 @@ function buildScopeKey(params: UseOrderSessionParams): string {
     params.orderId ?? '',
     params.staffId ?? '',
     params.fresh ? 'fresh' : '',
+    params.freshSession ? 'freshSession' : '',
   ].join(':');
 }
 
@@ -87,6 +94,11 @@ export function useOrderSession(params: UseOrderSessionParams) {
   const resumeOrderId = params.orderId;
   const staffId = params.staffId;
   const fresh = Boolean(params.fresh);
+  const freshSession = Boolean(params.freshSession);
+  const seedTableNumber = params.seedTableNumber;
+  const seedFloorName = params.seedFloorName;
+  const seedFloorId = params.seedFloorId;
+  const seedGuestCount = params.seedGuestCount;
   const scopeKey = buildScopeKey({
     orderType,
     tableId,
@@ -94,6 +106,7 @@ export function useOrderSession(params: UseOrderSessionParams) {
     orderId: resumeOrderId,
     staffId,
     fresh,
+    freshSession,
   });
   const scopeRef = useRef<string | null>(null);
 
@@ -137,18 +150,72 @@ export function useOrderSession(params: UseOrderSessionParams) {
       const base = buildBaseOrderContext(routeParams);
 
       if (orderType === 'table' && sessionId) {
-        const session = await fetchTableSession(sessionId);
+        // Brand-new seat: seed from Floor props and skip empty order GET.
+        if (freshSession) {
+          const context = enrichOrderContext(base, {
+            tableNumber: seedTableNumber,
+            floorName: seedFloorName,
+            floorId: seedFloorId,
+            guestCount: seedGuestCount,
+          });
+          context.sessionId = sessionId;
+          context.tableId = tableId;
+          context.orderId = undefined;
+          resetOrderState();
+          setOrderContext(context);
+          setDirty(false);
+          // Settle scope without freshSession so remounts resume normally.
+          scopeRef.current = buildScopeKey({
+            orderType,
+            tableId,
+            sessionId,
+            orderId: resumeOrderId,
+            staffId,
+            fresh: false,
+            freshSession: false,
+          });
+          // Background: confirm session metadata (non-blocking for menu).
+          void fetchTableSession(sessionId)
+            .then((session) => {
+              if (!session) {
+                return;
+              }
+              const current = useOrderStore.getState().orderContext;
+              if (!current || current.sessionId !== sessionId) {
+                return;
+              }
+              setOrderContext(
+                enrichOrderContext(current, {
+                  tableNumber: session.tableNumber ?? current.tableNumber,
+                  floorName: session.floorName ?? current.floorName,
+                  floorId: session.floorId ?? current.floorId,
+                  guestCount: session.guestCount ?? current.guestCount,
+                }),
+              );
+            })
+            .catch(() => undefined);
+          return;
+        }
+
+        const [session, order] = await perfTimed(
+          'hydrateTableSession+order',
+          () =>
+            Promise.all([
+              fetchTableSession(sessionId),
+              fetchOrderBySession(sessionId),
+            ]),
+        );
+
         const context = enrichOrderContext(base, {
-          tableNumber: session?.tableNumber,
-          floorName: session?.floorName,
-          floorId: session?.floorId,
-          guestCount: session?.guestCount,
+          tableNumber: session?.tableNumber ?? seedTableNumber,
+          floorName: session?.floorName ?? seedFloorName,
+          floorId: session?.floorId ?? seedFloorId,
+          guestCount: session?.guestCount ?? seedGuestCount,
         });
         context.sessionId = sessionId;
         context.tableId = tableId ?? session?.tableId;
         context.orderId = undefined;
 
-        const order = await fetchOrderBySession(sessionId);
         if (order) {
           applyHydratedOrder(order, hydrateFromOrder);
           context.orderId = order._id;
@@ -161,7 +228,7 @@ export function useOrderSession(params: UseOrderSessionParams) {
         return;
       }
 
-      if (orderType === 'walking' || orderType === 'staff') {
+      if (orderType === 'takeaway' || orderType === 'staff') {
         const storageKey = getDirectOrderStorageKey(orderType);
 
         if (fresh) {
@@ -174,7 +241,6 @@ export function useOrderSession(params: UseOrderSessionParams) {
           }
           setOrderContext(base);
           setDirty(false);
-          // Settle scope without fresh so clearing the route param does not re-wipe.
           scopeRef.current = buildScopeKey({
             orderType,
             tableId,
@@ -245,6 +311,11 @@ export function useOrderSession(params: UseOrderSessionParams) {
     resumeOrderId,
     staffId,
     fresh,
+    freshSession,
+    seedTableNumber,
+    seedFloorName,
+    seedFloorId,
+    seedGuestCount,
     scopeKey,
     hydrateFromOrder,
     resetOrderState,

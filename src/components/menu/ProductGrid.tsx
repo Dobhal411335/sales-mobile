@@ -1,14 +1,13 @@
-import React, {useCallback, useMemo} from 'react';
+import React, {useCallback} from 'react';
 import {
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
   FlatList,
   type ListRenderItem,
 } from 'react-native';
 import {colors} from '../../constants/colors';
-import type {GridCols, ItemStyle, MenuProduct} from '../../types/product';
+import type {GridCols, MenuProduct} from '../../types/product';
 import {ProductCard} from './ProductCard';
 import {ProductGridSkeleton} from './ProductGridSkeleton';
 import {prefetchMenuImages} from '../../menu/imageCache';
@@ -18,7 +17,6 @@ interface ProductGridProps {
   loading: boolean;
   error: string | null;
   onProductPress: (product: MenuProduct) => void;
-  itemStyle?: ItemStyle;
   gridCols?: GridCols;
 }
 
@@ -27,25 +25,17 @@ export function ProductGrid({
   loading,
   error,
   onProductPress,
-  itemStyle = 'list',
   gridCols = 2,
 }: ProductGridProps) {
-  const {width} = useWindowDimensions();
-
-  const numColumns = useMemo(() => {
-    if (itemStyle === 'tiles') {
-      return gridCols;
-    }
-    return width >= 1100 ? 2 : 1;
-  }, [itemStyle, gridCols, width]);
-
-  const variant: ItemStyle = itemStyle === 'tiles' ? 'tiles' : 'list';
+  const numColumns = gridCols;
 
   const renderItem = useCallback<ListRenderItem<MenuProduct>>(
     ({item}) => (
-      <ProductCard product={item} onPress={onProductPress} variant={variant} />
+      <View style={[styles.cell, {width: `${100 / numColumns}%`}]}>
+        <ProductCard product={item} onPress={onProductPress} />
+      </View>
     ),
-    [onProductPress, variant],
+    [numColumns, onProductPress],
   );
 
   const keyExtractor = useCallback((item: MenuProduct) => item.id, []);
@@ -55,9 +45,7 @@ export function ProductGrid({
   }, []);
 
   if (loading) {
-    return (
-      <ProductGridSkeleton itemStyle={itemStyle} gridCols={gridCols} />
-    );
+    return <ProductGridSkeleton gridCols={gridCols} />;
   }
 
   if (error) {
@@ -102,11 +90,15 @@ export function ProductGrid({
 
 const styles = StyleSheet.create({
   listContent: {
-    padding: 10,
+    padding: 8,
     paddingBottom: 24,
   },
   columnWrap: {
-    gap: 0,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  cell: {
+    padding: 6,
   },
   centerState: {
     flex: 1,

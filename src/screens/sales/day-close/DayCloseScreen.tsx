@@ -11,6 +11,7 @@ import {
 import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {colors} from '../../../constants/colors';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {useAuth} from '../../../hooks/useAuth';
 import {
@@ -121,7 +122,7 @@ export function DayCloseScreen({navigation}: Props) {
     if (phase === 'loading') {
       return (
         <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <SalesPageSkeleton variant="metricCards" rows={3} />
           <Text style={styles.stateTitle}>Checking restaurant status…</Text>
           <Text style={styles.stateHint}>
             Reviewing pending orders and booked tables.

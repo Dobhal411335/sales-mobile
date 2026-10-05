@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
-import {fetchTodayOrders} from '../services/todayOrdersService';
+import {useTodayOrdersStore} from '../store/todayOrdersStore';
 import {socketClient} from '../socket/socket';
 import type {TodayOrder, TodayOrderSource} from '../types/todayOrder';
 import {
@@ -7,6 +7,7 @@ import {
   isOrderOpen,
   isOrderPaid,
 } from '../utils/todayOrderHelpers';
+import {createDebouncedCallback} from '../utils/debounce';
 
 export type HubFilter = 'OPEN' | 'PAID' | 'ALL';
 
@@ -44,63 +45,53 @@ function sortHubOrders(orders: TodayOrder[]): TodayOrder[] {
   });
 }
 
+const SOCKET_DEBOUNCE_MS = 800;
+
 export function useOrderHub(source: TodayOrderSource): UseOrderHubResult {
-  const [orders, setOrders] = useState<TodayOrder[]>([]);
+  const allOrders = useTodayOrdersStore((s) => s.orders);
+  const loading = useTodayOrdersStore((s) => s.loading);
+  const refreshing = useTodayOrdersStore((s) => s.refreshing);
+  const error = useTodayOrdersStore((s) => s.error);
+  const fetch = useTodayOrdersStore((s) => s.fetch);
   const [filter, setFilter] = useState<HubFilter>('OPEN');
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async (options?: {silent?: boolean}) => {
-    const silent = options?.silent ?? false;
-    if (silent) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
+  const orders = useMemo(() => {
+    const sourceKey = String(source).toUpperCase();
+    return allOrders.filter(
+      (order) => String(order.source || '').toUpperCase() === sourceKey,
+    );
+  }, [allOrders, source]);
 
-    try {
-      const response = await fetchTodayOrders();
-      if (response.success && response.data) {
-        const sourceKey = String(source).toUpperCase();
-        setOrders(
-          response.data.filter(
-            (order) => String(order.source || '').toUpperCase() === sourceKey,
-          ),
-        );
-      } else {
-        setError(response.message || 'Unable to load orders.');
-      }
-    } catch {
-      setError('Unable to load orders. Check your connection and try again.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [source]);
+  const refresh = useCallback(
+    async (options?: {silent?: boolean}) => {
+      await fetch({silent: options?.silent ?? false});
+    },
+    [fetch],
+  );
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void fetch({silent: allOrders.length > 0});
+  }, [fetch, allOrders.length]);
 
   useEffect(() => {
     const socket = socketClient.getInstance();
     if (!socket) {
       return;
     }
-    const onChange = () => {
-      void refresh({silent: true});
-    };
+    const debounced = createDebouncedCallback(() => {
+      void fetch({silent: true});
+    }, SOCKET_DEBOUNCE_MS);
+    const onChange = () => debounced.run();
     socket.on('order:created', onChange);
     socket.on('order:updated', onChange);
     socket.on('payment:completed', onChange);
     return () => {
+      debounced.cancel();
       socket.off('order:created', onChange);
       socket.off('order:updated', onChange);
       socket.off('payment:completed', onChange);
     };
-  }, [refresh]);
+  }, [fetch]);
 
   const stats = useMemo<HubStats>(() => {
     const openOrders = orders.filter(isOrderOpen);
@@ -146,70 +137,41 @@ export function useOrderHub(source: TodayOrderSource): UseOrderHubResult {
   };
 }
 
-export interface FloorAttentionCounts {
-  walkInUnpaid: number;
-  staffUnpaid: number;
-  onlineOpen: number;
-}
+export type {FloorAttentionCounts} from '../store/todayOrdersStore';
 
-export function useFloorAttentionCounts(): FloorAttentionCounts & {
+export function useFloorAttentionCounts(): import('../store/todayOrdersStore').FloorAttentionCounts & {
   refresh: () => Promise<void>;
 } {
-  const [counts, setCounts] = useState<FloorAttentionCounts>({
-    walkInUnpaid: 0,
-    staffUnpaid: 0,
-    onlineOpen: 0,
-  });
+  const attention = useTodayOrdersStore((s) => s.attention);
+  const fetch = useTodayOrdersStore((s) => s.fetch);
 
   const refresh = useCallback(async () => {
-    try {
-      const response = await fetchTodayOrders();
-      if (!response.success || !response.data) {
-        return;
-      }
-      let walkInUnpaid = 0;
-      let staffUnpaid = 0;
-      let onlineOpen = 0;
-      for (const order of response.data) {
-        if (!isOrderOpen(order)) {
-          continue;
-        }
-        const source = String(order.source || '').toUpperCase();
-        if (source === 'WALK_IN') {
-          walkInUnpaid += 1;
-        } else if (source === 'STAFF') {
-          staffUnpaid += 1;
-        } else if (source === 'ONLINE') {
-          onlineOpen += 1;
-        }
-      }
-      setCounts({walkInUnpaid, staffUnpaid, onlineOpen});
-    } catch {
-      /* non-blocking */
-    }
-  }, []);
+    await fetch({silent: true});
+  }, [fetch]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void fetch({silent: true});
+  }, [fetch]);
 
   useEffect(() => {
     const socket = socketClient.getInstance();
     if (!socket) {
       return;
     }
-    const onChange = () => {
-      void refresh();
-    };
+    const debounced = createDebouncedCallback(() => {
+      void fetch({silent: true});
+    }, SOCKET_DEBOUNCE_MS);
+    const onChange = () => debounced.run();
     socket.on('order:created', onChange);
     socket.on('order:updated', onChange);
     socket.on('payment:completed', onChange);
     return () => {
+      debounced.cancel();
       socket.off('order:created', onChange);
       socket.off('order:updated', onChange);
       socket.off('payment:completed', onChange);
     };
-  }, [refresh]);
+  }, [fetch]);
 
-  return {...counts, refresh};
+  return {...attention, refresh};
 }

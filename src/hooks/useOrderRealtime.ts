@@ -2,8 +2,10 @@ import {useEffect, useRef} from 'react';
 import {config} from '../constants/config';
 import {useOrderStore} from '../store/orderStore';
 import {socketClient} from '../socket/socket';
+import {createDebouncedCallback} from '../utils/debounce';
 
 const ORDER_EVENTS = ['order:updated', 'payment:completed'] as const;
+const REMOTE_DEBOUNCE_MS = 800;
 
 export function useOrderRealtime(
   floorId: string | undefined,
@@ -19,9 +21,12 @@ export function useOrderRealtime(
 
     let cancelled = false;
     const room = `floor:${floorId}`;
+    const debounced = createDebouncedCallback(() => {
+      onRemoteUpdateRef.current();
+    }, REMOTE_DEBOUNCE_MS);
 
     const handleOrderEvent = () => {
-      onRemoteUpdateRef.current();
+      debounced.run();
     };
 
     const joinRoom = (socket: ReturnType<typeof socketClient.getInstance>) => {
@@ -68,6 +73,7 @@ export function useOrderRealtime(
 
     return () => {
       cancelled = true;
+      debounced.cancel();
       const socket = socketClient.getInstance();
       if (socket) {
         socket.off('connect', onConnect);

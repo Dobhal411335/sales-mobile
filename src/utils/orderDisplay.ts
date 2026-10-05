@@ -131,7 +131,7 @@ export function shouldShowTable(order: TodayOrder): boolean {
 export function getOrderTypeLabel(order: TodayOrder): string {
   const source = order?.source || 'POS';
   if (source === 'WALK_IN') {
-    return 'Walk-in';
+    return 'Takeaway';
   }
   if (source === 'STAFF') {
     return 'Staff';
@@ -146,7 +146,7 @@ export function getOrderTypeLabel(order: TodayOrder): string {
 }
 
 export type OrderTypeBadgeVariant =
-  | 'walkin'
+  | 'takeaway'
   | 'staff'
   | 'online'
   | 'table'
@@ -155,7 +155,7 @@ export type OrderTypeBadgeVariant =
 export function getOrderTypeBadgeVariant(order: TodayOrder): OrderTypeBadgeVariant {
   const source = order?.source || 'POS';
   if (source === 'WALK_IN') {
-    return 'walkin';
+    return 'takeaway';
   }
   if (source === 'STAFF') {
     return 'staff';
@@ -171,7 +171,7 @@ export function getOrderTypeBadgeVariant(order: TodayOrder): OrderTypeBadgeVaria
 
 export function getOrderLocationLabel(order: TodayOrder): string {
   if (order?.source === 'WALK_IN') {
-    return order?.partyName || order?.guestName || 'Walk-in';
+    return order?.partyName || order?.guestName || 'Takeaway';
   }
   if (order?.source === 'STAFF') {
     return order?.partyName || order?.guestName || 'Staff';
@@ -193,8 +193,8 @@ export function getOrderPartyLabel(order: TodayOrder): string | null {
   if (!party) {
     return null;
   }
-  // Hide only generic placeholders — keep real walk-in / staff names.
-  if (order?.source === 'WALK_IN' && /^walk[- ]?in$/i.test(party)) {
+  // Hide only generic placeholders — keep real takeaway / staff names.
+  if (order?.source === 'WALK_IN' && /^takeaway$/i.test(party)) {
     return null;
   }
   if (order?.source === 'STAFF' && /^staff$/i.test(party)) {
@@ -217,7 +217,7 @@ export function getDirectSalePartyLabel(order: {
     return 'Staff';
   }
   if (order?.source === 'WALK_IN') {
-    return 'Walk-in';
+    return 'Takeaway';
   }
   return '';
 }

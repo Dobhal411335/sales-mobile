@@ -14,10 +14,10 @@ import {UsersIcon} from '../common/Icons';
 import {Popover} from '../common/Popover';
 import {FloorSelector} from './FloorSelector';
 
-export type FloorOrderShortcut = 'walking' | 'staff' | 'online';
+export type FloorOrderShortcut = 'takeaway' | 'staff' | 'online';
 
 interface FloorAttention {
-  walkInUnpaid: number;
+  takeAwayUnpaid: number;
   staffUnpaid: number;
   onlineOpen: number;
 }
@@ -52,10 +52,10 @@ const HUB_BUTTONS: {
   badgeBg: string;
 }[] = [
   {
-    id: 'walking',
-    label: 'Walk-in',
+    id: 'takeaway',
+    label: 'Takeaway',
     Icon: ShoppingBag,
-    countKey: 'walkInUnpaid',
+    countKey: 'takeAwayUnpaid',
     border: '#FDBA74',
     background: '#FFF7ED',
     text: '#9A3412',
@@ -118,7 +118,7 @@ export function FloorHeader({
   onlineStaffCount,
   onlineStaff = [],
   connectionStatus = 'disconnected',
-  attention = {walkInUnpaid: 0, staffUnpaid: 0, onlineOpen: 0},
+  attention = {takeAwayUnpaid: 0, staffUnpaid: 0, onlineOpen: 0},
   refreshing = false,
   onSelectFloor,
   onToggleGrid,

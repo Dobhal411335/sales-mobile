@@ -1,14 +1,13 @@
 import React from 'react';
 import {ActionSheet} from '../common/ActionSheet';
-import type {OrderType} from '../../navigation/types';
 
-export type FloorOrderShortcut = 'walking' | 'staff' | 'online';
+export type FloorOrderShortcut = 'takeaway' | 'staff' | 'online';
 
 const ORDER_TYPE_OPTIONS: {
   label: string;
   value: FloorOrderShortcut;
 }[] = [
-  {label: 'Walking Order', value: 'walking'},
+  {label: 'Takeaway Order', value: 'takeaway'},
   {label: 'Staff Order', value: 'staff'},
   {label: 'Online Order', value: 'online'},
 ];
@@ -18,7 +17,7 @@ interface NewOrderMenuProps {
   onClose: () => void;
   onSelect: (orderType: FloorOrderShortcut) => void;
   attention?: {
-    walkInUnpaid?: number;
+    takeAwayUnpaid?: number;
     staffUnpaid?: number;
     onlineOpen?: number;
   };
@@ -31,8 +30,8 @@ function badgeFor(
   if (!attention) {
     return undefined;
   }
-  if (value === 'walking') {
-    return attention.walkInUnpaid;
+  if (value === 'takeaway') {
+    return attention.takeAwayUnpaid;
   }
   if (value === 'staff') {
     return attention.staffUnpaid;

@@ -7,6 +7,11 @@ import type {
   PrinterTarget,
   PrintType,
 } from '../types/printJob';
+import {
+  filterItemsBySeat,
+  proportionalOrderTotalsForItems,
+  resolveSplitReceiptSeatFilter,
+} from './seatHelpers';
 
 export function getPrintJobStatusLabel(status: PrintJobStatus): string {
   switch (status) {
@@ -130,10 +135,28 @@ export function buildReceiptOrderFromDetail(data: PrintJobDetailData): ReceiptOr
   const {job, order} = data;
   const meta = job.metadata ?? {};
   const isSplit = Boolean(meta.isSplitReceipt);
+  const seatFilter = resolveSplitReceiptSeatFilter(
+    meta as Record<string, unknown>,
+    order
+      ? {
+          items: order.items,
+          paymentSplits: order.paymentSplits,
+        }
+      : null,
+  );
 
   if (order) {
     const splitParty =
       meta.splitName || meta.partyName || meta.guestName || undefined;
+    const allItems = Array.isArray(order.items) ? order.items : [];
+    const items = seatFilter.filter
+      ? filterItemsBySeat(allItems, seatFilter.seatNumber)
+      : allItems;
+    const seatScoped =
+      seatFilter.filter && isSplit
+        ? proportionalOrderTotalsForItems(order, items)
+        : null;
+
     return {
       ...order,
       orderNumber: String(order.orderNumber ?? meta.orderNumber ?? '—'),
@@ -145,6 +168,7 @@ export function buildReceiptOrderFromDetail(data: PrintJobDetailData): ReceiptOr
         ? String(splitParty || order.partyName || '')
         : order.partyName ?? meta.partyName,
       guestCount: order.guestCount ?? data.guestCount ?? meta.guestCount,
+      items,
       paymentMethod: isSplit
         ? meta.paymentMethod ??
           (meta.splitMethod
@@ -166,28 +190,40 @@ export function buildReceiptOrderFromDetail(data: PrintJobDetailData): ReceiptOr
         : order.giftcardUsedAmount ?? meta.giftcardUsedAmount,
       totalAmount: isSplit
         ? meta.splitAmount ?? meta.totalAmount ?? order.totalAmount
-        : order.totalAmount ?? meta.totalAmount,
-      subTotal: isSplit
-        ? meta.subTotal ?? meta.splitAmount ?? order.subTotal
-        : order.subTotal ?? meta.subTotal,
-      discountTotal: isSplit
-        ? meta.discountTotal ?? 0
-        : order.discountTotal ?? meta.discountTotal,
+        : seatScoped?.totalAmount ?? order.totalAmount ?? meta.totalAmount,
+      subTotal: seatScoped
+        ? seatScoped.subTotal
+        : isSplit
+          ? meta.subTotal ?? meta.splitAmount ?? order.subTotal
+          : order.subTotal ?? meta.subTotal,
+      discountTotal: seatScoped
+        ? seatScoped.discountTotal
+        : isSplit
+          ? meta.discountTotal ?? 0
+          : order.discountTotal ?? meta.discountTotal,
       discountPercent: isSplit
         ? meta.discountPercent ?? null
         : order.discountPercent ?? meta.discountPercent,
-      taxTotal: isSplit ? meta.taxTotal ?? 0 : order.taxTotal ?? meta.taxTotal,
+      taxTotal: seatScoped
+        ? seatScoped.taxTotal
+        : isSplit
+          ? meta.taxTotal ?? 0
+          : order.taxTotal ?? meta.taxTotal,
       tipAmount: isSplit ? meta.tipAmount ?? 0 : order.tipAmount ?? meta.tipAmount,
       tipMethod: isSplit
         ? meta.tipMethod
         : order.tipMethod ?? meta.tipMethod,
-      serviceChargeTotal: isSplit
-        ? meta.serviceChargeTotal ?? 0
-        : order.serviceChargeTotal ?? meta.serviceChargeTotal,
+      serviceChargeTotal: seatScoped
+        ? seatScoped.serviceChargeTotal
+        : isSplit
+          ? meta.serviceChargeTotal ?? 0
+          : order.serviceChargeTotal ?? meta.serviceChargeTotal,
       serviceChargeName: isSplit
         ? meta.serviceChargeName
         : order.serviceChargeName ?? meta.serviceChargeName,
       paymentSplits: order.paymentSplits,
+      taxBreakdown: seatScoped?.taxBreakdown ?? order.taxBreakdown,
+      ...(seatFilter.filter ? {filterReceiptBySeat: true as const} : {}),
     };
   }
 

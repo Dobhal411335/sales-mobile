@@ -24,6 +24,7 @@ import {
   type SplitMode,
 } from '../../../components/payment/SplitBillEditor';
 import {toast} from '../../../components/common/Toast';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {colors} from '../../../constants/colors';
 import {
   applyDiscountCode,
@@ -1162,8 +1163,8 @@ export function PaymentScreen({navigation, route}: Props) {
         }
 
         if (paidSnapshot) {
-          if (orderType === 'walking') {
-            await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
+          if (orderType === 'takeaway') {
+            await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.takeaway);
           } else if (orderType === 'staff') {
             await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
           }
@@ -1185,8 +1186,8 @@ export function PaymentScreen({navigation, route}: Props) {
         return;
       }
 
-      if (orderType === 'walking') {
-        await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.walking);
+      if (orderType === 'takeaway') {
+        await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.takeaway);
       } else if (orderType === 'staff') {
         await clearDirectOrderId(DIRECT_ORDER_STORAGE_KEYS.staff);
       }
@@ -1660,7 +1661,7 @@ export function PaymentScreen({navigation, route}: Props) {
       <View style={[styles.body, isWide && styles.bodyWide]}>
         {hydrating ? (
           <View style={styles.hydrateLoading}>
-            <ActivityIndicator size="large" color={colors.primary} />
+            <SalesPageSkeleton variant="metricCards" rows={3} />
             <Text style={styles.hydrateText}>Loading order...</Text>
           </View>
         ) : hydrateError ? (

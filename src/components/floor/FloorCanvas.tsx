@@ -6,6 +6,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import {SalesPageSkeleton} from '../common/SalesPageSkeleton';
 import {colors} from '../../constants/colors';
 import type {Floor, FloorTable, GridMode, TableSession} from '../../types/table';
 import {computeContentBounds, computeFitScale} from '../../utils/floorLayout';
@@ -131,8 +132,7 @@ export function FloorCanvas({
     <View style={styles.viewport} onLayout={handleLayout}>
       {loading && tables.length === 0 ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading floor...</Text>
+          <SalesPageSkeleton variant="floorGrid" rows={12} />
         </View>
       ) : !hasFloors ? (
         <View style={styles.emptyWrap}>

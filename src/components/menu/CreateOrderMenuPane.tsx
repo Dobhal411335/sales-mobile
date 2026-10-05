@@ -8,7 +8,6 @@ import {ProductGrid} from './ProductGrid';
 import {ProductGridSkeleton} from './ProductGridSkeleton';
 import type {
   GridCols,
-  ItemStyle,
   MenuHead,
   MenuProduct,
   PanelLayout,
@@ -25,10 +24,8 @@ interface CreateOrderMenuPaneProps {
   onSelectHead: (head: string) => void;
   searchQuery: string;
   onChangeSearch: (query: string) => void;
-  itemStyle: ItemStyle;
   gridCols: GridCols;
   onPanelLayout: (layout: PanelLayout) => void;
-  onItemStyle: (style: ItemStyle) => void;
   onGridCols: (cols: GridCols) => void;
   headerTitle: string;
   partyLabel: string;
@@ -50,10 +47,8 @@ function CreateOrderMenuPaneComponent({
   onSelectHead,
   searchQuery,
   onChangeSearch,
-  itemStyle,
   gridCols,
   onPanelLayout,
-  onItemStyle,
   onGridCols,
   headerTitle,
   partyLabel,
@@ -88,10 +83,8 @@ function CreateOrderMenuPaneComponent({
           </View>
           <OrderLayoutMenu
             panelLayout={panelLayout}
-            itemStyle={itemStyle}
             gridCols={gridCols}
             onPanelLayout={onPanelLayout}
-            onItemStyle={onItemStyle}
             onGridCols={onGridCols}
           />
         </View>
@@ -112,14 +105,13 @@ function CreateOrderMenuPaneComponent({
         />
 
         {showSessionLoader ? (
-          <ProductGridSkeleton itemStyle={itemStyle} gridCols={gridCols} />
+          <ProductGridSkeleton gridCols={gridCols} />
         ) : (
           <ProductGrid
             products={products}
             loading={loading}
             error={error}
             onProductPress={onProductPress}
-            itemStyle={itemStyle}
             gridCols={gridCols}
           />
         )}

@@ -11,7 +11,7 @@ import {colors} from '../../constants/colors';
 import type {FloorOrderShortcut} from './FloorHeader';
 
 interface FloorAttention {
-  walkInUnpaid: number;
+  takeAwayUnpaid: number;
   staffUnpaid: number;
   onlineOpen: number;
 }
@@ -33,9 +33,9 @@ const ATTENTION_ITEMS: {
   badgeBg: string;
 }[] = [
   {
-    id: 'walking',
+    id: 'takeaway',
     label: 'Take Away',
-    countKey: 'walkInUnpaid',
+    countKey: 'takeAwayUnpaid',
     Icon: ShoppingBag,
     border: '#FED7AA',
     background: '#FFF7ED',
@@ -79,7 +79,7 @@ export function FloorAttentionPanel({
   layout = 'rail',
 }: FloorAttentionPanelProps) {
   const total =
-    attention.walkInUnpaid + attention.staffUnpaid + attention.onlineOpen;
+    attention.takeAwayUnpaid + attention.staffUnpaid + attention.onlineOpen;
   const isSheet = layout === 'sheet';
 
   return (
@@ -129,7 +129,7 @@ export function FloorAttentionPanel({
           <View style={styles.clearCard}>
             <CheckCircle2 size={16} color="#059669" strokeWidth={2.2} />
             <Text style={styles.clearText}>
-              All clear — no unpaid walk-in, staff, or open online orders.
+              All clear — no unpaid takeaway, staff, or open online orders.
             </Text>
           </View>
         ) : null}

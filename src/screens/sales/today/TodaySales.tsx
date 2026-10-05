@@ -27,6 +27,7 @@ import {
   Wallet,
 } from 'lucide-react-native';
 import {SalesMetricCard} from '../../../components/common/SalesMetricCard';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {TabletModal} from '../../../components/common/TabletModal';
 import {toast} from '../../../components/common/Toast';
 import {OrderDetailPanel} from '../../../components/orders/OrderDetailPanel';
@@ -68,7 +69,7 @@ const METRIC_ICONS: Record<string, React.ReactNode> = {
 function mapSourceToOrderType(source?: string): OrderType {
   switch (source) {
     case 'WALK_IN':
-      return 'walking';
+      return 'takeaway';
     case 'STAFF':
       return 'staff';
     case 'ONLINE':
@@ -404,16 +405,11 @@ export function TodaySalesScreen({navigation, route}: Props) {
   ) : null;
 
   const renderListContent = () => {
-    if (loading) {
-      return (
-        <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.stateText}>Loading today's orders...</Text>
-        </View>
-      );
+    if (loading && orders.length === 0) {
+      return <SalesPageSkeleton variant="metricCards" rows={5} />;
     }
 
-    if (error) {
+    if (error && orders.length === 0) {
       return (
         <View style={styles.centerState}>
           <Text style={styles.errorTitle}>Unable to load today's orders.</Text>
@@ -451,6 +447,10 @@ export function TodaySalesScreen({navigation, route}: Props) {
         keyExtractor={(item) => item._id}
         extraData={selectedOrderId}
         contentContainerStyle={styles.listContent}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -631,14 +631,13 @@ export function TodaySalesScreen({navigation, route}: Props) {
         />
       </TabletModal>
 
+      {kotPreviewOpen && kotReceiptOrder ? (
       <TabletModal
         visible={kotPreviewOpen}
         title={kotIsReprint ? 'Reprint Kitchen Ticket' : 'Kitchen Ticket'}
         onClose={() => setKotPreviewOpen(false)}
         maxWidth={920}
-        splitContent={
-          kotReceiptOrder
-            ? {
+        splitContent={{
                 left: (
                   <ReceiptPreview
                     mode="kot"
@@ -675,10 +674,9 @@ export function TodaySalesScreen({navigation, route}: Props) {
                     </Pressable>
                   </View>
                 ),
-              }
-            : undefined
-        }
+              }}
       />
+      ) : null}
     </View>
   );
 }

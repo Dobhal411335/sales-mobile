@@ -16,6 +16,7 @@ import {NotificationCard} from '../../../components/notifications/NotificationCa
 import {NotificationEmptyState} from '../../../components/notifications/NotificationEmptyState';
 import {NotificationFilterChips} from '../../../components/notifications/NotificationFilterChips';
 import {NotificationSoundToggle} from '../../../components/notifications/NotificationSoundToggle';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {colors} from '../../../constants/colors';
 import {useNotificationActions} from '../../../hooks/useNotificationActions';
 import type {SalesStackParamList} from '../../../navigation/types';
@@ -166,9 +167,7 @@ export function NotificationsScreen({navigation}: Props) {
         ) : null}
 
         {loading && notifications.length === 0 ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
+          <SalesPageSkeleton variant="notificationList" rows={6} />
         ) : (
           <View style={styles.listCard}>
             <FlatList

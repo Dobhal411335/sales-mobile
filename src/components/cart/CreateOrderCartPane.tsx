@@ -1,4 +1,4 @@
-import React, {memo, useCallback, useEffect} from 'react';
+import React, {memo, useCallback, useEffect, useRef} from 'react';
 import {StyleSheet, View} from 'react-native';
 import {Cart} from '../cart/Cart';
 import {colors} from '../../constants/colors';
@@ -9,6 +9,7 @@ interface CreateOrderCartPaneProps {
   panelLayout: '2' | '3';
   onSendKot: () => void;
   onPayNow: () => void;
+  onGoToOrders?: () => void;
   /** Manager / Master Terminal only — Staff cannot pay from Create Order. */
   canCollectPayment?: boolean;
   seatCount?: number;
@@ -19,6 +20,7 @@ function CreateOrderCartPaneComponent({
   panelLayout,
   onSendKot,
   onPayNow,
+  onGoToOrders,
   canCollectPayment = true,
   seatCount = 0,
   showSeatTabs = false,
@@ -38,6 +40,7 @@ function CreateOrderCartPaneComponent({
   const canPay = useCartStore((s) => s.canPay);
   const canSendKot = useCartStore((s) => s.canSendKot);
   const setDirty = useOrderStore((s) => s.setDirty);
+  const seatAccordionInitRef = useRef(false);
 
   const markDirty = useCallback(() => {
     if (!useOrderStore.getState().dirty) {
@@ -47,14 +50,20 @@ function CreateOrderCartPaneComponent({
 
   useEffect(() => {
     if (!showSeatTabs) {
+      seatAccordionInitRef.current = false;
       setActiveSeatNumber(null);
+      return;
+    }
+    if (!seatAccordionInitRef.current) {
+      seatAccordionInitRef.current = true;
+      setActiveSeatNumber(1);
       return;
     }
     if (
       activeSeatNumber != null &&
       (activeSeatNumber < 1 || activeSeatNumber > seatCount)
     ) {
-      setActiveSeatNumber(null);
+      setActiveSeatNumber(seatCount >= 1 ? 1 : null);
     }
   }, [
     showSeatTabs,
@@ -78,6 +87,7 @@ function CreateOrderCartPaneComponent({
         totals={totals}
         canSendKot={canSendKot()}
         canPay={canPay() && canCollectPayment}
+        canCollectPayment={canCollectPayment}
         hasSentKot={hasSentKot}
         showSeatTabs={showSeatTabs}
         seatCount={seatCount}
@@ -115,6 +125,7 @@ function CreateOrderCartPaneComponent({
         }}
         onSendKot={onSendKot}
         onPayNow={onPayNow}
+        onGoToOrders={onGoToOrders}
       />
     </View>
   );

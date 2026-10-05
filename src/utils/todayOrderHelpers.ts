@@ -30,7 +30,7 @@ export function isOrderPaid(order: TodayOrder): boolean {
 
 const OPEN_ORDER_STATUSES = new Set(['PENDING', 'CONFIRMED']);
 
-/** Open unpaid order (same rules as Web walk-in/staff hubs + floor attention). */
+/** Open unpaid order (same rules as Web takeaway/staff hubs + floor attention). */
 export function isOrderOpen(order: TodayOrder): boolean {
   const status = String(order?.status || '').toUpperCase();
   return OPEN_ORDER_STATUSES.has(status) && !isOrderPaid(order);
@@ -333,7 +333,7 @@ export function getPaymentBadgeColors(variant: PaymentTypeInfo['variant']) {
 
 export function getOrderTypeBadgeColors(variant: string) {
   switch (variant) {
-    case 'walkin':
+    case 'takeaway':
       return {bg: '#FFEDD5', text: '#9A3412', border: '#FED7AA'};
     case 'staff':
       return {bg: '#E0E7FF', text: '#3730A3', border: '#C7D2FE'};

@@ -1,6 +1,6 @@
 import type {PaidOrderSnapshot, TaxBreakdownLine} from '../types/receipt';
 
-export type OrderType = 'table' | 'walking' | 'staff' | 'online';
+export type OrderType = 'table' | 'takeaway' | 'staff' | 'online';
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -8,7 +8,7 @@ export type AuthStackParamList = {
 
 export type SalesStackParamList = {
   Floor: undefined;
-  WalkInHub: undefined;
+  TakeAwayHub: undefined;
   StaffHub: undefined;
   CreateOrder:
     | {
@@ -18,6 +18,12 @@ export type SalesStackParamList = {
         orderId?: string;
         staffId?: string;
         fresh?: boolean;
+        /** Brand-new seat: skip empty order GET; seed context from Floor. */
+        freshSession?: boolean;
+        seedTableNumber?: string;
+        seedFloorName?: string;
+        seedFloorId?: string;
+        seedGuestCount?: number;
       }
     | undefined;
   Payment:
@@ -78,7 +84,6 @@ export type SalesStackParamList = {
   Notifications: undefined;
   PrintJobs: {jobId?: string} | undefined;
   PrintersSettings: undefined;
-  CustomerDisplaySettings: undefined;
   MenuSync: undefined;
   DayClose: undefined;
 };

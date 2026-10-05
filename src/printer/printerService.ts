@@ -393,6 +393,12 @@ export async function printJobById(
     };
   }
 
+  // Built-in POS head is always 80mm; a saved 58mm value was printing
+  // narrow centered columns with blank side margins on the roll.
+  const paperWidthMm = isBuiltInUsbPrinter(targetPrinter)
+    ? 80
+    : targetPrinter.paperWidthMm;
+
   const base64Data = buildTicketFromJob({
     job,
     order: mergedOrder,
@@ -401,7 +407,7 @@ export async function printJobById(
     restaurantDetails: restaurant,
     serverName,
     guestCount,
-    paperWidthMm: targetPrinter.paperWidthMm,
+    paperWidthMm,
   });
 
   const printResult = await sendRawToPrinter(targetPrinter, base64Data);
@@ -523,6 +529,9 @@ export async function printTicketLocally(
 
   const brand =
     restaurantName || order?.restaurantName || config.APP_NAME.toUpperCase();
+  const paperWidthMm = isBuiltInUsbPrinter(targetPrinter)
+    ? 80
+    : targetPrinter.paperWidthMm;
 
   let base64Data: string;
   if (printType === 'RECEIPT') {
@@ -532,7 +541,7 @@ export async function printTicketLocally(
       serverName: serverName || order?.serverName,
       guestCount: guestCount ?? order?.guestCount,
       isReprint,
-      paperWidthMm: targetPrinter.paperWidthMm,
+      paperWidthMm,
     });
   } else if (printType === 'BAR_RECEIPT') {
     base64Data = buildBarTicket({
@@ -542,7 +551,7 @@ export async function printTicketLocally(
       serverName: serverName || order?.serverName,
       guestCount: guestCount ?? order?.guestCount,
       isReprint,
-      paperWidthMm: targetPrinter.paperWidthMm,
+      paperWidthMm,
     });
   } else {
     base64Data = buildKotTicket({
@@ -552,7 +561,7 @@ export async function printTicketLocally(
       serverName: serverName || order?.serverName,
       guestCount: guestCount ?? order?.guestCount,
       isReprint,
-      paperWidthMm: targetPrinter.paperWidthMm,
+      paperWidthMm,
     });
   }
 
@@ -755,7 +764,7 @@ export const printerService = {
         target: printer.target,
         connectionType: 'USB',
         systemPrinterName: printer.systemPrinterName || 'BUILTIN',
-        paperWidthMm: printer.paperWidthMm,
+        paperWidthMm: 80,
       });
       const result = await sendRawToBuiltInUsbPrinter(base64Data, {
         vendorId: printer.usbVendorId,

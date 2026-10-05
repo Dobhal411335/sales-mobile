@@ -17,6 +17,9 @@ export interface OrderContext {
 }
 
 export const DIRECT_ORDER_STORAGE_KEYS = {
-  walking: 'direct-order-walk-in',
+  takeaway: 'direct-order-takeaway',
   staff: 'direct-order-staff',
 } as const;
+
+/** Legacy AsyncStorage key — clear/migrate when resuming takeaway orders. */
+export const LEGACY_DIRECT_ORDER_WALK_IN_KEY = 'direct-order-walk-in';

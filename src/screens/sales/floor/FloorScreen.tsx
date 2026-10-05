@@ -1,4 +1,4 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useState} from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -23,6 +23,11 @@ import {useAuth} from '../../../hooks/useAuth';
 import {useFloorData} from '../../../hooks/useFloorData';
 import {useFloorRealtime} from '../../../hooks/useFloorRealtime';
 import {useFloorAttentionCounts} from '../../../hooks/useOrderHub';
+import {
+  navigateFast,
+  prefetchFloorDestinations,
+  prefetchSalesScreen,
+} from '../../../navigation/prefetchSalesScreens';
 import type {SalesStackParamList} from '../../../navigation/types';
 import type {FloorTable, TableSession} from '../../../types/table';
 import {canOverrideFloorSession} from '../../../utils/floorRoles';
@@ -56,6 +61,14 @@ export function FloorScreen({navigation}: Props) {
     retry,
   } = useFloorData();
 
+  // Warm destination modules while staff is on Floor so taps open instantly.
+  useEffect(() => {
+    if (!isFocused) {
+      return;
+    }
+    return prefetchFloorDestinations();
+  }, [isFocused]);
+
   const focusedReload = useCallback(() => {
     if (isFocused) {
       reload();
@@ -63,7 +76,7 @@ export function FloorScreen({navigation}: Props) {
   }, [isFocused, reload]);
 
   const {connectionStatus} = useFloorRealtime(selectedFloorId, focusedReload);
-  const {walkInUnpaid, staffUnpaid, onlineOpen} = useFloorAttentionCounts();
+  const {takeAwayUnpaid, staffUnpaid, onlineOpen} = useFloorAttentionCounts();
 
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [startSessionTable, setStartSessionTable] = useState<FloorTable | null>(
@@ -80,13 +93,15 @@ export function FloorScreen({navigation}: Props) {
 
   const currentUserId = user?.id ?? null;
   const canAdminOverride = canOverrideFloorSession(user?.role);
-  const attention = {walkInUnpaid, staffUnpaid, onlineOpen};
+  const attention = {takeAwayUnpaid, staffUnpaid, onlineOpen};
 
   const handleTablePress = useCallback(
     (table: FloorTable, session: TableSession | null) => {
       setSelectedTableId(table.id);
 
       if (!session) {
+        // Prefetch CreateOrder while seating modal is open.
+        prefetchSalesScreen('CreateOrder');
         setStartSessionTable(table);
         return;
       }
@@ -95,6 +110,7 @@ export function FloorScreen({navigation}: Props) {
       const isPaid = session.status === 'PAYMENT_PENDING';
 
       if (isMine || canAdminOverride || isPaid) {
+        prefetchSalesScreen('CreateOrder');
         setActionsTable(table);
         setActionsSession(session);
         return;
@@ -107,22 +123,36 @@ export function FloorScreen({navigation}: Props) {
   );
 
   const handleSessionStarted = useCallback(
-    (sessionId: string, tableId: string) => {
+    (
+      sessionId: string,
+      tableId: string,
+      meta?: {
+        guestCount: number;
+        tableNumber?: string;
+        floorName?: string | null;
+      },
+    ) => {
       setStartSessionTable(null);
-      navigation.navigate('CreateOrder', {
+      navigateFast(navigation, 'CreateOrder', {
         orderType: 'table',
         tableId,
         sessionId,
+        freshSession: true,
+        seedGuestCount: meta?.guestCount,
+        seedTableNumber: meta?.tableNumber,
+        seedFloorName: meta?.floorName ?? activeFloor?.name,
+        seedFloorId: activeFloor?.id,
       });
+      void reload();
     },
-    [navigation],
+    [navigation, activeFloor?.name, activeFloor?.id, reload],
   );
 
   const handleContinueOrder = useCallback(
     (sessionId: string, tableId: string) => {
       setActionsTable(null);
       setActionsSession(null);
-      navigation.navigate('CreateOrder', {
+      navigateFast(navigation, 'CreateOrder', {
         orderType: 'table',
         tableId,
         sessionId,
@@ -134,14 +164,14 @@ export function FloorScreen({navigation}: Props) {
   const handleSelectOrderType = useCallback(
     (orderType: FloorOrderShortcut) => {
       if (orderType === 'online') {
-        navigation.navigate('Orders', {filter: 'ONLINE'});
+        navigateFast(navigation, 'Orders', {filter: 'ONLINE'});
         return;
       }
-      if (orderType === 'walking') {
-        navigation.navigate('WalkInHub');
+      if (orderType === 'takeaway') {
+        navigateFast(navigation, 'TakeAwayHub');
         return;
       }
-      navigation.navigate('StaffHub');
+      navigateFast(navigation, 'StaffHub');
     },
     [navigation],
   );
@@ -229,44 +259,50 @@ export function FloorScreen({navigation}: Props) {
         </View>
       ) : null}
 
-      <StartSessionModal
-        visible={Boolean(startSessionTable)}
-        table={startSessionTable}
-        floorName={activeFloor?.name}
-        tables={tables}
-        sessions={sessions}
-        currentUserId={currentUserId}
-        onClose={() => setStartSessionTable(null)}
-        onSessionStarted={handleSessionStarted}
-      />
+      {startSessionTable ? (
+        <StartSessionModal
+          visible={Boolean(startSessionTable)}
+          table={startSessionTable}
+          floorName={activeFloor?.name}
+          tables={tables}
+          sessions={sessions}
+          currentUserId={currentUserId}
+          onClose={() => setStartSessionTable(null)}
+          onSessionStarted={handleSessionStarted}
+        />
+      ) : null}
 
-      <TableActionsSheet
-        visible={Boolean(actionsTable && actionsSession)}
-        table={actionsTable}
-        session={actionsSession}
-        floorName={activeFloor?.name}
-        tables={tables}
-        sessions={sessions}
-        currentUserId={currentUserId}
-        onClose={() => {
-          setActionsTable(null);
-          setActionsSession(null);
-        }}
-        onContinueOrder={handleContinueOrder}
-        onSessionUpdated={reload}
-      />
+      {actionsTable && actionsSession ? (
+        <TableActionsSheet
+          visible={Boolean(actionsTable && actionsSession)}
+          table={actionsTable}
+          session={actionsSession}
+          floorName={activeFloor?.name}
+          tables={tables}
+          sessions={sessions}
+          currentUserId={currentUserId}
+          onClose={() => {
+            setActionsTable(null);
+            setActionsSession(null);
+          }}
+          onContinueOrder={handleContinueOrder}
+          onSessionUpdated={reload}
+        />
+      ) : null}
 
-      <TableReadonlySheet
-        visible={Boolean(readonlyTable)}
-        table={readonlyTable}
-        session={readonlySession}
-        showAdminOverride={canAdminOverride}
-        onAdminOverride={handleAdminOverrideFromReadonly}
-        onClose={() => {
-          setReadonlyTable(null);
-          setReadonlySession(null);
-        }}
-      />
+      {readonlyTable ? (
+        <TableReadonlySheet
+          visible={Boolean(readonlyTable)}
+          table={readonlyTable}
+          session={readonlySession}
+          showAdminOverride={canAdminOverride}
+          onAdminOverride={handleAdminOverrideFromReadonly}
+          onClose={() => {
+            setReadonlyTable(null);
+            setReadonlySession(null);
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }

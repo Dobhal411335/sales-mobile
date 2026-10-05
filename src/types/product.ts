@@ -89,7 +89,8 @@ export interface ProductHeadMapping {
 
 export type MenuViewMode = 'grid' | 'list';
 export type PanelLayout = '2' | '3';
-export type ItemStyle = 'tiles' | 'list';
+/** @deprecated List/cards view removed — products always render as tiles. */
+export type ItemStyle = 'tiles';
 export type GridCols = 2 | 3 | 4;
 
 export function productNeedsOptions(product: MenuProduct): boolean {

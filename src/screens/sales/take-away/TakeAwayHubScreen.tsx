@@ -1,6 +1,5 @@
 import React, {useCallback} from 'react';
 import {
-  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -13,6 +12,7 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {ArrowLeft, Plus, RefreshCw, ShoppingBag} from 'lucide-react-native';
 import {OrderHubCard} from '../../../components/sales/OrderHubCard';
 import {OrderHubStats} from '../../../components/sales/OrderHubStats';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {colors} from '../../../constants/colors';
 import {useOrderHub} from '../../../hooks/useOrderHub';
 import type {SalesStackParamList} from '../../../navigation/types';
@@ -21,9 +21,9 @@ import {getOrderSessionId} from '../../../utils/orderDisplay';
 import {isOrderOpen} from '../../../utils/todayOrderHelpers';
 import {toast} from '../../../components/common/Toast';
 
-type Props = NativeStackScreenProps<SalesStackParamList, 'WalkInHub'>;
+type Props = NativeStackScreenProps<SalesStackParamList, 'TakeAwayHub'>;
 
-export function WalkInHubScreen({navigation}: Props) {
+export function TakeAwayHubScreen({navigation}: Props) {
   const {
     filtered,
     stats,
@@ -37,7 +37,7 @@ export function WalkInHubScreen({navigation}: Props) {
 
   const startNew = useCallback(() => {
     navigation.navigate('CreateOrder', {
-      orderType: 'walking',
+      orderType: 'takeaway',
       fresh: true,
     });
   }, [navigation]);
@@ -45,11 +45,11 @@ export function WalkInHubScreen({navigation}: Props) {
   const continueOrder = useCallback(
     (order: TodayOrder) => {
       if (!isOrderOpen(order)) {
-        toast.error('Only open walk-in orders can be continued.');
+        toast.error('Only open takeaway orders can be continued.');
         return;
       }
       navigation.navigate('CreateOrder', {
-        orderType: 'walking',
+        orderType: 'takeaway',
         orderId: order._id,
       });
     },
@@ -61,7 +61,7 @@ export function WalkInHubScreen({navigation}: Props) {
       navigation.navigate('Payment', {
         orderId: order._id,
         sessionId: getOrderSessionId(order) ?? undefined,
-        orderType: 'walking',
+        orderType: 'takeaway',
         subtotal: order.subTotal,
         taxTotal: order.taxTotal,
         total: order.totalAmount,
@@ -90,10 +90,10 @@ export function WalkInHubScreen({navigation}: Props) {
 
   const emptyMessage =
     filter === 'OPEN'
-      ? 'No unpaid walk-in orders'
+      ? 'No unpaid takeaway orders'
       : filter === 'PAID'
-        ? 'No paid walk-in orders yet today'
-        : 'No walk-in orders today';
+        ? 'No paid takeaway orders yet today'
+        : 'No takeaway orders today';
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
@@ -110,9 +110,9 @@ export function WalkInHubScreen({navigation}: Props) {
             <ArrowLeft size={18} color={colors.text} strokeWidth={2.4} />
           </Pressable>
           <View style={styles.headerTitles}>
-            <Text style={styles.title}>Walk-in Orders</Text>
+            <Text style={styles.title}>Takeaway Orders</Text>
             <Text style={styles.subtitle}>
-              Same-day walk-in sales · tap a card to filter
+              Same-day takeaway sales · tap a card to filter
             </Text>
           </View>
         </View>
@@ -141,9 +141,9 @@ export function WalkInHubScreen({navigation}: Props) {
             ]}
             onPress={startNew}
             accessibilityRole="button"
-            accessibilityLabel="New walk-in order">
+            accessibilityLabel="New takeaway order">
             <Plus size={16} color={colors.surface} strokeWidth={2.6} />
-            <Text style={styles.newBtnText}>New walk-in</Text>
+            <Text style={styles.newBtnText}>New takeaway</Text>
           </Pressable>
         </View>
 
@@ -154,12 +154,9 @@ export function WalkInHubScreen({navigation}: Props) {
         />
       </View>
 
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Loading walk-in orders…</Text>
-        </View>
-      ) : error ? (
+      {loading && filtered.length === 0 ? (
+        <SalesPageSkeleton variant="hubList" rows={5} />
+      ) : error && filtered.length === 0 ? (
         <View style={styles.centered}>
           <Text style={styles.errorText}>{error}</Text>
           <Pressable
@@ -175,6 +172,10 @@ export function WalkInHubScreen({navigation}: Props) {
           data={filtered}
           keyExtractor={(item) => item._id}
           contentContainerStyle={styles.listContent}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -199,7 +200,7 @@ export function WalkInHubScreen({navigation}: Props) {
               </View>
               <Text style={styles.emptyTitle}>{emptyMessage}</Text>
               <Text style={styles.emptyBody}>
-                Start a new walk-in order to take a guest order without a table.
+                Start a new takeaway order to take a guest order without a table.
               </Text>
               <Pressable
                 style={({pressed}) => [
@@ -208,16 +209,16 @@ export function WalkInHubScreen({navigation}: Props) {
                 ]}
                 onPress={startNew}
                 accessibilityRole="button"
-                accessibilityLabel="New walk-in order">
+                accessibilityLabel="New takeaway order">
                 <Plus size={16} color={colors.surface} strokeWidth={2.6} />
-                <Text style={styles.newBtnText}>New walk-in</Text>
+                <Text style={styles.newBtnText}>New takeaway</Text>
               </Pressable>
             </View>
           }
           renderItem={({item}) => (
             <OrderHubCard
               order={item}
-              typeLabel="Walk-in"
+              typeLabel="Takeaway"
               onContinue={() => continueOrder(item)}
               onPay={() => payOrder(item)}
             />

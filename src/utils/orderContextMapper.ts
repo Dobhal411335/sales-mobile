@@ -5,14 +5,15 @@ import {formatTableLocation} from './partyName';
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
   table: 'Table Order',
-  walking: 'Walking Order',
+  takeaway: 'Takeaway Order',
   staff: 'Staff Order',
   online: 'Online Order',
 };
 
 export function mapMobileOrderTypeToSource(orderType?: OrderType): OrderSource {
   switch (orderType) {
-    case 'walking':
+    case 'takeaway':
+      // API/DB still persist source as WALK_IN
       return 'WALK_IN';
     case 'staff':
       return 'STAFF';
@@ -24,8 +25,8 @@ export function mapMobileOrderTypeToSource(orderType?: OrderType): OrderSource {
 }
 
 export function getDirectOrderStorageKey(orderType?: OrderType): string | null {
-  if (orderType === 'walking') {
-    return DIRECT_ORDER_STORAGE_KEYS.walking;
+  if (orderType === 'takeaway') {
+    return DIRECT_ORDER_STORAGE_KEYS.takeaway;
   }
   if (orderType === 'staff') {
     return DIRECT_ORDER_STORAGE_KEYS.staff;
@@ -42,12 +43,12 @@ export function buildBaseOrderContext(params: {
   const source = mapMobileOrderTypeToSource(mobileOrderType);
   const titleLabel = ORDER_TYPE_LABELS[mobileOrderType];
 
-  if (mobileOrderType === 'walking') {
+  if (mobileOrderType === 'takeaway') {
     return {
       mobileOrderType,
       source,
       titleLabel,
-      partyLabel: 'Walk-in Customer',
+      partyLabel: 'Takeaway Customer',
     };
   }
 

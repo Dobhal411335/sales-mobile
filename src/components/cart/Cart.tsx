@@ -5,16 +5,19 @@ import {
   Text,
   TextInput,
   View,
-  FlatList,
   ScrollView,
 } from 'react-native';
+import {ChevronDown, ChevronUp, ShoppingCart} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem, CartTotals} from '../../types/cart';
 import {ConfirmDialog} from '../common/ConfirmDialog';
-import {ShoppingCart} from 'lucide-react-native';
 import {CartItem} from './CartItem';
 import {CartSummary} from './CartSummary';
-import {formatSeatLabel, normalizeSeatNumber} from '../../utils/seatHelpers';
+import {
+  formatSeatAccordionLabel,
+  getSeatAccordionStyle,
+  normalizeSeatNumber,
+} from '../../utils/seatHelpers';
 
 interface CartProps {
   items: CartLineItem[];
@@ -24,6 +27,8 @@ interface CartProps {
   canSendKot: boolean;
   canPay: boolean;
   hasSentKot: boolean;
+  /** Manager / terminal roles — Staff see Go to Orders instead. */
+  canCollectPayment?: boolean;
   showSeatTabs?: boolean;
   seatCount?: number;
   activeSeatNumber?: number | null;
@@ -36,7 +41,13 @@ interface CartProps {
   onClearAll: () => void;
   onSendKot: () => void;
   onPayNow: () => void;
+  onGoToOrders?: () => void;
 }
+
+type SeatSection = {
+  seatNumber: number | null;
+  label: string;
+};
 
 export function Cart({
   items,
@@ -46,6 +57,7 @@ export function Cart({
   canSendKot,
   canPay,
   hasSentKot,
+  canCollectPayment = true,
   showSeatTabs = false,
   seatCount = 0,
   activeSeatNumber = null,
@@ -58,22 +70,110 @@ export function Cart({
   onClearAll,
   onSendKot,
   onPayNow,
+  onGoToOrders,
 }: CartProps) {
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const itemCount = items.reduce((sum, item) => sum + item.qty, 0);
 
-  const visibleItems = useMemo(() => {
+  const seatSections = useMemo((): SeatSection[] => {
     if (!showSeatTabs || seatCount < 1) {
-      return items;
+      return [];
     }
-    const active = normalizeSeatNumber(activeSeatNumber);
-    return items.filter(
-      (i) => normalizeSeatNumber(i.seatNumber) === active,
-    );
-  }, [items, seatCount, showSeatTabs, activeSeatNumber]);
+    return [
+      {seatNumber: null, label: formatSeatAccordionLabel(null)},
+      ...Array.from({length: seatCount}, (_, i) => ({
+        seatNumber: i + 1,
+        label: formatSeatAccordionLabel(i + 1),
+      })),
+    ];
+  }, [showSeatTabs, seatCount]);
 
-  const activeSeatLabel =
-    activeSeatNumber == null ? 'Table' : formatSeatLabel(activeSeatNumber);
+  const renderItemHandlers = (item: CartLineItem) => (
+    <CartItem
+      key={item.cartId}
+      item={item}
+      onIncrease={() => onIncrease(item.cartId)}
+      onDecrease={() => onDecrease(item.cartId)}
+      onRemove={() => onRemove(item.cartId)}
+      onChangeNotes={(notes) => onChangeItemNotes(item.cartId, notes)}
+    />
+  );
+
+  const renderSeatAccordions = () =>
+    seatSections.map((section) => {
+      const isOpen =
+        normalizeSeatNumber(activeSeatNumber) ===
+        normalizeSeatNumber(section.seatNumber);
+      const style = getSeatAccordionStyle(section.seatNumber);
+      const sectionItems = items.filter(
+        (i) =>
+          normalizeSeatNumber(i.seatNumber) ===
+          normalizeSeatNumber(section.seatNumber),
+      );
+      const sectionQty = sectionItems.reduce(
+        (s, i) => s + (Number(i.qty) || 0),
+        0,
+      );
+      const emptyLabel =
+        section.seatNumber == null
+          ? 'Table'
+          : `Seat ${section.seatNumber}`;
+
+      return (
+        <View key={section.label} style={styles.accordionWrap}>
+          <Pressable
+            onPress={() =>
+              onSelectSeat?.(normalizeSeatNumber(section.seatNumber))
+            }
+            style={[
+              styles.accordionHeader,
+              {backgroundColor: style.headerBg},
+            ]}
+            accessibilityRole="button"
+            accessibilityState={{expanded: isOpen}}>
+            <Text style={[styles.accordionTitle, {color: style.headerText}]}>
+              {section.label}
+            </Text>
+            <View style={styles.accordionHeaderRight}>
+              {sectionQty > 0 ? (
+                <View
+                  style={[
+                    styles.accordionBadge,
+                    {backgroundColor: style.badgeBg},
+                  ]}>
+                  <Text
+                    style={[
+                      styles.accordionBadgeText,
+                      {color: style.badgeText},
+                    ]}>
+                    {sectionQty}
+                  </Text>
+                </View>
+              ) : null}
+              {isOpen ? (
+                <ChevronUp size={20} color={style.headerText} />
+              ) : (
+                <ChevronDown size={20} color={style.headerText} />
+              )}
+            </View>
+          </Pressable>
+          {isOpen ? (
+            <View style={styles.accordionBody}>
+              {sectionItems.length === 0 ? (
+                <View style={styles.accordionEmpty}>
+                  <Text style={styles.emptyTitle}>No items added</Text>
+                  <Text style={styles.emptyText}>
+                    Tap a menu item to add to {emptyLabel}.
+                  </Text>
+                </View>
+              ) : (
+                sectionItems.map((item) => renderItemHandlers(item))
+              )}
+            </View>
+          ) : null}
+        </View>
+      );
+    });
 
   return (
     <View style={styles.cart}>
@@ -103,88 +203,24 @@ export function Cart({
         ) : null}
       </View>
 
-      {showSeatTabs && seatCount > 0 ? (
-        <View style={styles.seatTabsWrap}>
-          <Text style={styles.seatTabsLabel}>Order for</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <Pressable
-              onPress={() => onSelectSeat?.(null)}
-              style={[
-                styles.seatChip,
-                activeSeatNumber == null ? styles.seatChipActiveDark : null,
-              ]}>
-              <Text
-                style={[
-                  styles.seatChipText,
-                  activeSeatNumber == null ? styles.seatChipTextActive : null,
-                ]}>
-                Table
-                {(() => {
-                  const qty = items
-                    .filter((i) => normalizeSeatNumber(i.seatNumber) == null)
-                    .reduce((s, i) => s + i.qty, 0);
-                  return qty > 0 ? ` (${qty})` : '';
-                })()}
-              </Text>
-            </Pressable>
-            {Array.from({length: seatCount}, (_, i) => i + 1).map((seat) => {
-              const active = activeSeatNumber === seat;
-              const qty = items
-                .filter((i) => normalizeSeatNumber(i.seatNumber) === seat)
-                .reduce((s, i) => s + i.qty, 0);
-              return (
-                <Pressable
-                  key={seat}
-                  onPress={() => onSelectSeat?.(seat)}
-                  style={[
-                    styles.seatChip,
-                    active ? styles.seatChipActive : null,
-                  ]}>
-                  <Text
-                    style={[
-                      styles.seatChipText,
-                      active ? styles.seatChipTextActive : null,
-                    ]}>
-                    Seat {seat}
-                    {qty > 0 ? ` (${qty})` : ''}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      ) : null}
-
-      {visibleItems.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={styles.emptyTitle}>
-            {showSeatTabs && items.length > 0
-              ? `No items for ${activeSeatLabel}`
-              : 'No items added'}
-          </Text>
-          <Text style={styles.emptyText}>
-            {showSeatTabs
-              ? `Tap a menu item to add to ${activeSeatLabel}.`
-              : 'Tap a menu item to begin order.'}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={visibleItems}
-          keyExtractor={(item) => item.cartId}
-          style={styles.list}
-          contentContainerStyle={styles.listContent}
-          renderItem={({item}) => (
-            <CartItem
-              item={item}
-              onIncrease={() => onIncrease(item.cartId)}
-              onDecrease={() => onDecrease(item.cartId)}
-              onRemove={() => onRemove(item.cartId)}
-              onChangeNotes={(notes) => onChangeItemNotes(item.cartId, notes)}
-            />
-          )}
-        />
-      )}
+      <ScrollView
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator>
+        {showSeatTabs && seatCount > 0 ? (
+          renderSeatAccordions()
+        ) : items.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyTitle}>No items added</Text>
+            <Text style={styles.emptyText}>
+              Tap a menu item to begin order.
+            </Text>
+          </View>
+        ) : (
+          items.map((item) => renderItemHandlers(item))
+        )}
+      </ScrollView>
 
       <View style={styles.footer}>
         <Text style={styles.notesLabel}>Order Notes</Text>
@@ -220,24 +256,37 @@ export function Cart({
             </Text>
           </Pressable>
 
-          <Pressable
-            style={({pressed}) => [
-              styles.payButton,
-              !canPay && styles.actionDisabled,
-              pressed && canPay && styles.payButtonPressed,
-            ]}
-            disabled={!canPay}
-            onPress={onPayNow}
-            accessibilityRole="button"
-            accessibilityLabel="Pay now">
-            <Text
-              style={[
-                styles.payButtonText,
-                !canPay && styles.actionTextDisabled,
-              ]}>
-              Pay Now
-            </Text>
-          </Pressable>
+          {canCollectPayment ? (
+            <Pressable
+              style={({pressed}) => [
+                styles.payButton,
+                !canPay && styles.actionDisabled,
+                pressed && canPay && styles.payButtonPressed,
+              ]}
+              disabled={!canPay}
+              onPress={onPayNow}
+              accessibilityRole="button"
+              accessibilityLabel="Pay now">
+              <Text
+                style={[
+                  styles.payButtonText,
+                  !canPay && styles.actionTextDisabled,
+                ]}>
+                Pay Now
+              </Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              style={({pressed}) => [
+                styles.ordersButton,
+                pressed && styles.ordersButtonPressed,
+              ]}
+              onPress={onGoToOrders}
+              accessibilityRole="button"
+              accessibilityLabel="Go to Orders">
+              <Text style={styles.ordersButtonText}>Go to Orders</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -313,51 +362,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.error,
   },
-  seatTabsWrap: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 10,
-    gap: 6,
-  },
-  seatTabsLabel: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  seatChip: {
-    marginRight: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+  accordionWrap: {
+    borderRadius: 12,
+    overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
+    marginBottom: 8,
   },
-  seatChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 8,
   },
-  seatChipActiveDark: {
-    backgroundColor: colors.text,
-    borderColor: colors.text,
+  accordionTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 0.4,
   },
-  seatChipText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: colors.text,
+  accordionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
-  seatChipTextActive: {
-    color: colors.surface,
+  accordionBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accordionBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  accordionBody: {
+    backgroundColor: '#FAFAFA',
+    padding: 10,
+    gap: 8,
+  },
+  accordionEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 12,
   },
   emptyState: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 24,
+    paddingVertical: 48,
   },
   emptyTitle: {
     fontSize: 16,
@@ -376,8 +433,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FAFAFA',
   },
   listContent: {
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    paddingBottom: 16,
   },
   footer: {
     paddingHorizontal: 16,
@@ -437,12 +495,28 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.primary,
+    backgroundColor: colors.error,
   },
   payButtonPressed: {
-    backgroundColor: colors.primaryHover,
+    backgroundColor: '#B91C1C',
   },
   payButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.surface,
+  },
+  ordersButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+  },
+  ordersButtonPressed: {
+    backgroundColor: colors.primaryHover,
+  },
+  ordersButtonText: {
     fontSize: 15,
     fontWeight: '800',
     color: colors.surface,

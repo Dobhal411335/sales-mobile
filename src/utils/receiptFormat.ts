@@ -3,6 +3,7 @@ import type {KotLineItem} from '../types/receipt';
 import {isOfferItem, getOfferDetailLines} from './offerDetails';
 import {
   getItemExtraOptions,
+  isStandaloneExtraLine,
   normalizeChoiceSelections,
   normalizeCustomExtras,
 } from './productChoices';
@@ -39,6 +40,19 @@ export function formatTableNumbersWithFloor(
     return floor;
   }
   return '';
+}
+
+function isRedundantExtraModifier(
+  item: KotLineItem | CartLineItem,
+  modifier: string,
+): boolean {
+  if (!isStandaloneExtraLine(item)) return false;
+  const itemName = String(item.name || '').trim();
+  if (!itemName) return false;
+  const raw = String(modifier || '').trim();
+  if (raw.toLowerCase() === itemName.toLowerCase()) return true;
+  const escaped = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^(?:addons|extras)\\s*:\\s*${escaped}$`, 'i').test(raw);
 }
 
 /**
@@ -100,7 +114,7 @@ export function getReceiptModifierLines(
     !item.choiceSelections?.length &&
     !item.addonChoiceSelections?.length
   ) {
-    if (item.modifier) {
+    if (item.modifier && !isRedundantExtraModifier(item, String(item.modifier))) {
       lines.push({kind: 'modifier', text: String(item.modifier)});
     }
     if (item.choices?.length) {

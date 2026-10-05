@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import {SalesMetricCard} from '../../../components/common/SalesMetricCard';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {DetailedSalesSummary} from '../../../components/reports/DetailedSalesSummary';
 import {EmailReportModal} from '../../../components/reports/EmailReportModal';
 import {EodReportSections} from '../../../components/reports/EodReportSections';
@@ -95,11 +96,9 @@ export function EODReportScreen() {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled">
-        {loading ? (
-          <View style={styles.centerState}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
-        ) : error ? (
+        {loading && !report ? (
+          <SalesPageSkeleton variant="metricCards" rows={5} />
+        ) : error && !report ? (
           <View style={styles.centerState}>
             <Text style={styles.errorText}>{error}</Text>
             <Pressable style={styles.retryButton} onPress={refreshLive}>

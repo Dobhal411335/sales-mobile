@@ -8,7 +8,7 @@ const PRINTER_MANAGER_ROLES = new Set([
   'MANAGER TERMINAL',
 ]);
 
-/** Roles allowed to collect payment from Create Order (table / walk-in / staff). */
+/** Roles allowed to collect payment from Create Order (table / takeaway / staff). */
 const CREATE_ORDER_PAY_ROLES = new Set([
   'ADMIN',
   'SUPER ADMIN',

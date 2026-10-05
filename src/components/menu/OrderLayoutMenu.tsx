@@ -13,18 +13,15 @@ import {
   ChevronDown,
   Columns2,
   Columns3,
-  List,
   SlidersHorizontal,
 } from 'lucide-react-native';
 import {colors} from '../../constants/colors';
-import type {GridCols, ItemStyle, PanelLayout} from '../../types/product';
+import type {GridCols, PanelLayout} from '../../types/product';
 
 interface OrderLayoutMenuProps {
   panelLayout: PanelLayout;
-  itemStyle: ItemStyle;
   gridCols: GridCols;
   onPanelLayout: (layout: PanelLayout) => void;
-  onItemStyle: (style: ItemStyle) => void;
   onGridCols: (cols: GridCols) => void;
 }
 
@@ -33,14 +30,11 @@ const DROPDOWN_GAP = 6;
 
 export function OrderLayoutMenu({
   panelLayout,
-  itemStyle,
   gridCols,
   onPanelLayout,
-  onItemStyle,
   onGridCols,
 }: OrderLayoutMenuProps) {
   const [open, setOpen] = useState(false);
-  const [listOpen, setListOpen] = useState(false);
   const [anchor, setAnchor] = useState<{top: number; left: number} | null>(
     null,
   );
@@ -49,20 +43,15 @@ export function OrderLayoutMenu({
 
   const summary = useMemo(() => {
     const panels = panelLayout === '3' ? '3 panels' : '2 panels';
-    if (itemStyle === 'list') {
-      return `${panels} · List`;
-    }
-    return `${panels} · Tiles ${gridCols}`;
-  }, [panelLayout, itemStyle, gridCols]);
+    return `${panels} · ${gridCols} columns`;
+  }, [panelLayout, gridCols]);
 
   const close = () => {
     setOpen(false);
-    setListOpen(false);
     setAnchor(null);
   };
 
   const openMenu = () => {
-    setListOpen(false);
     const node = triggerRef.current;
     if (!node?.measureInWindow) {
       setAnchor({top: 72, left: 16});
@@ -76,83 +65,6 @@ export function OrderLayoutMenu({
       setOpen(true);
     });
   };
-
-  const dropdownBody = (
-    <>
-      <Text style={styles.sectionLabel}>Screens</Text>
-      <Pressable
-        style={styles.row}
-        onPress={() => {
-          onPanelLayout('2');
-          close();
-        }}>
-        <Columns2 size={16} color={colors.text} />
-        <Text style={styles.rowText}>2 panels</Text>
-        {panelLayout === '2' ? (
-          <Check size={16} color={colors.primary} style={styles.check} />
-        ) : null}
-      </Pressable>
-      <Pressable
-        style={styles.row}
-        onPress={() => {
-          onPanelLayout('3');
-          close();
-        }}>
-        <Columns3 size={16} color={colors.text} />
-        <Text style={styles.rowText}>3 panels</Text>
-        {panelLayout === '3' ? (
-          <Check size={16} color={colors.primary} style={styles.check} />
-        ) : null}
-      </Pressable>
-
-      <View style={styles.separator} />
-      <Text style={styles.sectionLabel}>Product view</Text>
-      <Pressable style={styles.row} onPress={() => setListOpen((v) => !v)}>
-        <List size={16} color={colors.text} />
-        <Text style={styles.rowText}>List</Text>
-        {itemStyle === 'tiles' ? (
-          <Text style={styles.colsHint}>{gridCols}</Text>
-        ) : itemStyle === 'list' ? (
-          <Check size={16} color={colors.primary} style={styles.check} />
-        ) : null}
-        <ChevronDown
-          size={14}
-          color={colors.textSecondary}
-          style={listOpen ? styles.chevronOpen : undefined}
-        />
-      </Pressable>
-      {listOpen ? (
-        <View style={styles.subList}>
-          <Pressable
-            style={styles.subRow}
-            onPress={() => {
-              onItemStyle('list');
-              close();
-            }}>
-            <Text style={styles.subRowText}>Cards</Text>
-            {itemStyle === 'list' ? (
-              <Check size={16} color={colors.primary} />
-            ) : null}
-          </Pressable>
-          {([2, 3, 4] as GridCols[]).map((n) => (
-            <Pressable
-              key={n}
-              style={styles.subRow}
-              onPress={() => {
-                onItemStyle('tiles');
-                onGridCols(n);
-                close();
-              }}>
-              <Text style={styles.subRowText}>{n} columns</Text>
-              {itemStyle === 'tiles' && gridCols === n ? (
-                <Check size={16} color={colors.primary} />
-              ) : null}
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-    </>
-  );
 
   return (
     <>
@@ -190,7 +102,48 @@ export function OrderLayoutMenu({
                 {top: anchor.top, left: anchor.left},
               ]}
               onPress={(e) => e.stopPropagation()}>
-              {dropdownBody}
+              <Text style={styles.sectionLabel}>Screens</Text>
+              <Pressable
+                style={styles.row}
+                onPress={() => {
+                  onPanelLayout('2');
+                  close();
+                }}>
+                <Columns2 size={16} color={colors.text} />
+                <Text style={styles.rowText}>2 panels</Text>
+                {panelLayout === '2' ? (
+                  <Check size={16} color={colors.primary} style={styles.check} />
+                ) : null}
+              </Pressable>
+              <Pressable
+                style={styles.row}
+                onPress={() => {
+                  onPanelLayout('3');
+                  close();
+                }}>
+                <Columns3 size={16} color={colors.text} />
+                <Text style={styles.rowText}>3 panels</Text>
+                {panelLayout === '3' ? (
+                  <Check size={16} color={colors.primary} style={styles.check} />
+                ) : null}
+              </Pressable>
+
+              <View style={styles.separator} />
+              <Text style={styles.sectionLabel}>Product columns</Text>
+              {([2, 3, 4] as GridCols[]).map((n) => (
+                <Pressable
+                  key={n}
+                  style={styles.row}
+                  onPress={() => {
+                    onGridCols(n);
+                    close();
+                  }}>
+                  <Text style={styles.rowText}>{n} columns</Text>
+                  {gridCols === n ? (
+                    <Check size={16} color={colors.primary} style={styles.check} />
+                  ) : null}
+                </Pressable>
+              ))}
             </Pressable>
           ) : null}
         </Pressable>
@@ -273,13 +226,6 @@ const styles = StyleSheet.create({
   check: {
     marginLeft: 'auto',
   },
-  colsHint: {
-    marginLeft: 'auto',
-    marginRight: 4,
-    fontSize: 11,
-    fontWeight: '800',
-    color: colors.primary,
-  },
   chevronOpen: {
     transform: [{rotate: '180deg'}],
   },
@@ -288,24 +234,5 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
     marginVertical: 6,
     marginHorizontal: 8,
-  },
-  subList: {
-    backgroundColor: '#FAFAFA',
-    marginHorizontal: 8,
-    marginBottom: 6,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  subRow: {
-    minHeight: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-  },
-  subRowText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: colors.text,
   },
 });

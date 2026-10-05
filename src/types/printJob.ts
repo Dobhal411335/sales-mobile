@@ -68,6 +68,9 @@ export interface PrintJobMetadata {
   splitAmount?: number;
   splitMethod?: string;
   splitCardType?: string;
+  /** Set when paying via split-by-seat — receipt lists only that seat's lines */
+  filterReceiptBySeat?: boolean;
+  splitSeatNumber?: number | null;
   paymentMethod?: string;
   cashAmount?: number;
   cardAmount?: number;

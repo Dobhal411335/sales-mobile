@@ -2,7 +2,7 @@ import type {OrderType} from '../navigation/types';
 
 export interface PartyNameContext {
   orderType?: OrderType;
-  isWalkIn?: boolean;
+  isTakeAway?: boolean;
   tableLabel?: string;
   guestCount?: number;
 }
@@ -35,8 +35,8 @@ export function resolvePartyName(
     return trimmed;
   }
 
-  if (context.isWalkIn || context.orderType === 'walking') {
-    return 'Walk-in';
+  if (context.isTakeAway || context.orderType === 'takeaway') {
+    return 'Takeaway';
   }
 
   const tableLabel = context.tableLabel ?? '';
@@ -51,7 +51,7 @@ export function resolvePartyName(
   if (guestCount != null) {
     return `${guestCount} guest${guestCount === 1 ? '' : 's'}`;
   }
-  return 'Walk-in';
+  return 'Takeaway';
 }
 
 export function validatePartyEmail(email: string): string | null {

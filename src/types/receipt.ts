@@ -71,6 +71,9 @@ export interface ReceiptOrder {
   cardAmount?: number;
   paymentStatus?: string;
   paymentSplits?: OrderPaymentSplit[];
+  taxBreakdown?: TaxBreakdownLine[];
+  /** When true, receipt preview hides multi-seat headers (seat-scoped split slip) */
+  filterReceiptBySeat?: boolean;
   source?: string;
   isReprint?: boolean;
   restaurantName?: string;

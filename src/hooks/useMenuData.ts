@@ -2,7 +2,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import type {
   GridCols,
-  ItemStyle,
   MenuHead,
   MenuProduct,
   MenuViewMode,
@@ -32,7 +31,6 @@ interface UseMenuDataResult {
   activeHead: string;
   viewMode: MenuViewMode;
   panelLayout: PanelLayout;
-  itemStyle: ItemStyle;
   gridCols: GridCols;
   searchQuery: string;
   filteredProducts: MenuProduct[];
@@ -45,7 +43,6 @@ interface UseMenuDataResult {
   setActiveHead: (head: string) => void;
   setViewMode: (mode: MenuViewMode) => void;
   setPanelLayout: (layout: PanelLayout) => void;
-  setItemStyle: (style: ItemStyle) => void;
   setGridCols: (cols: GridCols) => void;
   setSearchQuery: (query: string) => void;
   reload: () => void;
@@ -68,9 +65,8 @@ export function useMenuData(): UseMenuDataResult {
 
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeHead, setActiveHead] = useState('All');
-  const [viewMode, setViewMode] = useState<MenuViewMode>('list');
+  const [viewMode, setViewMode] = useState<MenuViewMode>('grid');
   const [panelLayout, setPanelLayoutState] = useState<PanelLayout>('3');
-  const [itemStyle, setItemStyleState] = useState<ItemStyle>('list');
   const [gridCols, setGridColsState] = useState<GridCols>(2);
   const [searchQuery, setSearchQuery] = useState('');
   const layoutPrefsLoaded = useRef(false);
@@ -118,15 +114,11 @@ export function useMenuData(): UseMenuDataResult {
         }
         const prefs = JSON.parse(raw) as {
           panelLayout?: PanelLayout;
-          itemStyle?: ItemStyle;
           gridCols?: number;
           viewMode?: MenuViewMode;
         };
         if (prefs.panelLayout === '2' || prefs.panelLayout === '3') {
           setPanelLayoutState(prefs.panelLayout);
-        }
-        if (prefs.itemStyle === 'tiles' || prefs.itemStyle === 'list') {
-          setItemStyleState(prefs.itemStyle);
         }
         if ([2, 3, 4].includes(Number(prefs.gridCols))) {
           setGridColsState(Number(prefs.gridCols) as GridCols);
@@ -155,29 +147,16 @@ export function useMenuData(): UseMenuDataResult {
       LAYOUT_PREF_KEY,
       JSON.stringify({
         panelLayout,
-        itemStyle,
         gridCols,
         viewMode,
       }),
     );
-  }, [panelLayout, itemStyle, gridCols, viewMode]);
+  }, [panelLayout, gridCols, viewMode]);
 
-  const setPanelLayout = useCallback(
-    (layout: PanelLayout) => {
-      setPanelLayoutState(layout);
-      if (layout === '3' && itemStyle === 'tiles') {
-        setGridColsState(2);
-      }
-    },
-    [itemStyle],
-  );
-
-  const setItemStyle = useCallback((style: ItemStyle) => {
-    setItemStyleState(style);
-    if (style === 'tiles') {
-      setViewMode('grid');
-    } else {
-      setViewMode('list');
+  const setPanelLayout = useCallback((layout: PanelLayout) => {
+    setPanelLayoutState(layout);
+    if (layout === '3') {
+      setGridColsState(2);
     }
   }, []);
 
@@ -285,7 +264,6 @@ export function useMenuData(): UseMenuDataResult {
     activeHead,
     viewMode,
     panelLayout,
-    itemStyle,
     gridCols,
     searchQuery,
     filteredProducts,
@@ -298,7 +276,6 @@ export function useMenuData(): UseMenuDataResult {
     setActiveHead,
     setViewMode,
     setPanelLayout,
-    setItemStyle,
     setGridCols,
     setSearchQuery,
     reload: () => {

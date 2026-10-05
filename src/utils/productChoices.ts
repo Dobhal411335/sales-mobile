@@ -189,14 +189,44 @@ export function isStyleOption(
   return false;
 }
 
+export function isStandaloneExtraLine(item?: {
+  size?: string | null;
+} | null): boolean {
+  return /^extra$/i.test(String(item?.size || ''));
+}
+
+/**
+ * Standalone Extra lines store the addon name in both `name` and `options`
+ * (options are required for pricing). Skip that label on tickets/cart UI.
+ */
+export function isRedundantStandaloneExtraOption(
+  item:
+    | {
+        name?: string | null;
+        size?: string | null;
+      }
+    | null
+    | undefined,
+  opt: unknown,
+): boolean {
+  if (!isStandaloneExtraLine(item)) return false;
+  const itemName = String(item?.name || '').trim().toLowerCase();
+  const label = String(opt || '').trim().toLowerCase();
+  return Boolean(itemName && label && itemName === label);
+}
+
 /** Addon / extra labels stored on `item.options`, excluding preparation style. */
 export function getItemExtraOptions(item?: {
+  name?: string | null;
+  size?: string | null;
   options?: string[] | null;
   preparationStyle?: string | null;
 } | null): string[] {
-  return (item?.options || []).filter(
-    (opt) => !isStyleOption(opt, item?.preparationStyle),
-  );
+  return (item?.options || []).filter((opt) => {
+    if (isStyleOption(opt, item?.preparationStyle)) return false;
+    if (isRedundantStandaloneExtraOption(item, opt)) return false;
+    return true;
+  });
 }
 
 export interface NormalizedCustomExtra {

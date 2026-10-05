@@ -86,7 +86,14 @@ api.interceptors.request.use(async (requestConfig) => {
 
 api.interceptors.response.use(
   async (response) => {
-    await persistCookiesFromResponse(response.headers as Record<string, unknown>);
+    // Only touch Keychain when Set-Cookie is present (persistCookies no-ops otherwise).
+    const headers = response.headers as Record<string, unknown>;
+    const hasSetCookie = Boolean(
+      headers['set-cookie'] ?? headers['Set-Cookie'] ?? headers['SET-COOKIE'],
+    );
+    if (hasSetCookie) {
+      await persistCookiesFromResponse(headers);
+    }
     const payload = response.data as
       | {data?: {deviceToken?: string}}
       | undefined;

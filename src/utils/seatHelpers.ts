@@ -29,6 +29,64 @@ export function formatSeatLabel(seatNumber: unknown): string {
   return n == null ? 'Table' : `Seat ${n}`;
 }
 
+export type SeatAccordionStyle = {
+  headerBg: string;
+  headerText: string;
+  badgeBg: string;
+  badgeText: string;
+};
+
+/** Header colors for Table + Seat accordions (cycles after Seat 4). */
+export const SEAT_ACCORDION_STYLES: SeatAccordionStyle[] = [
+  {
+    headerBg: '#F97316',
+    headerText: '#FFFFFF',
+    badgeBg: 'rgba(255,255,255,0.22)',
+    badgeText: '#FFFFFF',
+  },
+  {
+    headerBg: '#9CA36A',
+    headerText: '#FFFFFF',
+    badgeBg: 'rgba(255,255,255,0.22)',
+    badgeText: '#FFFFFF',
+  },
+  {
+    headerBg: '#2DD4BF',
+    headerText: '#FFFFFF',
+    badgeBg: 'rgba(255,255,255,0.25)',
+    badgeText: '#FFFFFF',
+  },
+  {
+    headerBg: '#94A3B8',
+    headerText: '#FFFFFF',
+    badgeBg: 'rgba(255,255,255,0.25)',
+    badgeText: '#FFFFFF',
+  },
+  {
+    headerBg: '#8B5CF6',
+    headerText: '#FFFFFF',
+    badgeBg: 'rgba(255,255,255,0.22)',
+    badgeText: '#FFFFFF',
+  },
+];
+
+export function getSeatAccordionStyle(
+  seatNumber: number | null,
+): SeatAccordionStyle {
+  if (seatNumber == null) {
+    return SEAT_ACCORDION_STYLES[0];
+  }
+  const idx = ((Math.floor(seatNumber) - 1) % 4) + 1;
+  return SEAT_ACCORDION_STYLES[idx] ?? SEAT_ACCORDION_STYLES[1];
+}
+
+export function formatSeatAccordionLabel(seatNumber: number | null): string {
+  if (seatNumber == null) {
+    return 'Table';
+  }
+  return `Seat ${String(seatNumber).padStart(2, '0')}`;
+}
+
 export function groupItemsBySeat<T extends {seatNumber?: number | null; seat?: unknown}>(
   items: T[] = [],
 ): Array<{seatNumber: number | null; label: string; items: T[]}> {
@@ -112,4 +170,137 @@ export function buildSeatSplitRows(order: {
   }
 
   return rows;
+}
+
+/** True when payment splits align with seat buckets (split-by-seat checkout). */
+export function isSeatBasedPaymentSplits(
+  splits: Array<{name?: string; seatNumber?: number | null}> = [],
+  items: Array<{seatNumber?: number | null; seat?: unknown}> = [],
+): boolean {
+  if (!Array.isArray(splits) || splits.length < 2) {
+    return false;
+  }
+  const groups = groupItemsBySeat(items);
+  if (groups.length < 2) {
+    return false;
+  }
+  const labels = new Set(groups.map((g) => g.label));
+  if (labels.size !== splits.length) {
+    return false;
+  }
+  return splits.every((s) => labels.has(String(s?.name || '').trim()));
+}
+
+/** Items belonging to one seat bucket (null = shared Table items). */
+export function filterItemsBySeat<
+  T extends {seatNumber?: number | null; seat?: unknown},
+>(items: T[] = [], seatNumber: number | null | undefined): T[] {
+  const target = normalizeSeatNumber(seatNumber);
+  return (Array.isArray(items) ? items : []).filter(
+    (item) => normalizeSeatNumber(item?.seatNumber ?? item?.seat) === target,
+  );
+}
+
+/**
+ * Whether a split receipt should list only one seat's lines (preview + print).
+ * Uses job metadata when present; otherwise matches order.paymentSplits by splitIndex.
+ */
+export function resolveSplitReceiptSeatFilter(
+  jobMetadata: Record<string, unknown> | null | undefined,
+  order?: {
+    items?: Array<{seatNumber?: number | null; seat?: unknown}>;
+    paymentSplits?: Array<{
+      name?: string;
+      seatNumber?: number | null;
+    }>;
+  } | null,
+): {filter: boolean; seatNumber: number | null} {
+  const meta =
+    jobMetadata && typeof jobMetadata === 'object' ? jobMetadata : {};
+  if (meta.filterReceiptBySeat) {
+    return {
+      filter: true,
+      seatNumber:
+        meta.splitSeatNumber !== undefined && meta.splitSeatNumber !== null
+          ? normalizeSeatNumber(meta.splitSeatNumber)
+          : null,
+    };
+  }
+  if (!meta.isSplitReceipt || !order) {
+    return {filter: false, seatNumber: null};
+  }
+  const splits = order.paymentSplits;
+  if (!isSeatBasedPaymentSplits(splits || [], order.items || [])) {
+    return {filter: false, seatNumber: null};
+  }
+  const idx = Math.max(0, (Number(meta.splitIndex) || 1) - 1);
+  const split = splits?.[idx];
+  if (!split) {
+    return {filter: false, seatNumber: null};
+  }
+  return {
+    filter: true,
+    seatNumber: normalizeSeatNumber(split.seatNumber),
+  };
+}
+
+/** Scale order totals by filtered items' share of line subtotal. */
+export function proportionalOrderTotalsForItems(
+  order: {
+    items?: Array<{
+      price?: number;
+      qty?: number;
+      customExtras?: Array<{price?: number}>;
+    }>;
+    discountTotal?: number;
+    taxTotal?: number;
+    serviceChargeTotal?: number;
+    totalAmount?: number;
+    taxBreakdown?: Array<{
+      name?: string;
+      amount?: number;
+      rate?: number;
+      taxId?: string;
+    }>;
+  } | null | undefined,
+  filteredItems: Array<{
+    price?: number;
+    qty?: number;
+    customExtras?: Array<{price?: number}>;
+  }> = [],
+): {
+  subTotal: number;
+  discountTotal: number;
+  taxTotal: number;
+  serviceChargeTotal: number;
+  totalAmount: number;
+  taxBreakdown: Array<{
+    name?: string;
+    amount: number;
+    rate?: number;
+    taxId?: string;
+  }>;
+} {
+  const allItems = Array.isArray(order?.items) ? order.items : [];
+  const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  const orderSub = allItems.reduce((s, it) => s + getItemLineTotal(it), 0);
+  const seatSub = (Array.isArray(filteredItems) ? filteredItems : []).reduce(
+    (s, it) => s + getItemLineTotal(it),
+    0,
+  );
+  const ratio = orderSub > 0 ? seatSub / orderSub : 1;
+  const taxBreakdown = (
+    Array.isArray(order?.taxBreakdown) ? order.taxBreakdown : []
+  ).map((t) => ({
+    ...t,
+    amount: r2(Number(t.amount || 0) * ratio),
+  }));
+  return {
+    subTotal: r2(seatSub),
+    discountTotal: r2(Number(order?.discountTotal || 0) * ratio),
+    taxTotal: r2(Number(order?.taxTotal || 0) * ratio),
+    serviceChargeTotal: r2(Number(order?.serviceChargeTotal || 0) * ratio),
+    totalAmount: r2(Number(order?.totalAmount || 0) * ratio),
+    taxBreakdown,
+  };
 }

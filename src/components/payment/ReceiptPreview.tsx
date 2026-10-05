@@ -195,7 +195,7 @@ function KotReceiptBody({
         ) : null}
         <Text style={styles.receiptBold}>
           {directSale
-            ? partyLabel || (String(order?.source || '').toUpperCase() === 'STAFF' ? 'Staff' : 'Walk-in')
+            ? partyLabel || (String(order?.source || '').toUpperCase() === 'STAFF' ? 'Staff' : 'Takeaway')
             : tableLabel || 'Takeaway / No Table'}
         </Text>
       </View>
@@ -229,12 +229,15 @@ function KotReceiptBody({
 
       <View style={styles.divider} />
 
-      {seatGroups.map((seatGroup) => (
-        <View key={seatGroup.label} style={styles.categoryBlock}>
+      {seatGroups.map((seatGroup, seatIdx) => (
+        <View
+          key={seatGroup.label}
+          style={[styles.categoryBlock, seatIdx > 0 && styles.seatBlockGap]}>
           {showSeatHeaders ? (
-            <Text style={[styles.categoryTitle, {marginBottom: 6}]}>
-              {seatGroup.label}
-            </Text>
+            <View style={styles.seatBannerWrap}>
+              <View style={styles.seatRule} />
+              <Text style={styles.seatBannerText}>{seatGroup.label}:</Text>
+            </View>
           ) : null}
           {Object.entries(seatGroup.byCategory).map(([group, groupItems]) => (
             <View key={`${seatGroup.label}-${group}`}>
@@ -630,7 +633,9 @@ function CustomerReceiptBody({
     giftUsed > 0 || cash > 0 || card > 0 || methodStr,
   );
 
-  const showSeatHeaders = items.some((it) => normalizePreviewSeat(it) != null);
+  const showSeatHeaders =
+    !order?.filterReceiptBySeat &&
+    items.some((it) => normalizePreviewSeat(it) != null);
   const seatGroups = groupKotItemsBySeat(items, {kotStyle: false});
 
   const renderReceiptItem = (item: CartLineItem, idx: number | string) => {
@@ -720,7 +725,7 @@ function CustomerReceiptBody({
             {partyLabel ||
               (String(order?.source || '').toUpperCase() === 'STAFF'
                 ? 'Staff'
-                : 'Walk-in')}
+                : 'Takeaway')}
           </Text>
         ) : null}
         {resolvedGuests != null ? (
@@ -743,7 +748,7 @@ function CustomerReceiptBody({
 
       <View style={styles.divider} />
 
-      {seatGroups.map((group) => {
+      {seatGroups.map((group, gIdx) => {
         const regularItems = group.byCategory
           ? Object.values(group.byCategory)
               .flat()
@@ -755,9 +760,12 @@ function CustomerReceiptBody({
               .filter((item) => isOfferItem(item))
           : [];
         return (
-          <View key={group.label}>
+          <View key={group.label} style={gIdx > 0 ? styles.seatBlockGap : undefined}>
             {showSeatHeaders ? (
-              <Text style={styles.seatHeader}>{group.label}</Text>
+              <View style={styles.seatBannerWrap}>
+                <View style={styles.seatRule} />
+                <Text style={styles.seatBannerText}>{group.label}:</Text>
+              </View>
             ) : null}
             {regularItems.map((item, idx) =>
               renderReceiptItem(item as CartLineItem, `${group.label}-r-${idx}`),
@@ -1123,6 +1131,27 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.text,
     fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
+  },
+  seatBlockGap: {
+    marginTop: 10,
+  },
+  seatBannerWrap: {
+    marginBottom: 6,
+  },
+  seatRule: {
+    borderTopWidth: 1,
+    borderStyle: 'dashed',
+    borderTopColor: colors.text,
+    marginBottom: 4,
+  },
+  seatBannerText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+    fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
+    marginBottom: 2,
   },
   offersTitle: {
     fontSize: 10,

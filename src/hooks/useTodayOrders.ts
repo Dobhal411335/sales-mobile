@@ -1,11 +1,11 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useState} from 'react';
 import {
   approveOnlineOrder,
-  fetchTodayOrders,
   markOnlineReady,
   sendOnlineKot,
   waiveTodayOrder,
 } from '../services/todayOrdersService';
+import {useTodayOrdersStore} from '../store/todayOrdersStore';
 import type {TodayOrder} from '../types/todayOrder';
 
 interface OnlineActionResult {
@@ -34,64 +34,34 @@ interface UseTodayOrdersResult {
   markReady: (orderId: string) => Promise<OnlineActionResult>;
 }
 
-function mergeOrder(
-  prev: TodayOrder[],
-  orderId: string,
-  next: TodayOrder,
-): TodayOrder[] {
-  return prev.map((order) =>
-    order._id === orderId ? {...order, ...next} : order,
-  );
-}
-
 export function useTodayOrders(): UseTodayOrdersResult {
-  const [orders, setOrders] = useState<TodayOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const orders = useTodayOrdersStore((s) => s.orders);
+  const loading = useTodayOrdersStore((s) => s.loading);
+  const refreshing = useTodayOrdersStore((s) => s.refreshing);
+  const error = useTodayOrdersStore((s) => s.error);
+  const fetch = useTodayOrdersStore((s) => s.fetch);
+  const mergeOrder = useTodayOrdersStore((s) => s.mergeOrder);
   const [actionOrderId, setActionOrderId] = useState<string | null>(null);
 
-  const refresh = useCallback(async (options?: {silent?: boolean}) => {
-    const silent = options?.silent ?? false;
-    if (silent) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
+  // Shared store hydrates once; TodaySales focus effect does silent refresh.
+  // Avoid duplicate mount+focus fetch storms.
 
-    try {
-      const response = await fetchTodayOrders();
-      if (response.success && response.data) {
-        setOrders(response.data);
-      } else {
-        setError(
-          "Unable to load today's orders. Check your connection and try again.",
-        );
-      }
-    } catch {
-      setError(
-        "Unable to load today's orders. Check your connection and try again.",
-      );
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const refresh = useCallback(
+    async (options?: {silent?: boolean}) => {
+      await fetch({silent: options?.silent ?? false});
+    },
+    [fetch],
+  );
 
   const waiveOrder = useCallback(
     async (orderId: string, reason: string) => {
       const result = await waiveTodayOrder(orderId, reason);
       if (result.success && result.data) {
-        setOrders((prev) => mergeOrder(prev, orderId, result.data!));
+        mergeOrder(orderId, result.data);
       }
       return result;
     },
-    [],
+    [mergeOrder],
   );
 
   const runOnlineAction = useCallback(
@@ -103,14 +73,14 @@ export function useTodayOrders(): UseTodayOrdersResult {
       try {
         const result = await action(orderId);
         if (result.success && result.data) {
-          setOrders((prev) => mergeOrder(prev, orderId, result.data!));
+          mergeOrder(orderId, result.data);
         }
         return result;
       } finally {
         setActionOrderId(null);
       }
     },
-    [],
+    [mergeOrder],
   );
 
   const approveOnline = useCallback(

@@ -25,7 +25,15 @@ interface StartSessionModalProps {
   sessions: TableSession[];
   currentUserId: string | null;
   onClose: () => void;
-  onSessionStarted: (sessionId: string, tableId: string) => void;
+  onSessionStarted: (
+    sessionId: string,
+    tableId: string,
+    meta?: {
+      guestCount: number;
+      tableNumber?: string;
+      floorName?: string | null;
+    },
+  ) => void;
 }
 
 export function StartSessionModal({
@@ -101,7 +109,11 @@ export function StartSessionModal({
         guestCount,
         linkedTableIds: selectedLinkedTableIds,
       });
-      onSessionStarted(result.sessionId, table.id);
+      onSessionStarted(result.sessionId, table.id, {
+        guestCount,
+        tableNumber: table.tableNumber,
+        floorName,
+      });
       onClose();
     } catch (err) {
       setError(

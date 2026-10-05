@@ -16,6 +16,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {config} from '../../../constants/config';
 import {colors} from '../../../constants/colors';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {useAuth} from '../../../hooks/useAuth';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {
@@ -43,9 +44,13 @@ import {
   probeBuiltInUsbPrinter,
 } from '../../../printer/usbPrinter';
 import {
-  isCustomerDisplayModuleReady,
-  isCustomerDisplayAvailable,
-} from '../../../display/customerDisplay';
+  clearPriceDisplay,
+  hydratePriceDisplaySettings,
+  isPriceDisplayModuleReady,
+  listPriceDisplayPorts,
+  showPriceDisplayAmount,
+  updatePriceDisplaySettings,
+} from '../../../display/priceDisplay';
 import {
   createAdminPrinter,
   deleteAdminPrinter,
@@ -157,7 +162,7 @@ function connectionLabel(printer: PrinterConfig): string {
   return printer.systemPrinterName || conn || '—';
 }
 
-export function PrintersSettingsScreen({navigation}: Props) {
+export function PrintersSettingsScreen(_props: Props) {
   const {user} = useAuth();
   const canEdit = canManagePrinters(user?.role);
   const liveById = usePrinterStatusStore((s) => s.byId);
@@ -190,9 +195,8 @@ export function PrintersSettingsScreen({navigation}: Props) {
 
   const [usbDevices, setUsbDevices] = useState<UsbListItem[]>([]);
   const [scanningUsb, setScanningUsb] = useState(false);
-  const [customerDisplayInfo, setCustomerDisplayInfo] = useState<string | null>(
-    null,
-  );
+  const [priceDisplayInfo, setPriceDisplayInfo] = useState<string | null>(null);
+  const [priceTestBusy, setPriceTestBusy] = useState(false);
 
   const setMany = usePrinterStatusStore((s) => s.setMany);
 
@@ -246,17 +250,19 @@ export function PrintersSettingsScreen({navigation}: Props) {
     useCallback(() => {
       void load();
       void (async () => {
-        if (!isCustomerDisplayModuleReady()) {
-          setCustomerDisplayInfo(
-            'Customer display module not linked — rebuild Android app (npm run android).',
+        if (!isPriceDisplayModuleReady()) {
+          setPriceDisplayInfo(
+            'Price LED module not linked — rebuild Android app.',
           );
           return;
         }
-        const info = await isCustomerDisplayAvailable();
-        setCustomerDisplayInfo(
-          info.available
-            ? `Customer display ready: ${info.name || `display #${info.displayId}`}`
-            : 'No secondary customer screen detected (normal on emulator / single-display).',
+        const settings = await hydratePriceDisplaySettings();
+        const ports = await listPriceDisplayPorts();
+        setPriceDisplayInfo(
+          `Price LED ready · port ${settings.port} · ${settings.baud} baud` +
+            (ports.ports?.length
+              ? ` · found ${ports.ports.join(', ')}`
+              : ''),
         );
       })();
       return () => {
@@ -820,7 +826,7 @@ export function PrintersSettingsScreen({navigation}: Props) {
   if (loading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator color={colors.primary} />
+        <SalesPageSkeleton variant="orderList" rows={5} />
       </View>
     );
   }
@@ -857,15 +863,49 @@ export function PrintersSettingsScreen({navigation}: Props) {
         </Text>
       )}
 
-      <Pressable
-        style={styles.displayLink}
-        onPress={() => navigation.navigate('CustomerDisplaySettings')}>
-        <Text style={styles.displayLinkTitle}>Customer display</Text>
-        <Text style={styles.hint}>
-          {customerDisplayInfo ||
-            'Preview totals and adjust what guests see on the secondary screen.'}
-        </Text>
-      </Pressable>
+      {priceDisplayInfo ? (
+        <View style={styles.displayLink}>
+          <Text style={styles.displayLinkTitle}>Customer price LED</Text>
+          <Text style={styles.hint}>{priceDisplayInfo}</Text>
+          <Text style={styles.hint}>
+            Shows bill total on the green 0.00 panel while you ring up / pay.
+            The black tinted window is decorative only.
+          </Text>
+          <View style={styles.priceActions}>
+            <Pressable
+              style={[styles.secondaryBtn, priceTestBusy && styles.btnDisabled]}
+              disabled={priceTestBusy}
+              onPress={() => {
+                void (async () => {
+                  setPriceTestBusy(true);
+                  try {
+                    await updatePriceDisplaySettings({enabled: true});
+                    const res = await showPriceDisplayAmount(12.34, 'total');
+                    setMessage(
+                      res.success
+                        ? `Price LED test OK (${res.port || 'AUTO'})`
+                        : res.error || 'Price LED test failed',
+                    );
+                  } finally {
+                    setPriceTestBusy(false);
+                  }
+                })();
+              }}>
+              <Text style={styles.secondaryBtnText}>
+                {priceTestBusy ? 'Sending…' : 'Test 12.34'}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={styles.secondaryBtn}
+              onPress={() => {
+                void clearPriceDisplay();
+                setMessage('Price LED cleared');
+              }}>
+              <Text style={styles.secondaryBtnText}>Clear LED</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       {message ? <Text style={styles.message}>{message}</Text> : null}
@@ -1431,6 +1471,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.primary,
   },
+  priceActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  secondaryBtn: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: colors.background,
+  },
+  secondaryBtnText: {color: colors.text, fontWeight: '600', fontSize: 13},
+  btnDisabled: {opacity: 0.55},
   addBtn: {marginTop: 16},
   form: {
     marginTop: 16,

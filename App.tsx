@@ -1,11 +1,16 @@
-import React from 'react';
+import React, {useEffect} from 'react';
 import {StatusBar, StyleSheet, View} from 'react-native';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 import {colors} from './src/constants/colors';
 import {ToastProvider} from './src/components/common/Toast';
 import {AppNavigator} from './src/navigation/AppNavigator';
+import {logApiHostOnce} from './src/utils/perfLog';
 
 function App() {
+  useEffect(() => {
+    logApiHostOnce();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <View style={styles.root}>

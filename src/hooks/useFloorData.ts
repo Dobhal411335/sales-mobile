@@ -1,12 +1,8 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo} from 'react';
 import {AppState, type AppStateStatus} from 'react-native';
 import type {Floor, FloorData, GridMode} from '../types/table';
-import {fetchFloorData} from '../services/floorService';
-import {fetchOnlineStaff} from '../services/onlineStaffService';
-import type {OnlineStaffMember} from '../services/onlineStaffService';
+import {useFloorStore} from '../store/floorStore';
 
-const SALES_FLOOR_STORAGE_KEY = 'sales-active-floor-id';
 const ONLINE_POLL_INTERVAL_MS = 30_000;
 
 interface UseFloorDataResult {
@@ -20,7 +16,7 @@ interface UseFloorDataResult {
   refreshing: boolean;
   error: string | null;
   onlineStaffCount: number;
-  onlineStaff: OnlineStaffMember[];
+  onlineStaff: ReturnType<typeof useFloorStore.getState>['onlineStaff'];
   tableCount: number;
   activeSessionCount: number;
   activeOrderCount: number;
@@ -31,147 +27,50 @@ interface UseFloorDataResult {
   retry: () => void;
 }
 
-async function readStoredFloorId(): Promise<string | null> {
-  try {
-    const value = await AsyncStorage.getItem(SALES_FLOOR_STORAGE_KEY);
-    return value || null;
-  } catch {
-    return null;
-  }
-}
-
-async function storeFloorId(floorId: string): Promise<void> {
-  try {
-    await AsyncStorage.setItem(SALES_FLOOR_STORAGE_KEY, floorId);
-  } catch {
-    // Non-blocking persistence failure.
-  }
-}
-
 export function useFloorData(): UseFloorDataResult {
-  const [floorData, setFloorData] = useState<FloorData | null>(null);
-  const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
-  const [gridMode, setGridMode] = useState<GridMode>('lines');
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [onlineStaffCount, setOnlineStaffCount] = useState(0);
-  const [onlineStaff, setOnlineStaff] = useState<OnlineStaffMember[]>([]);
-  const hasLoadedRef = useRef(false);
-  const selectedFloorIdRef = useRef<string | null>(null);
-
-  const loadOnlineStaff = useCallback(async () => {
-    const snapshot = await fetchOnlineStaff();
-    setOnlineStaffCount(snapshot.count);
-    setOnlineStaff(snapshot.online);
-  }, []);
-
-  const loadFloor = useCallback(
-    async (floorIdOverride?: string, options?: {silent?: boolean}) => {
-      const isInitial = !hasLoadedRef.current;
-
-      try {
-        if (isInitial) {
-          setLoading(true);
-        } else if (!options?.silent) {
-          setRefreshing(true);
-        }
-        setError(null);
-
-        const storedFloorId = await readStoredFloorId();
-        const preferredFloorId =
-          floorIdOverride || selectedFloorIdRef.current || storedFloorId || undefined;
-
-        const data = await fetchFloorData(preferredFloorId);
-        setFloorData(data);
-
-        const nextFloorId = data.activeFloorId || data.floors[0]?.id || null;
-        if (nextFloorId) {
-          selectedFloorIdRef.current = nextFloorId;
-          setSelectedFloorId(nextFloorId);
-          await storeFloorId(nextFloorId);
-        }
-      } catch (err) {
-        const message =
-          err instanceof Error
-            ? err.message
-            : 'Unable to load floor. Check your connection and try again.';
-        setError(message);
-      } finally {
-        hasLoadedRef.current = true;
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [],
-  );
+  const floorData = useFloorStore((s) => s.floorData);
+  const selectedFloorId = useFloorStore((s) => s.selectedFloorId);
+  const gridMode = useFloorStore((s) => s.gridMode);
+  const loading = useFloorStore((s) => s.loading);
+  const refreshing = useFloorStore((s) => s.refreshing);
+  const error = useFloorStore((s) => s.error);
+  const onlineStaffCount = useFloorStore((s) => s.onlineStaffCount);
+  const onlineStaff = useFloorStore((s) => s.onlineStaff);
+  const bootstrap = useFloorStore((s) => s.bootstrap);
+  const loadFloor = useFloorStore((s) => s.loadFloor);
+  const loadOnlineStaff = useFloorStore((s) => s.loadOnlineStaff);
+  const selectFloor = useFloorStore((s) => s.selectFloor);
+  const setGridMode = useFloorStore((s) => s.setGridMode);
+  const cycleGridMode = useFloorStore((s) => s.cycleGridMode);
 
   useEffect(() => {
-    const init = async () => {
-      const stored = await readStoredFloorId();
-      if (stored) {
-        selectedFloorIdRef.current = stored;
-        setSelectedFloorId(stored);
-      }
-      await loadFloor(stored || undefined);
-      await loadOnlineStaff();
-    };
-
-    void init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    void bootstrap();
+  }, [bootstrap]);
 
   useEffect(() => {
     const timer = setInterval(() => {
       void loadOnlineStaff();
     }, ONLINE_POLL_INTERVAL_MS);
-
     return () => clearInterval(timer);
   }, [loadOnlineStaff]);
 
   useEffect(() => {
     const onAppStateChange = (state: AppStateStatus) => {
       if (state === 'active') {
-        void loadFloor(selectedFloorIdRef.current ?? undefined, {silent: true});
+        void loadFloor(undefined, {silent: true});
         void loadOnlineStaff();
       }
     };
-
     const subscription = AppState.addEventListener('change', onAppStateChange);
     return () => subscription.remove();
   }, [loadFloor, loadOnlineStaff]);
 
-  const selectFloor = useCallback(
-    (floorId: string) => {
-      if (!floorId || floorId === selectedFloorIdRef.current) {
-        return;
-      }
-      selectedFloorIdRef.current = floorId;
-      setSelectedFloorId(floorId);
-      void storeFloorId(floorId);
-      void loadFloor(floorId);
-    },
-    [loadFloor],
-  );
-
-  const cycleGridMode = useCallback(() => {
-    setGridMode((prev) => {
-      if (prev === 'lines') {
-        return 'dots';
-      }
-      if (prev === 'dots') {
-        return 'none';
-      }
-      return 'lines';
-    });
-  }, []);
-
   const reload = useCallback(() => {
-    void loadFloor(selectedFloorIdRef.current ?? undefined, {silent: true});
+    void loadFloor(undefined, {silent: true});
   }, [loadFloor]);
 
   const retry = useCallback(() => {
-    void loadFloor(selectedFloorIdRef.current ?? undefined);
+    void loadFloor();
   }, [loadFloor]);
 
   const activeFloor = useMemo(() => {

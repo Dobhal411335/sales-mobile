@@ -6,7 +6,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
-import com.tastybitesmobile.display.CustomerDisplayPackage
+import com.tastybitesmobile.display.SerialPriceDisplayPackage
 import com.tastybitesmobile.printer.BluetoothPrinterPackage
 import com.tastybitesmobile.printer.BuiltInUsbPrinterPackage
 
@@ -19,7 +19,7 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           add(BuiltInUsbPrinterPackage())
           add(BluetoothPrinterPackage())
-          add(CustomerDisplayPackage())
+          add(SerialPriceDisplayPackage())
         },
     )
   }

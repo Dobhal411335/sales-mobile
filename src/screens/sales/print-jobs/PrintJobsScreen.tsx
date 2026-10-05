@@ -25,6 +25,7 @@ import {PrintJobFilters} from '../../../components/print-jobs/PrintJobFilters';
 import {PrintJobKpiCards} from '../../../components/print-jobs/PrintJobKpiCards';
 import {PrintJobStatusBadge} from '../../../components/print-jobs/PrintJobStatusBadge';
 import {ReprintConfirmModal} from '../../../components/print-jobs/ReprintConfirmModal';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {colors} from '../../../constants/colors';
 import type {SalesStackParamList} from '../../../navigation/types';
 import {usePrintJobStore} from '../../../store/printJobStore';
@@ -249,9 +250,7 @@ export function PrintJobsScreen({navigation, route}: Props) {
       </View>
 
       {loading && jobs.length === 0 ? (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        <SalesPageSkeleton variant="printJobList" rows={6} />
       ) : (
         <View style={styles.listCard}>
           <FlatList

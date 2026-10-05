@@ -26,6 +26,7 @@ import {mapAuthError} from '../utils/authErrors';
 import {hasSessionTokens} from '../utils/secureStorage';
 
 const REMEMBERED_EMPLOYEE_ID_KEY = 'rememberedEmployeeId';
+const CACHED_SESSION_KEY = 'tastybites.cachedAuthSession.v1';
 
 interface AuthState {
   user: AuthUser | null;
@@ -73,7 +74,42 @@ function mapSessionToUser(session: AuthSession): {
   };
 }
 
-function applySession(set: (partial: Partial<AuthState>) => void, session: AuthSession) {
+async function persistCachedSession(session: AuthSession): Promise<void> {
+  try {
+    await AsyncStorage.setItem(CACHED_SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // Non-blocking
+  }
+}
+
+async function readCachedSession(): Promise<AuthSession | null> {
+  try {
+    const raw = await AsyncStorage.getItem(CACHED_SESSION_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as AuthSession;
+    if (!parsed?.employee) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+async function clearCachedSession(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(CACHED_SESSION_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function applySession(
+  set: (partial: Partial<AuthState>) => void,
+  session: AuthSession,
+) {
   const {user, employee} = mapSessionToUser(session);
   set({
     user,
@@ -84,6 +120,7 @@ function applySession(set: (partial: Partial<AuthState>) => void, session: AuthS
     isAuthenticated: true,
     error: null,
   });
+  void persistCachedSession(session);
 }
 
 function resetAuthState(set: (partial: Partial<AuthState>) => void) {
@@ -96,6 +133,7 @@ function resetAuthState(set: (partial: Partial<AuthState>) => void) {
     isAuthenticated: false,
     error: null,
   });
+  void clearCachedSession();
 }
 
 export const useAuthStore = create<AuthState>((set, get) => {
@@ -124,13 +162,27 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
       set({isInitializing: true});
       try {
-        const [registered, hasSession] = await Promise.all([
+        const [registered, hasSession, cached] = await Promise.all([
           deviceService.getStatus(),
           hasSessionTokens(),
+          readCachedSession(),
         ]);
         set({deviceRegistered: registered});
 
         if (hasSession) {
+          // Paint sales UI immediately from cached session when available.
+          if (cached) {
+            applySession(set, cached);
+            set({isInitializing: false});
+            const session = await restoreSession();
+            if (session) {
+              applySession(set, session);
+            } else {
+              resetAuthState(set);
+            }
+            return;
+          }
+
           const session = await restoreSession();
           if (session) {
             applySession(set, session);

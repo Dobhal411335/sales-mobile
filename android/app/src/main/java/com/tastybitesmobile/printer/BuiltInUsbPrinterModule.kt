@@ -199,14 +199,20 @@ class BuiltInUsbPrinterModule(
           Log.w(NAME, "ClearPrinterError: ${err.message}")
         }
 
+        // Do NOT call CP_BlackMark_DisableBlackMarkMode — on this head it
+        // prints the literal text "Disable BM Mode" and feeds a long blank gap.
+        // Do NOT ResetPrinter here either — ESC @ is already in the ticket
+        // bytes; an extra reset before write adds top margin.
+
         val decoded = Base64.decode(base64Data, Base64.DEFAULT)
         if (decoded.isEmpty()) {
           promise.reject("EMPTY_DATA", "Decoded print data is empty")
           return@execute
         }
 
-        val bytes = stripEscPosCutCommands(decoded)
-        Log.i(NAME, "Writing ${bytes.size} bytes to $portName (stripped cut)")
+        // Force 80mm area into the ESC/POS stream itself (after every ESC @).
+        val bytes = sanitizeEscPosForBuiltIn80mm(decoded)
+        Log.i(NAME, "Writing ${bytes.size} bytes to $portName (80mm sanitized)")
         val written =
           AutoReplyPrint.INSTANCE.CP_Port_Write(handle, bytes, bytes.size, WRITE_TIMEOUT_MS)
         if (written != bytes.size) {
@@ -217,19 +223,21 @@ class BuiltInUsbPrinterModule(
           return@execute
         }
 
+        // Wait until the head finishes the ticket before cutting.
         try {
-          AutoReplyPrint.INSTANCE.CP_Pos_FeedLine(handle, 2)
-          val cutOk = AutoReplyPrint.INSTANCE.CP_Pos_FeedAndHalfCutPaper(handle)
-          if (!cutOk) {
-            AutoReplyPrint.INSTANCE.CP_Pos_HalfCutPaper(handle)
-          }
-          Log.i(NAME, "Half-cut result=$cutOk")
+          val printed =
+            AutoReplyPrint.INSTANCE.CP_Pos_QueryPrintResult(handle, QUERY_PRINT_TIMEOUT_MS)
+          Log.i(NAME, "QueryPrintResult=$printed")
         } catch (err: Exception) {
-          Log.w(NAME, "Cut failed (ticket still written): ${err.message}")
+          Log.w(NAME, "QueryPrintResult: ${err.message}")
         }
 
+        // Do NOT use FeedAndHalfCut — on this POS it advances a long blank
+        // strip looking for a cut/mark position and often never fires the blade.
+        cutPaperTight(handle)
+
         try {
-          Thread.sleep(350)
+          Thread.sleep(150)
         } catch (_: InterruptedException) {
           // ignore
         }
@@ -339,19 +347,80 @@ class BuiltInUsbPrinterModule(
     }
   }
 
+  /**
+   * Minimal feed + real cutter commands. Prefer HalfCut / FullCut / raw GS V
+   * over FeedAndHalfCut (that API overfeeds on this built-in head).
+   */
+  private fun cutPaperTight(handle: Pointer) {
+    // Leave a short tear gap under the last line (thank-you / KOT footer).
+    try {
+      AutoReplyPrint.INSTANCE.CP_Pos_FeedLine(handle, 2)
+    } catch (err: Exception) {
+      Log.w(NAME, "FeedLine before cut: ${err.message}")
+    }
+
+    try {
+      val half = AutoReplyPrint.INSTANCE.CP_Pos_HalfCutPaper(handle)
+      Log.i(NAME, "HalfCutPaper=$half")
+      if (half) return
+    } catch (err: Exception) {
+      Log.w(NAME, "HalfCutPaper: ${err.message}")
+    }
+
+    try {
+      val full = AutoReplyPrint.INSTANCE.CP_Pos_FullCutPaper(handle)
+      Log.i(NAME, "FullCutPaper=$full")
+      if (full) return
+    } catch (err: Exception) {
+      Log.w(NAME, "FullCutPaper: ${err.message}")
+    }
+
+    // Fallback raw cut — only if SDK cut APIs failed.
+    val cuts =
+      arrayOf(
+        byteArrayOf(0x1d, 0x56, 0x01), // GS V 1 partial
+        byteArrayOf(0x1b, 0x69), // ESC i full
+      )
+    for (cmd in cuts) {
+      try {
+        AutoReplyPrint.INSTANCE.CP_Port_Write(handle, cmd, cmd.size, 3_000)
+      } catch (err: Exception) {
+        Log.w(NAME, "Raw cut write: ${err.message}")
+      }
+    }
+    Log.i(NAME, "Raw cut fallback sent")
+  }
+
   companion object {
     const val NAME = "BuiltInUsbPrinter"
     private const val ACTION_USB_PERMISSION = "com.tastybitesmobile.USB_PERMISSION"
     private const val WRITE_TIMEOUT_MS = 15_000
+    private const val QUERY_PRINT_TIMEOUT_MS = 10_000
     private const val PERMISSION_TIMEOUT_MS = 20_000L
+    private const val PRINT_AREA_DOTS_80MM = 576
     private val KNOWN_VENDOR_IDS = setOf(0x0fe6, 0x4b43)
 
+    /** Left-align + margin 0 + 576-dot print width (after every ESC @). */
+    private val FULL_WIDTH_80MM =
+      byteArrayOf(
+        0x1b, 0x61, 0x00, // ESC a 0 left
+        0x1d, 0x4c, 0x00, 0x00, // GS L nL nH = 0
+        0x1d, 0x57, 0x40, 0x02, // GS W nL nH = 576
+      )
+
+    /**
+     * Strip cut / narrow-width commands, force 80mm print area after resets,
+     * and collapse trailing blank lines so cut sits right under the ticket.
+     */
     @JvmStatic
-    fun stripEscPosCutCommands(input: ByteArray): ByteArray {
-      val out = ArrayList<Byte>(input.size)
+    fun sanitizeEscPosForBuiltIn80mm(input: ByteArray): ByteArray {
+      val out = ArrayList<Byte>(input.size + 32)
       var i = 0
+      var sawReset = false
       while (i < input.size) {
         val b = input[i].toInt() and 0xff
+
+        // GS V … cut — strip; native cutPaperTight handles the blade.
         if (b == 0x1d && i + 1 < input.size && (input[i + 1].toInt() and 0xff) == 0x56) {
           val m = if (i + 2 < input.size) input[i + 2].toInt() and 0xff else -1
           i +=
@@ -362,6 +431,8 @@ class BuiltInUsbPrinterModule(
             }
           continue
         }
+
+        // ESC i / ESC m — legacy cut
         if (b == 0x1b && i + 1 < input.size) {
           val n = input[i + 1].toInt() and 0xff
           if (n == 0x69 || n == 0x6d) {
@@ -369,13 +440,52 @@ class BuiltInUsbPrinterModule(
             continue
           }
         }
+
+        // GS L nL nH — drop stale left margin (we inject 0 after ESC @)
+        if (b == 0x1d && i + 3 < input.size && (input[i + 1].toInt() and 0xff) == 0x4c) {
+          i += 4
+          continue
+        }
+
+        // GS W nL nH — drop narrow width (we inject 576 after ESC @)
+        if (b == 0x1d && i + 3 < input.size && (input[i + 1].toInt() and 0xff) == 0x57) {
+          i += 4
+          continue
+        }
+
+        // ESC @ reset — keep it, then force full 80mm area
+        if (b == 0x1b && i + 1 < input.size && (input[i + 1].toInt() and 0xff) == 0x40) {
+          out.add(0x1b.toByte())
+          out.add(0x40.toByte())
+          for (x in FULL_WIDTH_80MM) out.add(x)
+          sawReset = true
+          i += 2
+          continue
+        }
+
         out.add(input[i])
         i += 1
       }
-      while (out.size > 1 && out[out.size - 1] == 0x0a.toByte() && out[out.size - 2] == 0x0a.toByte()) {
+
+      if (!sawReset) {
+        val prefixed = ArrayList<Byte>(out.size + FULL_WIDTH_80MM.size + 2)
+        prefixed.add(0x1b.toByte())
+        prefixed.add(0x40.toByte())
+        for (x in FULL_WIDTH_80MM) prefixed.add(x)
+        prefixed.addAll(out)
+        out.clear()
+        out.addAll(prefixed)
+      }
+
+      while (out.isNotEmpty() && out[out.size - 1] == 0x0a.toByte()) {
         out.removeAt(out.size - 1)
       }
+      out.add(0x0a.toByte())
       return out.toByteArray()
     }
+
+    @JvmStatic
+    fun stripEscPosCutCommands(input: ByteArray): ByteArray =
+      sanitizeEscPosForBuiltIn80mm(input)
   }
 }

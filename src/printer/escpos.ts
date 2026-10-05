@@ -9,6 +9,11 @@
 import type {KotLineItem, ReceiptOrder, TaxBreakdownLine} from '../types/receipt';
 import type {PrintJob, PrintJobRestaurant} from '../types/printJob';
 import {config} from '../constants/config';
+import {
+  filterItemsBySeat,
+  proportionalOrderTotalsForItems,
+  resolveSplitReceiptSeatFilter,
+} from '../utils/seatHelpers';
 
 const ESC = 0x1b;
 const GS = 0x1d;
@@ -96,7 +101,15 @@ export function encoder(): EscPosEncoder {
   const chunks: Uint8Array[] = [];
   const self: EscPosEncoder = {
     init() {
+      // ESC @ reset, then force a known full-width left-aligned Font A state.
+      // Some built-in 80mm heads keep a stale left-margin / center mode across jobs.
       self.raw([ESC, 0x40]);
+      self.raw([ESC, 0x61, 0x00]); // left align
+      self.raw([GS, 0x21, 0x00]); // normal char size
+      self.raw([GS, 0x4c, 0x00, 0x00]); // left margin = 0
+      // Printable width in dots (Font A ≈ 12 dots/col). 80mm → 576, 58mm → 384.
+      const dots = Math.max(1, activeWidth) * 12;
+      self.raw([GS, 0x57, dots & 0xff, (dots >> 8) & 0xff]);
       return self;
     },
     text(str: string) {
@@ -137,11 +150,9 @@ export function encoder(): EscPosEncoder {
       return self;
     },
     cut() {
-      // Feed a few lines past the tear/cutter, then partial cut.
-      // Full cut (GS V 0) on many built-in 80mm heads advances a long blank
-      // strip instead of cutting — prefer feed + half-cut form.
+      // Short tear gap under the last printed line, then partial cut.
       self.raw([LF, LF]);
-      self.raw([GS, 0x56, 0x41, 0x02]); // feed 2 units then partial cut
+      self.raw([GS, 0x56, 0x41, 0x00]); // partial cut, no extra feed
       return self;
     },
     toUint8Array(): Uint8Array {
@@ -164,6 +175,28 @@ export function encoder(): EscPosEncoder {
 
 export function divider(char = '-', width = activeWidth): string {
   return char.repeat(width);
+}
+
+/** Center text with spaces (keeps printer in left-align mode — more reliable on POS heads). */
+export function centerLine(text: string, width = activeWidth): string {
+  const t = toPrinterText(text);
+  if (!t) return '';
+  if (t.length >= width) return t.slice(0, width);
+  const pad = Math.floor((width - t.length) / 2);
+  return `${' '.repeat(pad)}${t}`;
+}
+
+/** Seat section marker: dashed rule + "SEAT 1:" then items */
+function writeSeatBanner(
+  e: ReturnType<typeof encoder>,
+  label: string,
+  {blankBefore = false}: {blankBefore?: boolean} = {},
+) {
+  if (blankBefore) e.line('');
+  e.line(divider('-'));
+  e.bold(true)
+    .line(`${toPrinterText(String(label || 'TABLE').toUpperCase())}:`)
+    .bold(false);
 }
 
 /** Keep thermal output ASCII-safe (avoids CP437 garbage like "Ca" from UTF-8 ellipsis). */
@@ -377,6 +410,21 @@ function isStyleOption(opt: unknown, preparationStyle?: string): boolean {
   return false;
 }
 
+function isStandaloneExtraLine(item?: AnyTicketItem | null): boolean {
+  return /^extra$/i.test(String(item?.size || ''));
+}
+
+/** Extra lines store addon name in options for pricing — don't print it again. */
+function isRedundantStandaloneExtraOption(
+  item: AnyTicketItem | null | undefined,
+  opt: unknown,
+): boolean {
+  if (!isStandaloneExtraLine(item)) return false;
+  const itemName = String(item?.name || '').trim().toLowerCase();
+  const label = String(opt || '').trim().toLowerCase();
+  return Boolean(itemName && label && itemName === label);
+}
+
 export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
   const lines: string[] = [];
   const isOffer = isOfferItem(item);
@@ -424,6 +472,7 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
   }
   for (const opt of item?.options || []) {
     if (isStyleOption(opt, item?.preparationStyle as string | undefined)) continue;
+    if (isRedundantStandaloneExtraOption(item, opt)) continue;
     const label = String(opt || '').trim();
     if (label) lines.push(`+ ${label}`);
   }
@@ -435,7 +484,18 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
     !item?.addonChoiceSelections?.length
   ) {
     const legacy = String(item?.modifier || '').trim();
-    if (legacy) lines.push(legacy);
+    if (legacy) {
+      const itemName = String(item?.name || '').trim();
+      const isRedundantExtraModifier =
+        isStandaloneExtraLine(item) &&
+        Boolean(itemName) &&
+        (legacy.toLowerCase() === itemName.toLowerCase() ||
+          new RegExp(
+            `^(?:addons|extras)\\s*:\\s*${itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+            'i',
+          ).test(legacy));
+      if (!isRedundantExtraModifier) lines.push(legacy);
+    }
   }
 
   return lines;
@@ -598,8 +658,8 @@ export function buildTestTicket(params: TestTicketParams): string {
     const {name, target, host, port, connectionType, systemPrinterName} = params;
     const e = encoder();
     e.init();
-    e.align(1).bold(true).line(config.APP_NAME.toUpperCase()).bold(false);
-    e.line('PRINTER TEST');
+    e.bold(true).line(centerLine(config.APP_NAME.toUpperCase())).bold(false);
+    e.line(centerLine('PRINTER TEST'));
     e.resetStyle();
     e.line(divider());
     e.line(`Printer: ${name || 'Test'}`);
@@ -614,9 +674,8 @@ export function buildTestTicket(params: TestTicketParams): string {
       `Width:   ${activeWidth} cols / ${Number(params.paperWidthMm) || 80}mm`,
     );
     e.line(divider());
-    e.align(1).line(toPrinterText(new Date().toLocaleString()));
+    e.line(centerLine(toPrinterText(new Date().toLocaleString())));
     e.resetStyle();
-    e.line('');
     e.cut();
     return e.toBase64();
   });
@@ -666,7 +725,7 @@ function buildKotTicketInner(params: KotTicketParams): string {
     order?.partyName ||
     order?.guestName ||
     job?.metadata?.guestName ||
-    (directSale ? 'Walk-in' : '');
+    (directSale ? 'Takeaway' : '');
   const note = job?.metadata?.specialNote || order?.specialNote;
   const items = (kotItems.length
     ? kotItems
@@ -676,19 +735,20 @@ function buildKotTicketInner(params: KotTicketParams): string {
     Boolean(job?.parentPrintJobId || job?.metadata?.isReprint) ||
     (Number(job?.attemptCount) || 0) > 1;
 
-  e.align(1).bold(true).line(toPrinterText(String(brand).toUpperCase()));
+  e.bold(true).line(centerLine(String(brand).toUpperCase()));
   e.bold(false);
-  e.align(1).bold(true).line('KOT').bold(false);
+  e.bold(true).line(centerLine('KOT')).bold(false);
   if (reprint) {
-    e.align(1).bold(true).line('*** REPRINT ***').bold(false);
+    e.bold(true).line(centerLine('*** REPRINT ***')).bold(false);
   }
-  e.align(1)
-    .bold(true)
+  e.bold(true)
     .line(
-      toPrinterText(
-        directSale
-          ? partyLabel || 'Walk-in'
-          : tableLabel || 'Takeaway / No Table',
+      centerLine(
+        toPrinterText(
+          directSale
+            ? partyLabel || 'Takeaway'
+            : tableLabel || 'Takeaway / No Table',
+        ),
       ),
     )
     .bold(false);
@@ -757,10 +817,11 @@ function buildKotTicketInner(params: KotTicketParams): string {
   if (!seatGroups.length) {
     e.line('(no items)');
   } else {
+    let seatPrinted = 0;
     for (const seatGroup of seatGroups) {
       if (showSeatHeaders) {
-        e.bold(true).line(toPrinterText(seatGroup.label)).bold(false);
-        e.line(divider('='));
+        writeSeatBanner(e, seatGroup.label, {blankBefore: seatPrinted > 0});
+        seatPrinted += 1;
       }
       for (const cat of Object.keys(seatGroup.byCategory)) {
         e.bold(true).line(toPrinterText(String(cat).toUpperCase())).bold(false);
@@ -778,9 +839,8 @@ function buildKotTicketInner(params: KotTicketParams): string {
   }
 
   e.line(divider('='));
-  e.align(1).line(`*** KOT #${orderNumber} ***`);
+  e.line(centerLine(`*** KOT #${orderNumber} ***`));
   e.resetStyle();
-  e.line('');
   e.cut();
   return e.toBase64();
 }
@@ -816,7 +876,7 @@ function buildBarTicketInner(params: KotTicketParams): string {
     order?.partyName ||
     order?.guestName ||
     job?.metadata?.guestName ||
-    (directSale ? 'Walk-in' : '');
+    (directSale ? 'Takeaway' : '');
   const covers =
     guestCount != null && guestCount !== '' ? Number(guestCount) : null;
   const note = job?.metadata?.specialNote || order?.specialNote;
@@ -828,11 +888,11 @@ function buildBarTicketInner(params: KotTicketParams): string {
     Boolean(job?.parentPrintJobId || job?.metadata?.isReprint) ||
     (Number(job?.attemptCount) || 0) > 1;
 
-  e.align(1).bold(true).line(toPrinterText(String(brand).toUpperCase()));
+  e.bold(true).line(centerLine(String(brand).toUpperCase()));
   e.bold(false);
-  e.align(1).bold(true).line('BAR RECEIPT').bold(false);
+  e.bold(true).line(centerLine('BAR RECEIPT')).bold(false);
   if (reprint) {
-    e.align(1).bold(true).line('*** REPRINT ***').bold(false);
+    e.bold(true).line(centerLine('*** REPRINT ***')).bold(false);
   }
   e.resetStyle();
 
@@ -881,9 +941,8 @@ function buildBarTicketInner(params: KotTicketParams): string {
   }
 
   e.line(divider('='));
-  e.align(1).line(`*** BAR #${orderNumber} ***`);
+  e.line(centerLine(`*** BAR #${orderNumber} ***`));
   e.resetStyle();
-  e.line('');
   e.cut();
   return e.toBase64();
 }
@@ -943,6 +1002,7 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   const tableLabel = formatTableNumbersWithFloor(tableNo, floorName);
   const meta = (job?.metadata || {}) as Record<string, unknown>;
   const isSplitReceipt = Boolean(meta.isSplitReceipt);
+  const seatFilter = resolveSplitReceiptSeatFilter(meta, order ?? null);
 
   const partyLabel = isSplitReceipt
     ? String(meta.splitName || meta.partyName || meta.guestName || '').trim() ||
@@ -983,10 +1043,10 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   const tip = isSplitReceipt
     ? Number(meta.tipAmount ?? 0)
     : Number(rawOrder.tipAmount ?? meta.tipAmount ?? 0);
-  const discount = isSplitReceipt
+  let discount = isSplitReceipt
     ? Number(meta.discountTotal ?? 0)
     : Number(rawOrder.discountTotal ?? meta.discountTotal ?? 0);
-  const serviceCharge = isSplitReceipt
+  let serviceCharge = isSplitReceipt
     ? Number(meta.serviceChargeTotal ?? 0)
     : Number(rawOrder.serviceChargeTotal ?? meta.serviceChargeTotal ?? 0);
   const giftUsed = isSplitReceipt
@@ -1014,10 +1074,10 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
           0,
       )
     : Number(rawOrder.cardAmount ?? meta.cardAmount ?? 0);
-  const orderTotal = isSplitReceipt
+  let orderTotal = isSplitReceipt
     ? Number(meta.splitAmount ?? meta.totalAmount ?? 0)
     : Number(rawOrder.totalAmount ?? meta.totalAmount ?? rawOrder.amount ?? 0);
-  const grandTotal = orderTotal + tip;
+  let grandTotal = orderTotal + tip;
 
   const cardLabelMatch = methodStr.match(/Card\s*-\s*([^+/]+)/i);
   const cardLabel = cardLabelMatch
@@ -1043,13 +1103,32 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   const hasPaymentSplit =
     giftUsed > 0 || cash > 0 || card > 0 || Boolean(methodStr);
 
-  const rawItems = ((order?.items || []) as unknown[]) as AnyTicketItem[];
+  const allItems = ((order?.items || []) as unknown[]) as AnyTicketItem[];
+  const rawItems = seatFilter.filter
+    ? (filterItemsBySeat(allItems, seatFilter.seatNumber) as AnyTicketItem[])
+    : allItems;
+  const seatScopedTotals =
+    seatFilter.filter && isSplitReceipt
+      ? proportionalOrderTotalsForItems(order, rawItems)
+      : null;
+  if (seatScopedTotals) {
+    discount = Number(seatScopedTotals.discountTotal || 0);
+    serviceCharge = Number(seatScopedTotals.serviceChargeTotal || 0);
+    orderTotal = isSplitReceipt
+      ? Number(meta.splitAmount ?? seatScopedTotals.totalAmount ?? 0)
+      : Number(seatScopedTotals.totalAmount || 0);
+    grandTotal = orderTotal + tip;
+  }
+  const receiptSubTotal = seatScopedTotals?.subTotal ?? order?.subTotal;
+  const receiptHstAmount = seatScopedTotals
+    ? Number(seatScopedTotals.taxTotal || 0)
+    : hstAmount;
 
   const discountPct = (() => {
     if (order?.discountPercent != null && Number(order.discountPercent) > 0) {
       return Number(order.discountPercent);
     }
-    const numSub = Number(order?.subTotal || 0);
+    const numSub = Number(receiptSubTotal ?? order?.subTotal ?? 0);
     const numDisc = Number(discount || 0);
     if (numSub > 0 && numDisc > 0) {
       return Math.round((numDisc / numSub) * 1000) / 10;
@@ -1068,32 +1147,36 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   })();
 
   const totalHstRate = (() => {
-    const breakdownRatesSum = taxBreakdown.reduce(
+    const rateBreakdown = seatScopedTotals?.taxBreakdown?.length
+      ? seatScopedTotals.taxBreakdown
+      : taxBreakdown;
+    const breakdownRatesSum = rateBreakdown.reduce(
       (sum, t) => sum + (Number(t.rate) || 0),
       0,
     );
     if (breakdownRatesSum > 0) {
       return Math.round(breakdownRatesSum * 10) / 10;
     }
-    const sub = Number(order?.subTotal || 0);
+    const sub = Number(receiptSubTotal ?? order?.subTotal ?? 0);
     const taxableBase = Math.max(0, sub - Number(discount || 0));
     if (
       taxableBase > 0 &&
-      (hstAmount > 0 || Number(order?.taxTotal || 0) > 0)
+      (receiptHstAmount > 0 || Number(order?.taxTotal || 0) > 0)
     ) {
       return (
         Math.round(
-          (Number(order?.taxTotal || hstAmount) / taxableBase) * 1000,
+          (Number(receiptHstAmount || order?.taxTotal || 0) / taxableBase) *
+            1000,
         ) / 10
       );
     }
     if (
       sub > 0 &&
-      (hstAmount > 0 || Number(order?.taxTotal || 0) > 0)
+      (receiptHstAmount > 0 || Number(order?.taxTotal || 0) > 0)
     ) {
       return (
         Math.round(
-          (Number(order?.taxTotal || hstAmount) / sub) * 1000,
+          (Number(receiptHstAmount || order?.taxTotal || 0) / sub) * 1000,
         ) / 10
       );
     }
@@ -1107,19 +1190,18 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
 
   e.init();
 
-  e.align(1).bold(true).line(toPrinterText(String(brand).toUpperCase()));
+  e.bold(true).line(centerLine(String(brand).toUpperCase()));
   e.bold(false);
   if (reprint) {
-    e.align(1).bold(true).line('*** REPRINT ***').bold(false);
+    e.bold(true).line(centerLine('*** REPRINT ***')).bold(false);
   }
   if (isSplitReceipt) {
     const splitIdx = Number(meta.splitIndex) || 1;
     const splitTot = Number(meta.splitTotal) || 1;
-    e.align(1).bold(true).line(`SPLIT ${splitIdx} of ${splitTot}`).bold(false);
+    e.bold(true).line(centerLine(`SPLIT ${splitIdx} of ${splitTot}`)).bold(false);
     if (meta.splitName) {
-      e.align(1)
-        .bold(true)
-        .line(toPrinterText(String(meta.splitName)))
+      e.bold(true)
+        .line(centerLine(toPrinterText(String(meta.splitName))))
         .bold(false);
     }
   }
@@ -1142,7 +1224,7 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
     e.line(`Table: ${toPrinterText(tableLabel)}`);
   }
   if (partyLabel || !shouldShowTable({tableNo: tableNo || undefined, source: order?.source})) {
-    e.line(`Party: ${toPrinterText(partyLabel || 'Walk-in')}`);
+    e.line(`Party: ${toPrinterText(partyLabel || 'Takeaway')}`);
   }
   if (guestCount != null && guestCount !== '') {
     e.line(`Guests: ${guestCount}`);
@@ -1169,7 +1251,9 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
     }
     return null;
   };
-  const showBillSeatHeaders = rawItems.some((it) => normalizeBillSeat(it) != null);
+  const showBillSeatHeaders =
+    !seatFilter.filter &&
+    rawItems.some((it) => normalizeBillSeat(it) != null);
   const billSeatMap = new Map<
     string,
     {seat: number | null; label: string; items: AnyTicketItem[]}
@@ -1196,10 +1280,11 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   if (!billSeatGroups.length) {
     e.line('(no items)');
   } else {
+    let seatPrinted = 0;
     for (const group of billSeatGroups) {
       if (showBillSeatHeaders) {
-        e.bold(true).line(toPrinterText(group.label.toUpperCase())).bold(false);
-        e.line(divider('-'));
+        writeSeatBanner(e, group.label, {blankBefore: seatPrinted > 0});
+        seatPrinted += 1;
       }
       const seatRegular = group.items.filter((item) => !isOfferItem(item));
       const seatOffers = group.items.filter((item) => isOfferItem(item));
@@ -1214,18 +1299,21 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   }
 
   e.line(divider('-'));
-  e.line(formatTwoColumnLine('Subtotal', money(order?.subTotal)));
+  e.line(formatTwoColumnLine('Subtotal', money(receiptSubTotal)));
   if (discount > 0) {
     e.line(formatTwoColumnLine(discountLabel, `-${money(discount).slice(1)}`));
     e.line(
       formatTwoColumnLine(
         'Net Amount',
-        money(Math.max(0, Number(order?.subTotal || 0) - discount)),
+        money(Math.max(0, Number(receiptSubTotal || 0) - discount)),
       ),
     );
   }
-  if (hstAmount > 0 || (discount > 0 && totalHstRate != null && totalHstRate > 0)) {
-    e.line(formatTwoColumnLine(hstLabel, money(hstAmount)));
+  if (
+    receiptHstAmount > 0 ||
+    (discount > 0 && totalHstRate != null && totalHstRate > 0)
+  ) {
+    e.line(formatTwoColumnLine(hstLabel, money(receiptHstAmount)));
   }
   if (serviceCharge > 0) {
     e.line(
@@ -1269,9 +1357,8 @@ function buildReceiptTicketInner(params: ReceiptTicketParams): string {
   }
 
   e.line(divider('-'));
-  e.align(1).bold(true).line(toPrinterText(thankYou)).bold(false);
+  e.bold(true).line(centerLine(toPrinterText(thankYou))).bold(false);
   e.resetStyle();
-  e.line('');
   e.cut();
   return e.toBase64();
 }

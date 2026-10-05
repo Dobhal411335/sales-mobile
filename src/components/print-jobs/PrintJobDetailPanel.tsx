@@ -25,6 +25,7 @@ import {formatCurrency} from '../../utils/currency';
 import {
   employeeLabel,
   formatPrintJobDetailTime,
+  buildReceiptOrderFromDetail,
   getTicketItems,
   orderLabel,
   printTypeLabelForJob,
@@ -112,8 +113,13 @@ export function PrintJobDetailPanel({
 
   const printerName = printerNameForTarget(printers, job.printerTarget);
   const targetLabel = printerTargetLabel(job.printerTarget);
-  const order = detail?.order ?? null;
+  const scopedOrder = detail ? buildReceiptOrderFromDetail(detail) : null;
+  const order = scopedOrder ?? detail?.order ?? null;
   const ticketItems = detail ? getTicketItems(detail) : [];
+  const summaryItems =
+    order?.items && order.items.length > 0
+      ? order.items
+      : ticketItems;
 
   const isReprint = Boolean(
     job.parentPrintJobId ||
@@ -364,17 +370,17 @@ export function PrintJobDetailPanel({
 
           {/* Line items list */}
           <View style={styles.itemsList}>
-            {order.items && order.items.length > 0 ? (
-              order.items.map((item, idx) => (
+            {summaryItems && summaryItems.length > 0 ? (
+              summaryItems.map((item, idx) => (
                 <View key={`item-${idx}`} style={styles.itemRow}>
                   <View style={styles.itemLeft}>
                     <Text style={styles.itemName}>
-                      {item.qty}x {item.name}
+                      {item.qty || 1}x {item.name}
                     </Text>
-                    {item.size && item.size !== 'Standard' && (
+                    {'size' in item && item.size && item.size !== 'Standard' ? (
                       <Text style={styles.itemSub}>({item.size})</Text>
-                    )}
-                    {item.preparationStyle ? (
+                    ) : null}
+                    {'preparationStyle' in item && item.preparationStyle ? (
                       <Text style={styles.itemSub}>
                         Style: {item.preparationStyle}
                       </Text>
@@ -384,21 +390,12 @@ export function PrintJobDetailPanel({
                     ) : null}
                   </View>
                   <Text style={styles.itemPrice}>
-                    {formatCurrency((item.price || 0) * (item.qty || 1))}
+                    {formatCurrency(
+                      'price' in item
+                        ? (Number(item.price) || 0) * (Number(item.qty) || 1)
+                        : 0,
+                    )}
                   </Text>
-                </View>
-              ))
-            ) : ticketItems.length > 0 ? (
-              ticketItems.map((item, idx) => (
-                <View key={`titem-${idx}`} style={styles.itemRow}>
-                  <View style={styles.itemLeft}>
-                    <Text style={styles.itemName}>
-                      {item.qty || 1}x {item.name}
-                    </Text>
-                    {item.notes ? (
-                      <Text style={styles.itemRemark}>Remark: {item.notes}</Text>
-                    ) : null}
-                  </View>
                 </View>
               ))
             ) : (

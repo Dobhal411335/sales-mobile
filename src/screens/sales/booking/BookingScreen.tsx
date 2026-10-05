@@ -26,12 +26,10 @@ import {
   X,
 } from 'lucide-react-native';
 import {toast} from '../../../components/common/Toast';
+import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {colors} from '../../../constants/colors';
 import type {SalesStackParamList} from '../../../navigation/types';
-import {
-  fetchTodayReservations,
-  patchReservation,
-} from '../../../services/reservationService';
+import {patchReservation} from '../../../services/reservationService';
 import {socketClient} from '../../../socket/socket';
 import type {
   ReservationFilter,
@@ -39,6 +37,8 @@ import type {
   TableReservation,
 } from '../../../types/reservation';
 import {RESERVATION_FILTERS} from '../../../types/reservation';
+import {useReservationsStore} from '../../../store/reservationsStore';
+import {createDebouncedCallback} from '../../../utils/debounce';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'Booking'>;
 
@@ -76,40 +76,27 @@ export function BookingScreen({navigation}: Props) {
   const {width} = useWindowDimensions();
   const isWide = width >= 900;
   const [tab, setTab] = useState<ReservationFilter>('PENDING');
-  const [rows, setRows] = useState<TableReservation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const rows = useReservationsStore((s) => s.rows);
+  const loading = useReservationsStore((s) => s.loading);
+  const refreshing = useReservationsStore((s) => s.refreshing);
+  const error = useReservationsStore((s) => s.error);
+  const fetchRows = useReservationsStore((s) => s.fetch);
+  const upsertRow = useReservationsStore((s) => s.upsert);
   const [search, setSearch] = useState('');
   const [actingId, setActingId] = useState<string | null>(null);
   const [tableDrafts, setTableDrafts] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
 
-  const loadRows = useCallback(async (silent = false) => {
-    if (silent) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
-    try {
-      const response = await fetchTodayReservations();
-      if (!response.success || !response.data) {
-        setError(response.message || 'Failed to load bookings');
-        return;
-      }
-      setRows(response.data);
-    } catch {
-      setError('Unable to load bookings. Check your connection.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+  const loadRows = useCallback(
+    async (silent = false) => {
+      await fetchRows({silent});
+    },
+    [fetchRows],
+  );
 
   useFocusEffect(
     useCallback(() => {
-      loadRows(rows.length > 0);
-    }, [loadRows, rows.length]),
+      void loadRows(true);
+    }, [loadRows]),
   );
 
   useEffect(() => {
@@ -117,12 +104,14 @@ export function BookingScreen({navigation}: Props) {
     if (!socket) {
       return;
     }
-    const onChange = () => {
-      loadRows(true);
-    };
+    const debounced = createDebouncedCallback(() => {
+      void loadRows(true);
+    }, 800);
+    const onChange = () => debounced.run();
     socket.on('reservation:created', onChange);
     socket.on('reservation:updated', onChange);
     return () => {
+      debounced.cancel();
       socket.off('reservation:created', onChange);
       socket.off('reservation:updated', onChange);
     };
@@ -198,11 +187,7 @@ export function BookingScreen({navigation}: Props) {
           toast.error(result.message || 'Failed to update booking');
           return;
         }
-        setRows((prev) =>
-          prev.map((r) =>
-            r._id === id || r.id === id ? {...r, ...result.data!} : r,
-          ),
-        );
+        upsertRow({...result.data});
         toast.success(
           action === 'accept'
             ? 'Accepted — guest emailed'
@@ -213,7 +198,7 @@ export function BookingScreen({navigation}: Props) {
         setActingId(null);
       }
     },
-    [loadRows],
+    [loadRows, upsertRow],
   );
 
   const callGuest = useCallback((phone?: string) => {
@@ -552,12 +537,9 @@ export function BookingScreen({navigation}: Props) {
         </View>
       </View>
 
-      {loading ? (
-        <View style={styles.centerState}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.stateText}>Loading bookings…</Text>
-        </View>
-      ) : error ? (
+      {loading && rows.length === 0 ? (
+        <SalesPageSkeleton variant="bookingList" rows={7} />
+      ) : error && rows.length === 0 ? (
         <View style={styles.centerState}>
           <Text style={styles.errorTitle}>{error}</Text>
           <Pressable
@@ -586,6 +568,10 @@ export function BookingScreen({navigation}: Props) {
           contentContainerStyle={styles.listContent}
           ListHeaderComponent={listHeader}
           ItemSeparatorComponent={ListSeparator}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

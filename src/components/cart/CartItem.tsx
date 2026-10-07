@@ -13,6 +13,8 @@ import type {CartLineItem} from '../../types/cart';
 import {formatCurrency} from '../../utils/currency';
 import {
   getItemLineTotal,
+  isValidCustomExtraPrice,
+  MAX_CUSTOM_EXTRA_PRICE,
   normalizeChoiceSelections,
   normalizeCustomExtras,
 } from '../../utils/productChoices';
@@ -91,8 +93,12 @@ function CartItemComponent({
   const addonGroups = item.isOffer
     ? []
     : normalizeChoiceSelections(item.addonChoiceSelections);
-  const customExtras = normalizeCustomExtras(item.customExtras);
+  // Offers do not support custom extras in modal/store flows.
+  const customExtras = item.isOffer
+    ? []
+    : normalizeCustomExtras(item.customExtras);
   const showSizeInName = Boolean(item.size && item.size !== 'Standard');
+  const allowCustomExtras = !item.isOffer;
 
   const openCustomModal = () => {
     setCustomName('');
@@ -126,8 +132,10 @@ function CartItemComponent({
       return;
     }
     const priceNum = Number(rawPrice);
-    if (!Number.isFinite(priceNum) || priceNum < 0) {
-      setCustomError('Enter a valid price');
+    if (!isValidCustomExtraPrice(priceNum)) {
+      setCustomError(
+        `Enter a price greater than 0 and at most ${MAX_CUSTOM_EXTRA_PRICE.toFixed(2)}`,
+      );
       return;
     }
     onAddCustomExtra({name: rawName, price: priceNum});
@@ -194,14 +202,16 @@ function CartItemComponent({
       <View style={styles.notesBlock}>
         <View style={styles.notesHeader}>
           <Text style={styles.notesLabel}>Modified request</Text>
-          <Pressable
-            style={styles.customItemButton}
-            onPress={openCustomModal}
-            accessibilityRole="button"
-            accessibilityLabel={`Add custom item to ${item.name}`}>
-            <Plus size={12} color={colors.primaryHover} />
-            <Text style={styles.customItemButtonText}>Custom item</Text>
-          </Pressable>
+          {allowCustomExtras ? (
+            <Pressable
+              style={styles.customItemButton}
+              onPress={openCustomModal}
+              accessibilityRole="button"
+              accessibilityLabel={`Add custom item to ${item.name}`}>
+              <Plus size={12} color={colors.primaryHover} />
+              <Text style={styles.customItemButtonText}>Custom item</Text>
+            </Pressable>
+          ) : null}
         </View>
         <View style={styles.modifiedRequestFields}>
           <View style={styles.modifiedRequestRow}>

@@ -16,6 +16,7 @@ import {
 import {buildModifiedRequestRemark} from '../utils/modifiedRequestRemark';
 import {
   customExtrasUnitTotal,
+  isValidCustomExtraPrice,
   normalizeCustomExtras,
 } from '../utils/productChoices';
 
@@ -203,14 +204,18 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   addCustomExtra: (cartId, extra) =>
     set((state) => {
+      if (!isValidCustomExtraPrice(extra?.price)) {
+        return state;
+      }
       const items = state.items.map((item) => {
-        if (item.cartId !== cartId) {
+        if (item.cartId !== cartId || item.isOffer) {
           return item;
         }
         const nextExtras = normalizeCustomExtras([
           ...(item.customExtras || []),
           extra,
         ]);
+        // Keep `price` as the product base; getItemLineTotal adds custom extras.
         const basePrice = Number(item.price) || 0;
         const customSum = customExtrasUnitTotal(nextExtras);
         return {
@@ -237,11 +242,12 @@ export const useCartStore = create<CartState>((set, get) => ({
   removeCustomExtra: (cartId, extraIndex) =>
     set((state) => {
       const items = state.items.map((item) => {
-        if (item.cartId !== cartId) {
+        if (item.cartId !== cartId || item.isOffer) {
           return item;
         }
         const current = normalizeCustomExtras(item.customExtras);
         const nextExtras = current.filter((_, index) => index !== extraIndex);
+        // Keep `price` as the product base; getItemLineTotal adds custom extras.
         const basePrice = Number(item.price) || 0;
         const customSum = customExtrasUnitTotal(nextExtras);
         return {

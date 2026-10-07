@@ -234,6 +234,19 @@ export interface NormalizedCustomExtra {
   price: number;
 }
 
+/** Max unit price allowed for a POS custom extra. */
+export const MAX_CUSTOM_EXTRA_PRICE = 9999.99;
+
+/** Validate a custom-extra price for add flows (paid extras only). */
+export function isValidCustomExtraPrice(price: unknown): boolean {
+  const value = Number(price);
+  return (
+    Number.isFinite(value) &&
+    value > 0 &&
+    value <= MAX_CUSTOM_EXTRA_PRICE
+  );
+}
+
 /** Normalize free-text POS custom extras: [{ name, price }]. */
 export function normalizeCustomExtras(list: unknown): NormalizedCustomExtra[] {
   if (!Array.isArray(list)) {
@@ -251,7 +264,8 @@ export function normalizeCustomExtras(list: unknown): NormalizedCustomExtra[] {
         entry.name &&
         entry.name.length <= 80 &&
         Number.isFinite(entry.price) &&
-        entry.price >= 0,
+        entry.price > 0 &&
+        entry.price <= MAX_CUSTOM_EXTRA_PRICE,
     );
 }
 

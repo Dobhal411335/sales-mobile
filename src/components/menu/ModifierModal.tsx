@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   UIManager,
   View,
 } from 'react-native';
@@ -15,6 +16,7 @@ import {colors} from '../../constants/colors';
 import type {CartLineItem, ChoiceSelection} from '../../types/cart';
 import type {MenuProduct, ProductAddon, TaxRate} from '../../types/product';
 import {calculateItemTax, nextCartId} from '../../utils/cartPricing';
+import {buildModifiedRequestRemark} from '../../utils/modifiedRequestRemark';
 import {
   buildAddonChoiceSelectionsFromQtyMaps,
   normalizeAddonChoiceQtyMap,
@@ -242,6 +244,8 @@ export function ModifierModal({
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
   >({});
+  const [noteWithout, setNoteWithout] = useState('');
+  const [noteAdd, setNoteAdd] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<string[]>([]);
 
@@ -272,6 +276,8 @@ export function ModifierModal({
     setAddonStateByKey({});
     setSelectedChoices({});
     setSelectedStyle(stylesList.length === 1 ? stylesList[0] : '');
+    setNoteWithout('');
+    setNoteAdd('');
     setError(null);
     setOpenSections(sectionIds[0] ? [sectionIds[0]] : []);
   }, [product, visible, sectionIds]);
@@ -376,6 +382,9 @@ export function ModifierModal({
     const choiceSelections: ChoiceSelection[] = Object.entries(selectedChoices)
       .map(([name, subChoices]) => ({name, subChoices}))
       .filter((group) => group.subChoices.length > 0);
+    const nextWithout = String(noteWithout || '').trim();
+    const nextAdd = String(noteAdd || '').trim();
+    const notes = buildModifiedRequestRemark(nextWithout, nextAdd);
 
     const variantEntries = Object.entries(variantQtyBySize).filter(
       ([, qty]) => qty > 0,
@@ -410,9 +419,9 @@ export function ModifierModal({
           preparationStyle: selectedStyle || null,
           choiceSelections,
           modifier: modifierParts.join(' | ') || undefined,
-          noteWithout: '',
-          noteAdd: '',
-          notes: '',
+          noteWithout: nextWithout,
+          noteAdd: nextAdd,
+          notes,
         });
       });
     }
@@ -450,9 +459,9 @@ export function ModifierModal({
         modifier: choiceSummary
           ? `Addons: ${addon.name} · ${choiceSummary}`
           : `Addons: ${addon.name}`,
-        noteWithout: '',
-        noteAdd: '',
-        notes: '',
+        noteWithout: nextWithout,
+        noteAdd: nextAdd,
+        notes,
       });
     });
 
@@ -482,9 +491,9 @@ export function ModifierModal({
         preparationStyle: selectedStyle || null,
         choiceSelections,
         modifier: modifierParts.join(' | ') || undefined,
-        noteWithout: '',
-        noteAdd: '',
-        notes: '',
+        noteWithout: nextWithout,
+        noteAdd: nextAdd,
+        notes,
       });
     }
 
@@ -760,6 +769,40 @@ export function ModifierModal({
                   })}
                 </AccordionSection>
               ) : null}
+            </View>
+
+            <View style={styles.modifiedRequestBlock}>
+              <Text style={styles.modifiedRequestHeading}>
+                Modified request
+              </Text>
+              <View style={styles.modifiedRequestFields}>
+                <View style={styles.modifiedRequestRow}>
+                  <Text style={styles.modifiedRequestLabel}>Without</Text>
+                  <TextInput
+                    style={styles.modifiedRequestInput}
+                    value={noteWithout}
+                    onChangeText={setNoteWithout}
+                    onBlur={() => setNoteWithout((value) => value.trim())}
+                    placeholder="Type Here"
+                    placeholderTextColor={colors.textSecondary}
+                    maxLength={80}
+                    accessibilityLabel={`Without for ${product.name}`}
+                  />
+                </View>
+                <View style={styles.modifiedRequestRow}>
+                  <Text style={styles.modifiedRequestLabel}>Add</Text>
+                  <TextInput
+                    style={styles.modifiedRequestInput}
+                    value={noteAdd}
+                    onChangeText={setNoteAdd}
+                    onBlur={() => setNoteAdd((value) => value.trim())}
+                    placeholder="Type Here"
+                    placeholderTextColor={colors.textSecondary}
+                    maxLength={80}
+                    accessibilityLabel={`Add for ${product.name}`}
+                  />
+                </View>
+              </View>
             </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -1090,6 +1133,43 @@ const styles = StyleSheet.create({
   },
   subChoiceRowDisabled: {
     opacity: 0.5,
+  },
+  modifiedRequestBlock: {
+    marginTop: 14,
+    gap: 8,
+  },
+  modifiedRequestHeading: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  modifiedRequestFields: {
+    gap: 6,
+  },
+  modifiedRequestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modifiedRequestLabel: {
+    width: 56,
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  modifiedRequestInput: {
+    flex: 1,
+    minHeight: 36,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    fontSize: 13,
+    color: colors.text,
+    backgroundColor: colors.cream,
   },
   errorText: {
     fontSize: 14,

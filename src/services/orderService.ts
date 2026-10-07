@@ -8,6 +8,7 @@ import type {KotLineItem, ReceiptOrder, TicketType} from '../types/receipt';
 import {buildCartFromOrderItems} from '../utils/orderCartMapper';
 import {cartLineToKotItem} from '../utils/receiptFormat';
 import {buildCartTotals, getCartFingerprint} from '../utils/cartPricing';
+import {buildModifiedRequestRemark} from '../utils/modifiedRequestRemark';
 import {api} from './api';
 
 export interface SubmitOrderPayload {
@@ -361,8 +362,19 @@ export function buildSubmitPayloadFromCart(
   extras: Partial<SubmitOrderPayload>,
 ): SubmitOrderPayload {
   const totals = buildCartTotals(items, globalTaxes, appliedDiscount);
+  const normalizedItems = items.map((item) => {
+    const noteWithout = String(item.noteWithout || '').trim();
+    const noteAdd = String(item.noteAdd || '').trim();
+    const builtNotes = buildModifiedRequestRemark(noteWithout, noteAdd);
+    return {
+      ...item,
+      noteWithout,
+      noteAdd,
+      notes: builtNotes || String(item.notes || '').trim(),
+    };
+  });
   return {
-    items,
+    items: normalizedItems,
     subTotal: totals.subtotal,
     taxTotal: totals.taxTotal,
     discountTotal: totals.discountTotal,

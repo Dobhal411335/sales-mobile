@@ -41,6 +41,8 @@ export function buildSimpleCartLine(
     productType: product.productType,
     taxes: product.taxes,
     preparationStyle: null,
+    noteWithout: '',
+    noteAdd: '',
     notes: '',
   };
 }
@@ -85,6 +87,8 @@ export function buildOfferCartLine(
     inclusions,
     choices,
     drinks,
+    noteWithout: '',
+    noteAdd: '',
     notes: String(selection.notes || '').trim(),
   };
 }

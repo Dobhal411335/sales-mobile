@@ -73,6 +73,8 @@ export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineIte
       ),
       customExtras: normalizeCustomExtras(item.customExtras),
       modifier: parts.length > 0 ? parts.join(' | ') : undefined,
+      noteWithout: String(item.noteWithout || '').trim() || undefined,
+      noteAdd: String(item.noteAdd || '').trim() || undefined,
       notes: String(item.notes || '').trim() || undefined,
       cartId: item.cartId || `r-${Date.now()}-${idx}`,
       seatNumber: (() => {

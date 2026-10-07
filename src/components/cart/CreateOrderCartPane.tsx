@@ -32,7 +32,11 @@ function CreateOrderCartPaneComponent({
   const orderNumber = useCartStore((s) => s.orderNumber);
   const hasSentKot = useCartStore((s) => s.hasSentKot);
   const updateQty = useCartStore((s) => s.updateQty);
-  const updateItemNotes = useCartStore((s) => s.updateItemNotes);
+  const updateItemModifiedRequest = useCartStore(
+    (s) => s.updateItemModifiedRequest,
+  );
+  const addCustomExtra = useCartStore((s) => s.addCustomExtra);
+  const removeCustomExtra = useCartStore((s) => s.removeCustomExtra);
   const removeItem = useCartStore((s) => s.removeItem);
   const setOrderNote = useCartStore((s) => s.setOrderNote);
   const clearCart = useCartStore((s) => s.clearCart);
@@ -97,9 +101,17 @@ function CreateOrderCartPaneComponent({
           markDirty();
           setOrderNote(note);
         }}
-        onChangeItemNotes={(cartId, notes) => {
+        onChangeItemModifiedRequest={(cartId, fields) => {
           markDirty();
-          updateItemNotes(cartId, notes);
+          updateItemModifiedRequest(cartId, fields);
+        }}
+        onAddCustomExtra={(cartId, extra) => {
+          markDirty();
+          addCustomExtra(cartId, extra);
+        }}
+        onRemoveCustomExtra={(cartId, extraIndex) => {
+          markDirty();
+          removeCustomExtra(cartId, extraIndex);
         }}
         onIncrease={(cartId) => {
           const item = items.find((line) => line.cartId === cartId);

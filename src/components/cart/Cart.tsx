@@ -34,7 +34,15 @@ interface CartProps {
   activeSeatNumber?: number | null;
   onSelectSeat?: (seat: number | null) => void;
   onChangeNote: (note: string) => void;
-  onChangeItemNotes: (cartId: string, notes: string) => void;
+  onChangeItemModifiedRequest: (
+    cartId: string,
+    fields: {noteWithout: string; noteAdd: string},
+  ) => void;
+  onAddCustomExtra: (
+    cartId: string,
+    extra: {name: string; price: number},
+  ) => void;
+  onRemoveCustomExtra: (cartId: string, extraIndex: number) => void;
   onIncrease: (cartId: string) => void;
   onDecrease: (cartId: string) => void;
   onRemove: (cartId: string) => void;
@@ -63,7 +71,9 @@ export function Cart({
   activeSeatNumber = null,
   onSelectSeat,
   onChangeNote,
-  onChangeItemNotes,
+  onChangeItemModifiedRequest,
+  onAddCustomExtra,
+  onRemoveCustomExtra,
   onIncrease,
   onDecrease,
   onRemove,
@@ -95,7 +105,13 @@ export function Cart({
       onIncrease={() => onIncrease(item.cartId)}
       onDecrease={() => onDecrease(item.cartId)}
       onRemove={() => onRemove(item.cartId)}
-      onChangeNotes={(notes) => onChangeItemNotes(item.cartId, notes)}
+      onChangeModifiedRequest={(fields) =>
+        onChangeItemModifiedRequest(item.cartId, fields)
+      }
+      onAddCustomExtra={(extra) => onAddCustomExtra(item.cartId, extra)}
+      onRemoveCustomExtra={(extraIndex) =>
+        onRemoveCustomExtra(item.cartId, extraIndex)
+      }
     />
   );
 

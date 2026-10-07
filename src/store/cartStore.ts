@@ -9,9 +9,15 @@ import type {TaxRate} from '../types/product';
 import type {KotLineItem, PaidOrderSnapshot, TicketType} from '../types/receipt';
 import {
   buildCartTotals,
+  calculateItemTax,
   getCartFingerprint,
   mergeCartLines,
 } from '../utils/cartPricing';
+import {buildModifiedRequestRemark} from '../utils/modifiedRequestRemark';
+import {
+  customExtrasUnitTotal,
+  normalizeCustomExtras,
+} from '../utils/productChoices';
 
 interface PartyFields {
   guestName: string;
@@ -44,7 +50,15 @@ interface CartState extends PartyFields {
   setActiveSeatNumber: (seat: number | null) => void;
   addItems: (items: CartLineItem[]) => void;
   updateQty: (cartId: string, qty: number) => void;
-  updateItemNotes: (cartId: string, notes: string) => void;
+  updateItemModifiedRequest: (
+    cartId: string,
+    fields: {noteWithout: string; noteAdd: string},
+  ) => void;
+  addCustomExtra: (
+    cartId: string,
+    extra: {name: string; price: number},
+  ) => void;
+  removeCustomExtra: (cartId: string, extraIndex: number) => void;
   removeItem: (cartId: string) => void;
   setOrderNote: (note: string) => void;
   clearCart: () => void;
@@ -162,13 +176,84 @@ export const useCartStore = create<CartState>((set, get) => ({
 
   removeItem: (cartId) => get().updateQty(cartId, 0),
 
-  updateItemNotes: (cartId, notes) =>
+  updateItemModifiedRequest: (cartId, {noteWithout, noteAdd}) =>
     set((state) => {
+      const nextWithout = String(noteWithout ?? '');
+      const nextAdd = String(noteAdd ?? '');
       const items = state.items.map((item) =>
         item.cartId === cartId
-          ? {...item, notes: String(notes ?? '')}
+          ? {
+              ...item,
+              noteWithout: nextWithout,
+              noteAdd: nextAdd,
+              notes: buildModifiedRequestRemark(nextWithout, nextAdd),
+            }
           : item,
       );
+      const fingerprint = getCartFingerprint(items);
+      const hasSentKot =
+        state.hasSentKot && state.kotCartFingerprint === fingerprint;
+      return {
+        items,
+        hasSentKot,
+        kotCartFingerprint: hasSentKot ? state.kotCartFingerprint : null,
+        persistedTotals: hasSentKot ? state.persistedTotals : null,
+      };
+    }),
+
+  addCustomExtra: (cartId, extra) =>
+    set((state) => {
+      const items = state.items.map((item) => {
+        if (item.cartId !== cartId) {
+          return item;
+        }
+        const nextExtras = normalizeCustomExtras([
+          ...(item.customExtras || []),
+          extra,
+        ]);
+        const basePrice = Number(item.price) || 0;
+        const customSum = customExtrasUnitTotal(nextExtras);
+        return {
+          ...item,
+          customExtras: nextExtras,
+          tax: calculateItemTax(
+            item,
+            basePrice + customSum,
+            state.globalTaxes,
+          ),
+        };
+      });
+      const fingerprint = getCartFingerprint(items);
+      const hasSentKot =
+        state.hasSentKot && state.kotCartFingerprint === fingerprint;
+      return {
+        items,
+        hasSentKot,
+        kotCartFingerprint: hasSentKot ? state.kotCartFingerprint : null,
+        persistedTotals: hasSentKot ? state.persistedTotals : null,
+      };
+    }),
+
+  removeCustomExtra: (cartId, extraIndex) =>
+    set((state) => {
+      const items = state.items.map((item) => {
+        if (item.cartId !== cartId) {
+          return item;
+        }
+        const current = normalizeCustomExtras(item.customExtras);
+        const nextExtras = current.filter((_, index) => index !== extraIndex);
+        const basePrice = Number(item.price) || 0;
+        const customSum = customExtrasUnitTotal(nextExtras);
+        return {
+          ...item,
+          customExtras: nextExtras,
+          tax: calculateItemTax(
+            item,
+            basePrice + customSum,
+            state.globalTaxes,
+          ),
+        };
+      });
       const fingerprint = getCartFingerprint(items);
       const hasSentKot =
         state.hasSentKot && state.kotCartFingerprint === fingerprint;

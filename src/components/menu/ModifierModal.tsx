@@ -1,13 +1,16 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {
+  LayoutAnimation,
   Modal,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
+  UIManager,
   View,
-  ScrollView,
 } from 'react-native';
+import {ChevronDown} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import type {CartLineItem, ChoiceSelection} from '../../types/cart';
 import type {MenuProduct, ProductAddon, TaxRate} from '../../types/product';
@@ -20,7 +23,50 @@ import {
   validateAddonNestedChoiceQtys,
 } from '../../utils/productChoices';
 import {formatCurrency} from '../../utils/currency';
-import {buildModifiedRequestRemark} from '../../utils/modifiedRequestRemark';
+
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+function animateAccordionToggle() {
+  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+}
+
+function AccordionSection({
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.accordionItem}>
+      <Pressable
+        style={styles.accordionTrigger}
+        onPress={() => {
+          animateAccordionToggle();
+          onToggle();
+        }}
+        accessibilityRole="button"
+        accessibilityState={{expanded: open}}>
+        <Text style={styles.accordionTitle}>{title}</Text>
+        <ChevronDown
+          size={18}
+          color={colors.textSecondary}
+          style={{transform: [{rotate: open ? '180deg' : '0deg'}]}}
+        />
+      </Pressable>
+      {open ? <View style={styles.accordionContent}>{children}</View> : null}
+    </View>
+  );
+}
 
 interface ModifierModalProps {
   visible: boolean;
@@ -196,9 +242,26 @@ export function ModifierModal({
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
   >({});
-  const [noteWithout, setNoteWithout] = useState('');
-  const [noteAdd, setNoteAdd] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [openSections, setOpenSections] = useState<string[]>([]);
+
+  const choiceGroups = useMemo(
+    () => normalizeChoiceOptions(product?.choiceOptions),
+    [product],
+  );
+
+  const sectionIds = useMemo(() => {
+    if (!product) {
+      return [] as string[];
+    }
+    const prepStyles = (product.preparationStyles || []).filter(Boolean);
+    return [
+      ...(product.variants?.length ? ['variants'] : []),
+      ...(prepStyles.length ? ['preparation'] : []),
+      ...choiceGroups.map((group, index) => `choice-${index}-${group.name}`),
+      ...(product.addons?.length ? ['addons'] : []),
+    ];
+  }, [product, choiceGroups]);
 
   useEffect(() => {
     if (!product || !visible) {
@@ -209,20 +272,17 @@ export function ModifierModal({
     setAddonStateByKey({});
     setSelectedChoices({});
     setSelectedStyle(stylesList.length === 1 ? stylesList[0] : '');
-    setNoteWithout('');
-    setNoteAdd('');
     setError(null);
-  }, [product, visible]);
+    setOpenSections(sectionIds[0] ? [sectionIds[0]] : []);
+  }, [product, visible, sectionIds]);
 
-  const choiceGroups = useMemo(
-    () => normalizeChoiceOptions(product?.choiceOptions),
-    [product],
-  );
+  const toggleSection = (id: string) => {
+    setOpenSections((prev) =>
+      prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
+    );
+  };
 
-  const remarkPreview = useMemo(
-    () => buildModifiedRequestRemark(noteWithout, noteAdd),
-    [noteWithout, noteAdd],
-  );
+  const isSectionOpen = (id: string) => openSections.includes(id);
 
   const toggleChoice = (groupName: string, subChoice: string) => {
     setSelectedChoices((prev) => {
@@ -313,7 +373,6 @@ export function ModifierModal({
     }
 
     const lines: CartLineItem[] = [];
-    const notes = buildModifiedRequestRemark(noteWithout, noteAdd);
     const choiceSelections: ChoiceSelection[] = Object.entries(selectedChoices)
       .map(([name, subChoices]) => ({name, subChoices}))
       .filter((group) => group.subChoices.length > 0);
@@ -351,7 +410,9 @@ export function ModifierModal({
           preparationStyle: selectedStyle || null,
           choiceSelections,
           modifier: modifierParts.join(' | ') || undefined,
-          notes,
+          noteWithout: '',
+          noteAdd: '',
+          notes: '',
         });
       });
     }
@@ -389,7 +450,9 @@ export function ModifierModal({
         modifier: choiceSummary
           ? `Addons: ${addon.name} · ${choiceSummary}`
           : `Addons: ${addon.name}`,
-        notes,
+        noteWithout: '',
+        noteAdd: '',
+        notes: '',
       });
     });
 
@@ -419,7 +482,9 @@ export function ModifierModal({
         preparationStyle: selectedStyle || null,
         choiceSelections,
         modifier: modifierParts.join(' | ') || undefined,
-        notes,
+        noteWithout: '',
+        noteAdd: '',
+        notes: '',
       });
     }
 
@@ -501,228 +566,200 @@ export function ModifierModal({
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}>
-            {product.variants?.length ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Variants</Text>
-                <View style={styles.variantList}>
-                  {product.variants.map((variant) => (
-                    <Stepper
-                      key={variant.size}
-                      label={variant.size}
-                      price={variant.price}
-                      value={variantQtyBySize[variant.size] || 0}
-                      onChange={(qty) =>
-                        setVariantQtyBySize((prev) => ({
-                          ...prev,
-                          [variant.size]: qty,
-                        }))
-                      }
-                    />
-                  ))}
-                </View>
-              </View>
-            ) : null}
-
-            {stylesList.length ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Preparation</Text>
-                <View style={styles.choiceGrid}>
-                  {stylesList.map((style) => {
-                    const active = selectedStyle === style;
-                    return (
-                      <ChoiceChip
-                        key={style}
-                        label={style}
-                        active={active}
-                        onPress={() => setSelectedStyle(active ? '' : style)}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
-            ) : null}
-
-            {choiceGroups.map((group) => (
-              <View key={group.name} style={styles.section}>
-                <Text style={styles.sectionTitle}>{group.name}</Text>
-                <View style={styles.choiceGrid}>
-                  {group.subChoices.map((subChoice) => {
-                    const active = (selectedChoices[group.name] || []).includes(
-                      subChoice,
-                    );
-                    return (
-                      <ChoiceChip
-                        key={subChoice}
-                        label={subChoice}
-                        active={active}
-                        onPress={() => toggleChoice(group.name, subChoice)}
-                      />
-                    );
-                  })}
-                </View>
-              </View>
-            ))}
-
-            {product.addons?.length ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Addons</Text>
-                {product.addons.map((addon) => {
-                  const addonKey = getAddonKey(addon);
-                  const entry = addonStateByKey[addonKey];
-                  const qty = entry?.qty || 0;
-                  const choicesByGroup = entry?.choicesByGroup || {};
-                  const addonChoiceGroups = normalizeChoiceOptions(
-                    addon.choiceOptions,
-                  );
-                  const active = qty > 0;
-                  return (
-                    <View
-                      key={addonKey}
-                      style={[
-                        styles.addonCard,
-                        active && styles.addonCardActive,
-                      ]}>
+            <View style={styles.accordionList}>
+              {product.variants?.length ? (
+                <AccordionSection
+                  title="Variants"
+                  open={isSectionOpen('variants')}
+                  onToggle={() => toggleSection('variants')}>
+                  <View style={styles.variantList}>
+                    {product.variants.map((variant) => (
                       <Stepper
-                        label={addon.name}
-                        price={addon.price}
-                        value={qty}
-                        flat
-                        onChange={(nextQty) => setAddonQty(addon, nextQty)}
+                        key={variant.size}
+                        label={variant.size}
+                        price={variant.price}
+                        value={variantQtyBySize[variant.size] || 0}
+                        onChange={(qty) =>
+                          setVariantQtyBySize((prev) => ({
+                            ...prev,
+                            [variant.size]: qty,
+                          }))
+                        }
                       />
+                    ))}
+                  </View>
+                </AccordionSection>
+              ) : null}
 
-                      {addonChoiceGroups.length > 0 ? (
-                        <View style={styles.addonChoices}>
-                          {qty <= 0 ? (
-                            <Text style={styles.addonChoiceHint}>
-                              Set addon quantity above to choose options
-                            </Text>
-                          ) : null}
-                          {addonChoiceGroups.map((group, groupIndex) => {
-                            const qtyMap = normalizeAddonChoiceQtyMap(
-                              choicesByGroup[groupIndex],
-                            );
-                            const selectedTotal = sumAddonChoiceQtyMap(qtyMap);
-                            const mismatch = qty > 0 && selectedTotal !== qty;
-                            const over = selectedTotal > qty;
+              {stylesList.length ? (
+                <AccordionSection
+                  title="Preparation"
+                  open={isSectionOpen('preparation')}
+                  onToggle={() => toggleSection('preparation')}>
+                  <View style={styles.choiceGrid}>
+                    {stylesList.map((style) => {
+                      const active = selectedStyle === style;
+                      return (
+                        <ChoiceChip
+                          key={style}
+                          label={style}
+                          active={active}
+                          onPress={() => setSelectedStyle(active ? '' : style)}
+                        />
+                      );
+                    })}
+                  </View>
+                </AccordionSection>
+              ) : null}
 
-                            return (
-                              <View
-                                key={`${addonKey}-${group.name}-${groupIndex}`}
-                                style={styles.addonChoiceGroup}>
-                                <View style={styles.addonChoiceHeader}>
-                                  <Text style={styles.addonChoiceTitle}>
-                                    {group.name}
-                                  </Text>
-                                  <Text
-                                    style={[
-                                      styles.addonChoiceCount,
-                                      mismatch
-                                        ? styles.addonChoiceCountError
-                                        : selectedTotal === qty && qty > 0
-                                          ? styles.addonChoiceCountOk
-                                          : null,
-                                    ]}>
-                                    {selectedTotal} / {qty} selected
-                                  </Text>
-                                </View>
-                                <View style={styles.subChoiceList}>
-                                  {group.subChoices.map((choice) => {
-                                    const subQty = Number(qtyMap[choice]) || 0;
-                                    const others = selectedTotal - subQty;
-                                    const maxForSub = Math.max(
-                                      0,
-                                      qty - Math.max(0, others),
-                                    );
-                                    return (
-                                      <View
-                                        key={`${addonKey}-${group.name}-${choice}`}
-                                        style={[
-                                          styles.subChoiceRow,
-                                          subQty > 0 && styles.subChoiceRowActive,
-                                          qty <= 0 && styles.subChoiceRowDisabled,
-                                        ]}>
-                                        <Stepper
-                                          label={choice}
-                                          value={subQty}
-                                          min={0}
-                                          max={maxForSub}
-                                          flat
-                                          compact
-                                          onChange={(next) =>
-                                            setAddonSubChoiceQty(
-                                              addon,
-                                              groupIndex,
-                                              choice,
-                                              next,
-                                            )
-                                          }
-                                        />
-                                      </View>
-                                    );
-                                  })}
-                                </View>
-                                {mismatch ? (
-                                  <Text style={styles.addonChoiceError}>
-                                    {over
-                                      ? `Too many selections (${selectedTotal}). Must equal addon qty (${qty}).`
-                                      : `Select more options (${selectedTotal} of ${qty}). Nested choices must match addon quantity.`}
-                                  </Text>
-                                ) : null}
-                              </View>
-                            );
-                          })}
-                        </View>
-                      ) : null}
+              {choiceGroups.map((group, groupIndex) => {
+                const sectionId = `choice-${groupIndex}-${group.name}`;
+                return (
+                  <AccordionSection
+                    key={sectionId}
+                    title={group.name}
+                    open={isSectionOpen(sectionId)}
+                    onToggle={() => toggleSection(sectionId)}>
+                    <View style={styles.choiceGrid}>
+                      {group.subChoices.map((subChoice) => {
+                        const active = (
+                          selectedChoices[group.name] || []
+                        ).includes(subChoice);
+                        return (
+                          <ChoiceChip
+                            key={subChoice}
+                            label={subChoice}
+                            active={active}
+                            onPress={() => toggleChoice(group.name, subChoice)}
+                          />
+                        );
+                      })}
                     </View>
-                  );
-                })}
-              </View>
-            ) : null}
+                  </AccordionSection>
+                );
+              })}
 
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
-                Modified Request:{' '}
-                <Text style={styles.sectionTitleMuted}>
-                  Please prepare the order
-                </Text>
-              </Text>
-              <View style={styles.modifiedRequestFields}>
-                <View style={styles.modifiedRequestRow}>
-                  <Text style={styles.modifiedRequestLabel}>Without</Text>
-                  <TextInput
-                    style={styles.modifiedRequestInput}
-                    value={noteWithout}
-                    onChangeText={setNoteWithout}
-                    onBlur={() => setNoteWithout(prev => prev.trim())}
-                    placeholder="Type Here"
-                    placeholderTextColor={colors.textSecondary}
-                    maxLength={80}
-                    accessibilityLabel="Without"
-                  />
-                </View>
-                <View style={styles.modifiedRequestRow}>
-                  <Text style={styles.modifiedRequestLabel}>Add</Text>
-                  <TextInput
-                    style={styles.modifiedRequestInput}
-                    value={noteAdd}
-                    onChangeText={setNoteAdd}
-                    onBlur={() => setNoteAdd(prev => prev.trim())}
-                    placeholder="Type Here"
-                    placeholderTextColor={colors.textSecondary}
-                    maxLength={80}
-                    accessibilityLabel="Add"
-                  />
-                </View>
-              </View>
-              {remarkPreview ? (
-                <Text style={styles.modifiedRequestPreview}>
-                  {remarkPreview}
-                </Text>
-              ) : (
-                <Text style={styles.modifiedRequestHint}>
-                  Optional — sent to the kitchen with this item
-                </Text>
-              )}
+              {product.addons?.length ? (
+                <AccordionSection
+                  title="Addons"
+                  open={isSectionOpen('addons')}
+                  onToggle={() => toggleSection('addons')}>
+                  {product.addons.map((addon) => {
+                    const addonKey = getAddonKey(addon);
+                    const entry = addonStateByKey[addonKey];
+                    const qty = entry?.qty || 0;
+                    const choicesByGroup = entry?.choicesByGroup || {};
+                    const addonChoiceGroups = normalizeChoiceOptions(
+                      addon.choiceOptions,
+                    );
+                    const active = qty > 0;
+                    return (
+                      <View
+                        key={addonKey}
+                        style={[
+                          styles.addonCard,
+                          active && styles.addonCardActive,
+                        ]}>
+                        <Stepper
+                          label={addon.name}
+                          price={addon.price}
+                          value={qty}
+                          flat
+                          onChange={(nextQty) => setAddonQty(addon, nextQty)}
+                        />
+
+                        {addonChoiceGroups.length > 0 ? (
+                          <View style={styles.addonChoices}>
+                            {qty <= 0 ? (
+                              <Text style={styles.addonChoiceHint}>
+                                Set addon quantity above to choose options
+                              </Text>
+                            ) : null}
+                            {addonChoiceGroups.map((group, groupIndex) => {
+                              const qtyMap = normalizeAddonChoiceQtyMap(
+                                choicesByGroup[groupIndex],
+                              );
+                              const selectedTotal =
+                                sumAddonChoiceQtyMap(qtyMap);
+                              const mismatch = qty > 0 && selectedTotal !== qty;
+                              const over = selectedTotal > qty;
+
+                              return (
+                                <View
+                                  key={`${addonKey}-${group.name}-${groupIndex}`}
+                                  style={styles.addonChoiceGroup}>
+                                  <View style={styles.addonChoiceHeader}>
+                                    <Text style={styles.addonChoiceTitle}>
+                                      {group.name}
+                                    </Text>
+                                    <Text
+                                      style={[
+                                        styles.addonChoiceCount,
+                                        mismatch
+                                          ? styles.addonChoiceCountError
+                                          : selectedTotal === qty && qty > 0
+                                            ? styles.addonChoiceCountOk
+                                            : null,
+                                      ]}>
+                                      {selectedTotal} / {qty} selected
+                                    </Text>
+                                  </View>
+                                  <View style={styles.subChoiceList}>
+                                    {group.subChoices.map((choice) => {
+                                      const subQty =
+                                        Number(qtyMap[choice]) || 0;
+                                      const others = selectedTotal - subQty;
+                                      const maxForSub = Math.max(
+                                        0,
+                                        qty - Math.max(0, others),
+                                      );
+                                      return (
+                                        <View
+                                          key={`${addonKey}-${group.name}-${choice}`}
+                                          style={[
+                                            styles.subChoiceRow,
+                                            subQty > 0 &&
+                                              styles.subChoiceRowActive,
+                                            qty <= 0 &&
+                                              styles.subChoiceRowDisabled,
+                                          ]}>
+                                          <Stepper
+                                            label={choice}
+                                            value={subQty}
+                                            min={0}
+                                            max={maxForSub}
+                                            flat
+                                            compact
+                                            onChange={(next) =>
+                                              setAddonSubChoiceQty(
+                                                addon,
+                                                groupIndex,
+                                                choice,
+                                                next,
+                                              )
+                                            }
+                                          />
+                                        </View>
+                                      );
+                                    })}
+                                  </View>
+                                  {mismatch ? (
+                                    <Text style={styles.addonChoiceError}>
+                                      {over
+                                        ? `Too many selections (${selectedTotal}). Must equal addon qty (${qty}).`
+                                        : `Select more options (${selectedTotal} of ${qty}). Nested choices must match addon quantity.`}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </AccordionSection>
+              ) : null}
             </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -799,14 +836,38 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
   },
-  section: {
-    marginBottom: 18,
+  accordionList: {
+    gap: 10,
   },
-  sectionTitle: {
+  accordionItem: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  accordionTrigger: {
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FAFAFA',
+  },
+  accordionTitle: {
+    flex: 1,
+    paddingRight: 12,
     fontSize: 13,
     fontWeight: '800',
     color: colors.text,
-    marginBottom: 8,
+  },
+  accordionContent: {
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   variantList: {
     gap: 8,
@@ -1035,52 +1096,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.error,
     marginBottom: 8,
-  },
-  sectionTitleMuted: {
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  modifiedRequestFields: {
-    gap: 10,
-  },
-  modifiedRequestRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  modifiedRequestLabel: {
-    width: 64,
-    fontSize: 13,
-    fontWeight: '800',
-    color: colors.text,
-  },
-  modifiedRequestInput: {
-    flex: 1,
-    minHeight: 40,
-    borderWidth: 1,
-    borderColor: '#F5E6D8',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: colors.text,
-    backgroundColor: '#FFFFFF',
-  },
-  modifiedRequestPreview: {
-    marginTop: 10,
-    borderRadius: 12,
-    backgroundColor: '#F8E8E4',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 12,
-    fontWeight: '500',
-    lineHeight: 18,
-    color: '#3F3F46',
-  },
-  modifiedRequestHint: {
-    marginTop: 8,
-    fontSize: 11,
-    color: colors.textSecondary,
   },
   footer: {
     flexDirection: 'row',

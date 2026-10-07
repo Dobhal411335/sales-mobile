@@ -34,6 +34,10 @@ export interface CartLineItem {
   /** Free-text extras from POS (name + price). */
   customExtras?: CustomExtra[];
   modifier?: string;
+  /** Cart "Without" field — combined into `notes` for kitchen. */
+  noteWithout?: string;
+  /** Cart "Add" field — combined into `notes` for kitchen. */
+  noteAdd?: string;
   notes?: string;
   taxes?: TaxRate[];
   /** 1-based seat; null/undefined = shared Table bucket */

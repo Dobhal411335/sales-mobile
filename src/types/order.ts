@@ -35,6 +35,8 @@ export interface ApiOrderItem {
   choiceSelections?: ChoiceSelection[];
   addonChoiceSelections?: ChoiceSelection[];
   customExtras?: Array<{name?: string; price?: number}>;
+  noteWithout?: string;
+  noteAdd?: string;
   notes?: string;
   sentQty?: number;
   /** 1-based seat; null = shared Table bucket */

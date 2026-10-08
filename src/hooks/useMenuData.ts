@@ -37,6 +37,13 @@ interface UseMenuDataResult {
   globalTaxes: TaxRate[];
   loading: boolean;
   error: string | null;
+  /** True when SQLite has cached menu rows for this device. */
+  hasLocalData: boolean;
+  /**
+   * True when Create Order should show the "sync products" empty state
+   * (no local products after hydrate/sync settled — not a filter miss).
+   */
+  needsProductSync: boolean;
   syncStatus: MenuSyncStatus;
   lastSyncedAt: string | null;
   setActiveCategory: (category: string) => void;
@@ -67,7 +74,7 @@ export function useMenuData(): UseMenuDataResult {
   const [activeHead, setActiveHead] = useState('All');
   const [viewMode, setViewMode] = useState<MenuViewMode>('grid');
   const [panelLayout, setPanelLayoutState] = useState<PanelLayout>('3');
-  const [gridCols, setGridColsState] = useState<GridCols>(2);
+  const [gridCols, setGridColsState] = useState<GridCols>(4);
   const [searchQuery, setSearchQuery] = useState('');
   const layoutPrefsLoaded = useRef(false);
   const setGlobalTaxes = useCartStore((state) => state.setGlobalTaxes);
@@ -256,6 +263,13 @@ export function useMenuData(): UseMenuDataResult {
       ? syncState.error
       : null;
 
+  const settled =
+    syncState.status === 'ready' ||
+    syncState.status === 'error' ||
+    syncState.status === 'offline';
+  // Empty local menu after sync settled — not a category/search filter miss
+  const needsProductSync = settled && !loading && productCount === 0;
+
   return {
     categories,
     products,
@@ -270,6 +284,8 @@ export function useMenuData(): UseMenuDataResult {
     globalTaxes,
     loading,
     error,
+    hasLocalData: syncState.hasLocalData,
+    needsProductSync,
     syncStatus: syncState.status,
     lastSyncedAt: syncState.lastSyncedAt,
     setActiveCategory,

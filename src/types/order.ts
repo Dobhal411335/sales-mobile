@@ -33,6 +33,10 @@ export interface ApiOrderItem {
   choices?: string[];
   drinks?: string[];
   choiceSelections?: ChoiceSelection[];
+  customDataSelections?: Array<{
+    name: string;
+    subChoices: Array<{name: string; choices: string[]}>;
+  }>;
   addonChoiceSelections?: ChoiceSelection[];
   customExtras?: Array<{name?: string; price?: number}>;
   noteWithout?: string;

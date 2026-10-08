@@ -71,6 +71,8 @@ export interface PrintJobMetadata {
   /** Set when paying via split-by-seat — receipt lists only that seat's lines */
   filterReceiptBySeat?: boolean;
   splitSeatNumber?: number | null;
+  splitSeatNumbers?: Array<number | null>;
+  floorName?: string;
   paymentMethod?: string;
   cashAmount?: number;
   cardAmount?: number;
@@ -212,6 +214,8 @@ export interface FetchPrintJobsParams {
   printerTarget?: string;
   reprint?: boolean;
   search?: string;
+  /** Restrict to one order (API defaults date to all days for that order). */
+  orderId?: string;
   /** YYYY-MM-DD restaurant-local day, or "all" */
   date?: string;
   page?: number;

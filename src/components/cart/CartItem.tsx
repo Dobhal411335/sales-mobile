@@ -1,14 +1,17 @@
 import React, {memo, useState} from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import {Plus, Trash2, X} from 'lucide-react-native';
+import {Minus, Plus, Trash2, X} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
+import {useKeyboardBottomInset} from '../../hooks/useKeyboardBottomInset';
 import type {CartLineItem} from '../../types/cart';
 import {formatCurrency} from '../../utils/currency';
 import {
@@ -16,6 +19,7 @@ import {
   isValidCustomExtraPrice,
   MAX_CUSTOM_EXTRA_PRICE,
   normalizeChoiceSelections,
+  normalizeCustomDataSelections,
   normalizeCustomExtras,
 } from '../../utils/productChoices';
 
@@ -72,6 +76,45 @@ function ChoiceChips({
   );
 }
 
+function CustomDataChips({
+  groups,
+}: {
+  groups: Array<{
+    name: string;
+    subChoices: Array<{name: string; choices: string[]}>;
+  }>;
+}) {
+  if (groups.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.choiceBlock}>
+      {groups.map((group) => (
+        <View key={`custom-${group.name}`} style={styles.customDataGroup}>
+          <Text style={styles.choiceGroupLabel}>{group.name}</Text>
+          {group.subChoices.map((option) => (
+            <View key={`${group.name}-${option.name}`}>
+              <Text style={styles.customDataOptionLabel}>{option.name}</Text>
+              <View style={styles.chipRow}>
+                {option.choices.map((choice) => (
+                  <View
+                    key={`${group.name}-${option.name}-${choice}`}
+                    style={[styles.chip, styles.customDataChip]}>
+                    <Text style={[styles.chipText, styles.customDataChipText]}>
+                      {choice}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function CartItemComponent({
   item,
   onIncrease,
@@ -81,12 +124,17 @@ function CartItemComponent({
   onAddCustomExtra,
   onRemoveCustomExtra,
 }: CartItemProps) {
+  const keyboardInset = useKeyboardBottomInset();
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
   const [customError, setCustomError] = useState<string | null>(null);
+  const [modifiedRequestOpen, setModifiedRequestOpen] = useState(false);
 
   const lineTotal = getItemLineTotal(item);
+  const customDataGroups = item.isOffer
+    ? []
+    : normalizeCustomDataSelections(item.customDataSelections);
   const choiceGroups = item.isOffer
     ? []
     : normalizeChoiceSelections(item.choiceSelections);
@@ -160,6 +208,7 @@ function CartItemComponent({
             </Text>
           </View>
           {item.modifier &&
+          customDataGroups.length === 0 &&
           choiceGroups.length === 0 &&
           addonGroups.length === 0 &&
           customExtras.length === 0 ? (
@@ -177,6 +226,7 @@ function CartItemComponent({
               {item.preparationStyle}
             </Text>
           ) : null}
+          <CustomDataChips groups={customDataGroups} />
           <ChoiceChips groups={choiceGroups} tone="choice" />
           <ChoiceChips groups={addonGroups} tone="addon" />
           {customExtras.map((extra, extraIdx) => (
@@ -201,7 +251,25 @@ function CartItemComponent({
 
       <View style={styles.notesBlock}>
         <View style={styles.notesHeader}>
-          <Text style={styles.notesLabel}>Modified request</Text>
+          <Pressable
+            style={styles.modifiedRequestHeadingRow}
+            onPress={() => setModifiedRequestOpen((prev) => !prev)}
+            accessibilityRole="button"
+            accessibilityState={{expanded: modifiedRequestOpen}}
+            accessibilityLabel="Modified request">
+            <Text style={styles.notesLabel}>Modified request</Text>
+            <View
+              style={[
+                styles.modifiedRequestToggle,
+                modifiedRequestOpen && styles.modifiedRequestToggleOpen,
+              ]}>
+              {modifiedRequestOpen ? (
+                <Minus size={12} color={colors.primary} />
+              ) : (
+                <Plus size={12} color={colors.textSecondary} />
+              )}
+            </View>
+          </Pressable>
           {allowCustomExtras ? (
             <Pressable
               style={styles.customItemButton}
@@ -213,55 +281,57 @@ function CartItemComponent({
             </Pressable>
           ) : null}
         </View>
-        <View style={styles.modifiedRequestFields}>
-          <View style={styles.modifiedRequestRow}>
-            <Text style={styles.modifiedRequestLabel}>Without</Text>
-            <TextInput
-              style={styles.modifiedRequestInput}
-              value={item.noteWithout || ''}
-              onChangeText={(value) =>
-                onChangeModifiedRequest({
-                  noteWithout: value,
-                  noteAdd: item.noteAdd || '',
-                })
-              }
-              onBlur={() =>
-                onChangeModifiedRequest({
-                  noteWithout: String(item.noteWithout || '').trim(),
-                  noteAdd: String(item.noteAdd || '').trim(),
-                })
-              }
-              placeholder="Type Here"
-              placeholderTextColor={colors.textSecondary}
-              maxLength={80}
-              accessibilityLabel={`Without for ${item.name}`}
-            />
+        {modifiedRequestOpen ? (
+          <View style={styles.modifiedRequestFields}>
+            <View style={styles.modifiedRequestRow}>
+              <Text style={styles.modifiedRequestLabel}>Without</Text>
+              <TextInput
+                style={styles.modifiedRequestInput}
+                value={item.noteWithout || ''}
+                onChangeText={(value) =>
+                  onChangeModifiedRequest({
+                    noteWithout: value,
+                    noteAdd: item.noteAdd || '',
+                  })
+                }
+                onBlur={() =>
+                  onChangeModifiedRequest({
+                    noteWithout: String(item.noteWithout || '').trim(),
+                    noteAdd: String(item.noteAdd || '').trim(),
+                  })
+                }
+                placeholder="Type Here"
+                placeholderTextColor={colors.textSecondary}
+                maxLength={80}
+                accessibilityLabel={`Without for ${item.name}`}
+              />
+            </View>
+            <View style={styles.modifiedRequestRow}>
+              <Text style={styles.modifiedRequestLabel}>Add</Text>
+              <TextInput
+                style={styles.modifiedRequestInput}
+                value={item.noteAdd || ''}
+                onChangeText={(value) =>
+                  onChangeModifiedRequest({
+                    noteWithout: item.noteWithout || '',
+                    noteAdd: value,
+                  })
+                }
+                onBlur={() =>
+                  onChangeModifiedRequest({
+                    noteWithout: String(item.noteWithout || '').trim(),
+                    noteAdd: String(item.noteAdd || '').trim(),
+                  })
+                }
+                placeholder="Type Here"
+                placeholderTextColor={colors.textSecondary}
+                maxLength={80}
+                accessibilityLabel={`Add for ${item.name}`}
+              />
+            </View>
           </View>
-          <View style={styles.modifiedRequestRow}>
-            <Text style={styles.modifiedRequestLabel}>Add</Text>
-            <TextInput
-              style={styles.modifiedRequestInput}
-              value={item.noteAdd || ''}
-              onChangeText={(value) =>
-                onChangeModifiedRequest({
-                  noteWithout: item.noteWithout || '',
-                  noteAdd: value,
-                })
-              }
-              onBlur={() =>
-                onChangeModifiedRequest({
-                  noteWithout: String(item.noteWithout || '').trim(),
-                  noteAdd: String(item.noteAdd || '').trim(),
-                })
-              }
-              placeholder="Type Here"
-              placeholderTextColor={colors.textSecondary}
-              maxLength={80}
-              accessibilityLabel={`Add for ${item.name}`}
-            />
-          </View>
-        </View>
-        {item.notes ? (
+        ) : null}
+        {!modifiedRequestOpen && item.notes ? (
           <Text style={styles.modifiedRequestPreview}>{item.notes}</Text>
         ) : null}
       </View>
@@ -300,79 +370,87 @@ function CartItemComponent({
         transparent
         animationType="fade"
         onRequestClose={closeCustomModal}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalHeaderText}>
-                <Text style={styles.modalTitle}>Add custom item</Text>
-                <Text style={styles.modalSubtitle} numberOfLines={1}>
-                  For {item.name}
-                </Text>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View
+            style={[
+              styles.modalBackdrop,
+              keyboardInset > 0 && styles.modalBackdropKeyboardOpen,
+            ]}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <View style={styles.modalHeaderText}>
+                  <Text style={styles.modalTitle}>Add custom item</Text>
+                  <Text style={styles.modalSubtitle} numberOfLines={1}>
+                    For {item.name}
+                  </Text>
+                </View>
+                <Pressable
+                  style={styles.modalClose}
+                  onPress={closeCustomModal}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close">
+                  <X size={18} color={colors.textSecondary} />
+                </Pressable>
               </View>
-              <Pressable
-                style={styles.modalClose}
-                onPress={closeCustomModal}
-                accessibilityRole="button"
-                accessibilityLabel="Close">
-                <X size={18} color={colors.textSecondary} />
-              </Pressable>
-            </View>
-            <View style={styles.modalBody}>
-              <View style={styles.modalField}>
-                <Text style={styles.modalFieldLabel}>
-                  Name <Text style={styles.required}>*</Text>
-                </Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={customName}
-                  onChangeText={(value) => {
-                    setCustomName(value);
-                    setCustomError(null);
-                  }}
-                  placeholder="e.g. Extra cheese slice"
-                  placeholderTextColor={colors.textSecondary}
-                  maxLength={80}
-                  autoFocus
-                />
+              <View style={styles.modalBody}>
+                <View style={styles.modalField}>
+                  <Text style={styles.modalFieldLabel}>
+                    Name <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={customName}
+                    onChangeText={(value) => {
+                      setCustomName(value);
+                      setCustomError(null);
+                    }}
+                    placeholder="e.g. Extra cheese slice"
+                    placeholderTextColor={colors.textSecondary}
+                    maxLength={80}
+                    autoFocus
+                  />
+                </View>
+                <View style={styles.modalField}>
+                  <Text style={styles.modalFieldLabel}>
+                    Price <Text style={styles.required}>*</Text>
+                  </Text>
+                  <TextInput
+                    style={styles.modalInput}
+                    value={customPrice}
+                    onChangeText={(value) => {
+                      setCustomPrice(value);
+                      setCustomError(null);
+                    }}
+                    placeholder="0.00"
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="decimal-pad"
+                  />
+                </View>
+                {customError ? (
+                  <Text style={styles.modalError}>{customError}</Text>
+                ) : null}
               </View>
-              <View style={styles.modalField}>
-                <Text style={styles.modalFieldLabel}>
-                  Price <Text style={styles.required}>*</Text>
-                </Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={customPrice}
-                  onChangeText={(value) => {
-                    setCustomPrice(value);
-                    setCustomError(null);
-                  }}
-                  placeholder="0.00"
-                  placeholderTextColor={colors.textSecondary}
-                  keyboardType="decimal-pad"
-                />
+              <View style={styles.modalFooter}>
+                <Pressable
+                  style={styles.modalCancelButton}
+                  onPress={closeCustomModal}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel">
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={styles.modalAddButton}
+                  onPress={submitCustomModal}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add custom item">
+                  <Text style={styles.modalAddText}>Add</Text>
+                </Pressable>
               </View>
-              {customError ? (
-                <Text style={styles.modalError}>{customError}</Text>
-              ) : null}
-            </View>
-            <View style={styles.modalFooter}>
-              <Pressable
-                style={styles.modalCancelButton}
-                onPress={closeCustomModal}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel">
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={styles.modalAddButton}
-                onPress={submitCustomModal}
-                accessibilityRole="button"
-                accessibilityLabel="Add custom item">
-                <Text style={styles.modalAddText}>Add</Text>
-              </Pressable>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -463,12 +541,21 @@ const styles = StyleSheet.create({
     marginTop: 8,
     gap: 8,
   },
+  customDataGroup: {
+    gap: 6,
+  },
   choiceGroupLabel: {
     fontSize: 10,
     fontWeight: '800',
     color: colors.textSecondary,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
+  },
+  customDataOptionLabel: {
+    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.text,
   },
   chipRow: {
     flexDirection: 'row',
@@ -490,6 +577,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#EFF6FF',
     borderColor: '#DBEAFE',
   },
+  customDataChip: {
+    backgroundColor: '#F5F3FF',
+    borderColor: '#EDE9FE',
+  },
   chipText: {
     fontSize: 10,
     fontWeight: '700',
@@ -499,6 +590,9 @@ const styles = StyleSheet.create({
   },
   addonChipText: {
     color: '#1E40AF',
+  },
+  customDataChipText: {
+    color: '#5B21B6',
   },
   price: {
     fontSize: 14,
@@ -514,12 +608,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 8,
   },
+  modifiedRequestHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
+  },
   notesLabel: {
     fontSize: 11,
     fontWeight: '800',
     color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  modifiedRequestToggle: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modifiedRequestToggleOpen: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF7ED',
   },
   customItemButton: {
     flexDirection: 'row',
@@ -618,12 +732,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.text,
   },
+  flex: {
+    flex: 1,
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  modalBackdropKeyboardOpen: {
+    justifyContent: 'flex-end',
   },
   modalCard: {
     width: '100%',

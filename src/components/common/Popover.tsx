@@ -3,7 +3,6 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  View,
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
@@ -20,6 +19,9 @@ interface PopoverProps {
 /**
  * Lightweight header menus. Uses Modal without animation so open feels instant
  * on POS tablets (fade caused noticeable delay). Full forms still use TabletModal.
+ *
+ * Same dismiss pattern as ActionSheet / TabletModal: the backdrop Pressable is
+ * flex:1 and only wraps a content-sized child, so taps on empty space close it.
  */
 export function Popover({
   visible,
@@ -28,32 +30,28 @@ export function Popover({
   align = 'end',
   contentStyle,
 }: PopoverProps) {
-  if (!visible) {
-    return null;
-  }
-
   return (
     <Modal
-      visible
+      visible={visible}
       transparent
       animationType="none"
       statusBarTranslucent
       onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <View
-          style={[
-            styles.container,
-            align === 'start' && styles.alignStart,
-            align === 'center' && styles.alignCenter,
-            align === 'end' && styles.alignEnd,
-          ]}
-          pointerEvents="box-none">
-          <Pressable
-            style={[styles.content, contentStyle]}
-            onPress={(event) => event.stopPropagation()}>
-            {children}
-          </Pressable>
-        </View>
+      <Pressable
+        style={[
+          styles.backdrop,
+          align === 'start' && styles.alignStart,
+          align === 'center' && styles.alignCenter,
+          align === 'end' && styles.alignEnd,
+        ]}
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Close menu">
+        <Pressable
+          style={[styles.content, contentStyle]}
+          onPress={(event) => event.stopPropagation()}>
+          {children}
+        </Pressable>
       </Pressable>
     </Modal>
   );
@@ -63,9 +61,6 @@ const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  container: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 72,
     paddingBottom: 24,

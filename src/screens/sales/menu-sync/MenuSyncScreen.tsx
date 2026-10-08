@@ -174,6 +174,7 @@ export function MenuSyncScreen(_props: Props) {
           data={products}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
+          extraData={syncState.lastSyncedAt || products.length}
           contentContainerStyle={styles.listContent}
           initialNumToRender={16}
           windowSize={7}

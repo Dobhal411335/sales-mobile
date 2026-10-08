@@ -41,7 +41,7 @@ export function resolveDocumentId(
 
 export function isDirectSaleOrder(order: TodayOrder): boolean {
   const source = order?.source;
-  return source === 'WALK_IN' || source === 'STAFF';
+  return source === 'WALK_IN' || source === 'TAKEAWAY' || source === 'STAFF';
 }
 
 function stripFloorSuffix(value: string) {
@@ -130,7 +130,7 @@ export function shouldShowTable(order: TodayOrder): boolean {
 
 export function getOrderTypeLabel(order: TodayOrder): string {
   const source = order?.source || 'POS';
-  if (source === 'WALK_IN') {
+  if (source === 'WALK_IN' || source === 'TAKEAWAY') {
     return 'Takeaway';
   }
   if (source === 'STAFF') {
@@ -140,7 +140,7 @@ export function getOrderTypeLabel(order: TodayOrder): string {
     return 'Online';
   }
   if (order?.tableSession || order?.tableNo) {
-    return 'Table Order';
+    return 'Dine-in';
   }
   return 'Takeaway';
 }

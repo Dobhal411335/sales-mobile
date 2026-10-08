@@ -8,6 +8,7 @@ import {
   getEmployeeFirstName,
   isSessionOwnedByUser,
 } from '../../utils/tableStatus';
+import {UsersIcon} from '../common/Icons';
 
 interface TableCardProps {
   table: FloorTable;
@@ -31,71 +32,85 @@ function TableCardComponent({
   const isOther = Boolean(session) && !isMine;
   const employeeFirst = getEmployeeFirstName(session?.assignedEmployeeName);
   const tableLabel = formatTableCardLabel(table.tableNumber);
+  const seatsColor = session ? statusStyle.statusText : colors.textSecondary;
 
   return (
-    <Pressable
-      style={({pressed}) => [
-        styles.card,
-        table.shape === 'round' && styles.cardRound,
-        {
-          backgroundColor: statusStyle.background,
-          borderColor: selected ? colors.primary : statusStyle.border,
-        },
-        selected && styles.cardSelected,
-        pressed && styles.cardPressed,
-      ]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={`Table ${tableLabel}, ${statusStyle.label}`}
-      accessibilityState={{selected}}>
-      <Text
-        style={[styles.tableNumber, {color: statusStyle.text}]}
-        numberOfLines={1}>
-        {tableLabel}
-      </Text>
+    <View style={styles.outer}>
+      <Pressable
+        style={({pressed}) => [
+          styles.card,
+          table.shape === 'round' && styles.cardRound,
+          {
+            backgroundColor: statusStyle.background,
+            borderColor: selected ? colors.primary : statusStyle.border,
+          },
+          selected && styles.cardSelected,
+          pressed && styles.cardPressed,
+        ]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Table ${tableLabel}, ${statusStyle.label}`}
+        accessibilityState={{selected}}>
+        <View style={styles.titleRow}>
+          <Text
+            style={[styles.tableNumber, {color: statusStyle.text}]}
+            numberOfLines={1}
+            ellipsizeMode="tail">
+            {tableLabel}
+          </Text>
+          <Text
+            style={[styles.status, {color: statusStyle.statusText}]}
+            numberOfLines={1}>
+            {statusStyle.label}
+          </Text>
+        </View>
 
-      <Text style={[styles.status, {color: statusStyle.statusText}]}>
-        {statusStyle.label}
-      </Text>
+        {session && employeeFirst ? (
+          <Text
+            style={[styles.employeeName, {color: statusStyle.text}]}
+            numberOfLines={1}
+            ellipsizeMode="tail">
+            {employeeFirst}
+          </Text>
+        ) : null}
 
-      {session ? (
-        <View style={styles.sessionMeta}>
-          <View style={styles.guestRow}>
-            {employeeFirst ? (
-              <Text
-                style={[styles.employeeName, {color: statusStyle.text}]}
-                numberOfLines={1}>
-                {employeeFirst}
-              </Text>
-            ) : null}
-            <Text style={[styles.guestCount, {color: statusStyle.statusText}]}>
-              {session.guestCount}
-            </Text>
-          </View>
-          <Text style={[styles.seats, {color: statusStyle.statusText}]}>
+        <View style={styles.seatsRow}>
+          <UsersIcon size={12} color={seatsColor} />
+          <Text style={[styles.seats, {color: seatsColor}]}>
             {table.seats} seats
           </Text>
         </View>
-      ) : (
-        <Text style={styles.seatsAvailable}>{table.seats} seats</Text>
-      )}
+      </Pressable>
 
       {isOther ? (
-        <View style={styles.lockBadge}>
+        <View style={styles.lockBadge} pointerEvents="none">
           <Text style={styles.lockText}>🔒</Text>
         </View>
       ) : null}
 
       {isMine && statusStyle.dot ? (
-        <View style={[styles.statusDot, {backgroundColor: statusStyle.dot}]} />
+        <View
+          style={[styles.statusDot, {backgroundColor: statusStyle.dot}]}
+          pointerEvents="none"
+        />
       ) : null}
-    </Pressable>
+    </View>
   );
 }
 
 export const TableCard = memo(TableCardComponent);
 
 const styles = StyleSheet.create({
+  outer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+    // Padding keeps status/lock badges outside the card on Android
+    // (where overflow:visible is often ignored).
+    paddingTop: 5,
+    paddingRight: 5,
+  },
   card: {
     flex: 1,
     width: '100%',
@@ -106,7 +121,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 6,
     paddingVertical: 6,
-    position: 'relative',
   },
   cardRound: {
     borderRadius: 999,
@@ -118,53 +132,51 @@ const styles = StyleSheet.create({
   cardPressed: {
     opacity: 0.92,
   },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'center',
+    gap: 4,
+    width: '100%',
+    minWidth: 0,
+    paddingHorizontal: 2,
+  },
   tableNumber: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '800',
     letterSpacing: 0.2,
-    maxWidth: '100%',
+    flexShrink: 1,
+    minWidth: 0,
   },
   status: {
-    marginTop: 2,
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.4,
-  },
-  sessionMeta: {
-    marginTop: 4,
-    alignItems: 'center',
-    gap: 1,
-    maxWidth: '100%',
-  },
-  guestRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    maxWidth: '100%',
+    flexShrink: 0,
   },
   employeeName: {
-    fontSize: 12,
+    marginTop: 3,
+    fontSize: 11,
     fontWeight: '700',
-    flexShrink: 1,
+    width: '100%',
+    textAlign: 'center',
   },
-  guestCount: {
-    fontSize: 13,
-    fontWeight: '700',
+  seatsRow: {
+    marginTop: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    flexShrink: 0,
   },
   seats: {
     fontSize: 11,
     fontWeight: '600',
   },
-  seatsAvailable: {
-    marginTop: 4,
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
   lockBadge: {
     position: 'absolute',
-    top: -5,
-    right: -5,
+    top: 0,
+    right: 0,
     width: 18,
     height: 18,
     borderRadius: 9,
@@ -173,18 +185,21 @@ const styles = StyleSheet.create({
     borderColor: colors.text,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 2,
   },
   lockText: {
     fontSize: 8,
   },
   statusDot: {
     position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    borderColor: colors.text,
+    top: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#fff',
+    zIndex: 2,
+    elevation: 3,
   },
 });

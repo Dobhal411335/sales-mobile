@@ -41,48 +41,6 @@ interface FloorHeaderProps {
   onRefresh?: () => void;
 }
 
-const HUB_BUTTONS: {
-  id: FloorOrderShortcut;
-  label: string;
-  Icon: typeof ShoppingBag;
-  countKey: keyof FloorAttention;
-  border: string;
-  background: string;
-  text: string;
-  badgeBg: string;
-}[] = [
-  {
-    id: 'takeaway',
-    label: 'Takeaway',
-    Icon: ShoppingBag,
-    countKey: 'takeAwayUnpaid',
-    border: '#FDBA74',
-    background: '#FFF7ED',
-    text: '#9A3412',
-    badgeBg: '#F97316',
-  },
-  {
-    id: 'staff',
-    label: 'Staff',
-    Icon: UserRound,
-    countKey: 'staffUnpaid',
-    border: '#A5B4FC',
-    background: '#EEF2FF',
-    text: '#3730A3',
-    badgeBg: '#4F46E5',
-  },
-  {
-    id: 'online',
-    label: 'Online',
-    Icon: Globe,
-    countKey: 'onlineOpen',
-    border: '#7DD3FC',
-    background: '#F0F9FF',
-    text: '#075985',
-    badgeBg: '#0284C7',
-  },
-];
-
 function getGridLabel(gridMode: GridMode): string {
   if (gridMode === 'lines') {
     return 'Lines';
@@ -101,10 +59,6 @@ function getConnectionLabel(status: ConnectionStatus): string {
     return '…';
   }
   return 'Offline';
-}
-
-function formatBadge(count: number): string {
-  return count > 99 ? '99+' : String(count);
 }
 
 export function FloorHeader({
@@ -143,95 +97,101 @@ export function FloorHeader({
 
   return (
     <View style={styles.header}>
-      <View style={styles.topRow}>
+      <View style={styles.singleRow}>
         <View style={styles.titleSection}>
-          <Text style={styles.titleText}>Floor Operations</Text>
+          <Text style={styles.titleText} numberOfLines={1}>
+            Floor Operations
+          </Text>
           <Text style={styles.subtitleText} numberOfLines={1}>
             {subtitle}
           </Text>
         </View>
-      </View>
 
-      <View style={styles.controlsRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.controlsContent}
+          style={styles.controlsScroll}>
           <FloorSelector
-          floors={floors}
-          selectedFloorId={selectedFloorId}
-          onSelectFloor={onSelectFloor}
-          compact
-        />
+            floors={floors}
+            selectedFloorId={selectedFloorId}
+            onSelectFloor={onSelectFloor}
+            compact
+          />
 
-        {onRefresh ? (
+          {onRefresh ? (
+            <Pressable
+              style={({pressed}) => [
+                styles.refreshButton,
+                pressed && styles.refreshButtonPressed,
+                refreshing && styles.refreshButtonDisabled,
+              ]}
+              onPress={onRefresh}
+              disabled={refreshing}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh floor">
+              <RefreshCw size={14} color={colors.text} strokeWidth={2.4} />
+              <Text style={styles.refreshButtonText}>Refresh</Text>
+            </Pressable>
+          ) : null}
+
           <Pressable
             style={({pressed}) => [
-              styles.refreshButton,
-              pressed && styles.refreshButtonPressed,
-              refreshing && styles.refreshButtonDisabled,
+              styles.gridButton,
+              gridMode !== 'none' && styles.gridButtonActive,
+              pressed && styles.gridButtonPressed,
             ]}
-            onPress={onRefresh}
-            disabled={refreshing}
+            onPress={onToggleGrid}
             accessibilityRole="button"
-            accessibilityLabel="Refresh floor">
-            <RefreshCw size={14} color={colors.text} strokeWidth={2.4} />
-            <Text style={styles.refreshButtonText}>Refresh</Text>
+            accessibilityLabel={`Grid mode ${getGridLabel(gridMode)}`}>
+            <Text
+              style={[
+                styles.gridButtonText,
+                gridMode !== 'none' && styles.gridButtonTextActive,
+              ]}>
+              {getGridLabel(gridMode)}
+            </Text>
           </Pressable>
-        ) : null}
 
-        <Pressable
-          style={({pressed}) => [
-            styles.gridButton,
-            gridMode !== 'none' && styles.gridButtonActive,
-            pressed && styles.gridButtonPressed,
-          ]}
-          onPress={onToggleGrid}
-          accessibilityRole="button"
-          accessibilityLabel={`Grid mode ${getGridLabel(gridMode)}`}>
-          <Text
-            style={[
-              styles.gridButtonText,
-              gridMode !== 'none' && styles.gridButtonTextActive,
-            ]}>
-            {getGridLabel(gridMode)}
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={({pressed}) => [
-            styles.statusChip,
-            pressed && styles.statusChipPressed,
-          ]}
-          onPress={() => setStaffOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel={`${onlineStaffCount} staff online`}>
-          <UsersIcon size={14} color="#065F46" />
-          <Text style={styles.onlineText}>{onlineStaffCount} Online</Text>
-        </Pressable>
-
-        {connectionStatus !== 'disconnected' ? (
-          <View
-            style={[
+          <Pressable
+            style={({pressed}) => [
               styles.statusChip,
-              connectionStatus === 'connected'
-                ? styles.statusChipLive
-                : styles.statusChipPending,
-            ]}>
-            <Text
+              pressed && styles.statusChipPressed,
+            ]}
+            onPress={() => setStaffOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`${onlineStaffCount} staff online`}>
+            <UsersIcon size={14} color="#065F46" />
+            <Text style={styles.onlineText}>{onlineStaffCount} Online</Text>
+          </Pressable>
+
+          {connectionStatus !== 'disconnected' ? (
+            <View
               style={[
-                styles.connectionDot,
+                styles.statusChip,
                 connectionStatus === 'connected'
-                  ? styles.connectionDotLive
-                  : styles.connectionDotPending,
+                  ? styles.statusChipLive
+                  : styles.statusChipPending,
               ]}>
-              {connectionStatus === 'connected' ? '●' : '○'}
-            </Text>
-            <Text
-              style={[
-                styles.connectionText,
-                connectionStatus === 'connected' && styles.connectionTextLive,
-              ]}>
-              {getConnectionLabel(connectionStatus)}
-            </Text>
-          </View>
-        ) : null}
+              <Text
+                style={[
+                  styles.connectionDot,
+                  connectionStatus === 'connected'
+                    ? styles.connectionDotLive
+                    : styles.connectionDotPending,
+                ]}>
+                {connectionStatus === 'connected' ? '●' : '○'}
+              </Text>
+              <Text
+                style={[
+                  styles.connectionText,
+                  connectionStatus === 'connected' && styles.connectionTextLive,
+                ]}>
+                {getConnectionLabel(connectionStatus)}
+              </Text>
+            </View>
+          ) : null}
+        </ScrollView>
       </View>
 
       <Popover
@@ -243,30 +203,43 @@ export function FloorHeader({
         <Text style={styles.staffSubtitle}>
           {onlineStaffCount} staff with an active session
         </Text>
-        <ScrollView style={styles.staffList} nestedScrollEnabled>
-          {onlineStaff.length === 0 ? (
-            <Text style={styles.staffEmpty}>No one online right now.</Text>
-          ) : (
-            onlineStaff.map((emp, idx) => (
-              <View key={emp.id || `${emp.name}-${idx}`} style={styles.staffRow}>
-                <View style={styles.staffAvatar}>
-                  <Text style={styles.staffAvatarText}>
-                    {(emp.name || '?').charAt(0).toUpperCase()}
-                  </Text>
+        <View style={styles.staffListWrap}>
+          <ScrollView
+            style={styles.staffList}
+            contentContainerStyle={styles.staffListContent}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+            bounces
+            keyboardShouldPersistTaps="handled"
+            // Keep scroll gestures from being stolen by the backdrop Pressable
+            onStartShouldSetResponder={() => true}
+            onMoveShouldSetResponder={() => true}>
+            {onlineStaff.length === 0 ? (
+              <Text style={styles.staffEmpty}>No one online right now.</Text>
+            ) : (
+              onlineStaff.map((emp, idx) => (
+                <View
+                  key={emp.id || `${emp.name}-${idx}`}
+                  style={styles.staffRow}>
+                  <View style={styles.staffAvatar}>
+                    <Text style={styles.staffAvatarText}>
+                      {(emp.name || '?').charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.staffInfo}>
+                    <Text style={styles.staffName} numberOfLines={1}>
+                      {idx + 1}. {emp.name || 'Staff'}
+                    </Text>
+                    <Text style={styles.staffRole} numberOfLines={1}>
+                      {emp.role || 'Staff'}
+                      {emp.employeeId ? ` · ${emp.employeeId}` : ''}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.staffInfo}>
-                  <Text style={styles.staffName} numberOfLines={1}>
-                    {idx + 1}. {emp.name || 'Staff'}
-                  </Text>
-                  <Text style={styles.staffRole} numberOfLines={1}>
-                    {emp.role || 'Staff'}
-                    {emp.employeeId ? ` · ${emp.employeeId}` : ''}
-                  </Text>
-                </View>
-              </View>
-            ))
-          )}
-        </ScrollView>
+              ))
+            )}
+          </ScrollView>
+        </View>
       </Popover>
     </View>
   );
@@ -280,38 +253,45 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.surface,
-    gap: 8,
   },
-  topRow: {
+  singleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
+    minHeight: 44,
   },
   titleSection: {
     flexShrink: 1,
-    minWidth: 160,
+    flexGrow: 0,
+    minWidth: 0,
+    maxWidth: '48%',
+    paddingRight: 4,
   },
   titleText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: colors.text,
     letterSpacing: -0.3,
   },
   subtitleText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: colors.textSecondary,
-    marginTop: 2,
+    marginTop: 1,
   },
-  controlsRow: {
+  controlsScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+    minWidth: 0,
+    maxWidth: '58%',
+  },
+  controlsContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    flexWrap: 'wrap',
     gap: 8,
-    paddingTop: 2,
+    flexGrow: 1,
   },
   hubGroup: {
     flexDirection: 'row',
@@ -464,8 +444,15 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: 10,
   },
+  staffListWrap: {
+    maxHeight: 240,
+  },
   staffList: {
-    maxHeight: 220,
+    maxHeight: 240,
+  },
+  staffListContent: {
+    paddingBottom: 4,
+    flexGrow: 0,
   },
   staffEmpty: {
     fontSize: 13,

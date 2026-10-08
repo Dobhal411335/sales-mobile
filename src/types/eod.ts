@@ -35,6 +35,17 @@ export interface EodMeta {
   savedId?: string;
 }
 
+export interface EodOrderCountsBySource {
+  pos: number;
+  takeAway: number;
+  staff: number;
+  online: number;
+  posPaid: number;
+  takeAwayPaid: number;
+  staffPaid: number;
+  onlinePaid: number;
+}
+
 export interface EodOrderCounts {
   total: number;
   paid: number;
@@ -48,6 +59,19 @@ export interface EodOrderCounts {
   waivedAmount: number;
   refunded: number;
   refundedNote?: string;
+  bySource?: EodOrderCountsBySource;
+}
+
+export interface EodSalesBySourceRow {
+  source: string;
+  label: string;
+  orderCount: number;
+  paidCount: number;
+  netSales: number;
+  grossSales: number;
+  discounts: number;
+  taxes: number;
+  tips: number;
 }
 
 export interface EodDetailedSalesSummary {
@@ -153,6 +177,13 @@ export interface EodReport {
   detailedSalesSummary: EodDetailedSalesSummary;
   detailedLaborSummary: EodDetailedLaborSummary;
   paymentsSummary: EodPaymentsSummary;
+  salesBySource?: {
+    rows: EodSalesBySourceRow[];
+    total: Omit<EodSalesBySourceRow, 'source' | 'label'> & {
+      source?: string;
+      label?: string;
+    };
+  };
   salesBySection: {
     rows: EodSalesBySectionRow[];
     total: EodSalesBySectionRow;

@@ -25,6 +25,8 @@ interface SplitBillEditorProps {
   splitMode?: SplitMode;
   onSplitModeChange?: (mode: SplitMode) => void;
   orderItems?: CartLineItem[];
+  selectedId?: string | null;
+  onSelectRow?: (id: string) => void;
 }
 
 function makeRow(
@@ -53,6 +55,8 @@ export function SplitBillEditor({
   splitMode = 'custom',
   onSplitModeChange,
   orderItems = [],
+  selectedId = null,
+  onSelectRow,
 }: SplitBillEditorProps) {
   const allocated = useMemo(
     () =>
@@ -256,7 +260,15 @@ export function SplitBillEditor({
       </View>
 
       {rows.map((row, index) => (
-        <View key={row.id} style={styles.rowCard}>
+        <Pressable
+          key={row.id}
+          style={[
+            styles.rowCard,
+            selectedId === row.id && styles.rowCardSelected,
+          ]}
+          onPress={() => onSelectRow?.(row.id)}
+          accessibilityRole="button"
+          accessibilityState={{selected: selectedId === row.id}}>
           <View style={styles.rowHeader}>
             <Text style={styles.rowTitle}>
               {isBySeat ? row.name || `Seat ${index + 1}` : `Payer ${index + 1}`}
@@ -274,13 +286,17 @@ export function SplitBillEditor({
 
           <Text style={styles.fieldLabel}>NAME (on receipt)</Text>
           <TextInput
-            style={[styles.input, isBySeat ? styles.inputReadonly : null]}
-            editable={!isBySeat}
+            style={styles.input}
             value={row.name}
             onChangeText={(name) => updateRow(row.id, {name})}
-            placeholder={`Guest ${String.fromCharCode(65 + index)}`}
+            placeholder={
+              isBySeat
+                ? 'Seat / payer name (prints as Party)'
+                : `Guest ${String.fromCharCode(65 + index)}`
+            }
             placeholderTextColor={colors.textSecondary}
             autoCapitalize="words"
+            accessibilityLabel="Payer name prints as Party"
           />
 
           <Text style={styles.fieldLabel}>AMOUNT</Text>
@@ -330,7 +346,7 @@ export function SplitBillEditor({
               onSelect={(cardType) => updateRow(row.id, {cardType})}
             />
           ) : null}
-        </View>
+        </Pressable>
       ))}
     </View>
   );
@@ -390,9 +406,6 @@ const styles = StyleSheet.create({
   modeChipTextActive: {
     color: colors.text,
   },
-  inputReadonly: {
-    backgroundColor: '#F4F4F5',
-  },
   summaryBox: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -434,6 +447,10 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
     backgroundColor: colors.surface,
+  },
+  rowCardSelected: {
+    borderColor: '#FB923C',
+    backgroundColor: '#FFF7ED',
   },
   rowHeader: {
     flexDirection: 'row',

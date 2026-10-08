@@ -15,6 +15,10 @@ export interface KotLineItem {
   choices?: string[];
   drinks?: string[];
   choiceSelections?: Array<{name: string; subChoices: string[]}>;
+  customDataSelections?: Array<{
+    name: string;
+    subChoices: Array<{name: string; choices: string[]}>;
+  }>;
   addonChoiceSelections?: Array<{name: string; subChoices: string[]}>;
   customExtras?: Array<{name: string; price: number}>;
   modifier?: string;
@@ -38,8 +42,13 @@ export interface OrderPaymentSplit {
   method: string;
   cardType?: string | null;
   tipAmount?: number;
+  tipMethod?: string | null;
+  cashAmount?: number | null;
+  cardAmount?: number | null;
+  giftcardUsedAmount?: number;
   paidAt?: string;
   seatNumber?: number | null;
+  seatNumbers?: Array<number | null>;
 }
 
 export interface ReceiptOrder {

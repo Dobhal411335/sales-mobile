@@ -6,7 +6,8 @@ export type TodayOrderStatus =
   | 'CANCELLED'
   | 'WAIVED';
 
-export type TodayOrderSource = 'POS' | 'WALK_IN' | 'STAFF' | 'ONLINE';
+/** TAKEAWAY is legacy/alias; API usually persists takeaway as WALK_IN */
+export type TodayOrderSource = 'POS' | 'WALK_IN' | 'TAKEAWAY' | 'STAFF' | 'ONLINE';
 
 export type TodayOrderPaymentStatus = 'UNPAID' | 'PAID' | 'PARTIAL' | 'REFUNDED';
 
@@ -31,6 +32,8 @@ export interface TodayOrderItem {
   productType?: string;
   category?: string;
   notes?: string;
+  seatNumber?: number | null;
+  seat?: string | number;
 }
 
 export interface TodayOrderProcessedBy {
@@ -50,7 +53,13 @@ export interface TodayOrderPaymentSplit {
   method: string;
   cardType?: string | null;
   tipAmount?: number;
+  tipMethod?: string | null;
+  cashAmount?: number | null;
+  cardAmount?: number | null;
+  giftcardUsedAmount?: number;
   paidAt?: string;
+  seatNumber?: number | null;
+  seatNumbers?: Array<number | null>;
 }
 
 export interface TodayOrder {

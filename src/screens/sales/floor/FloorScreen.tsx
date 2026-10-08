@@ -18,6 +18,7 @@ import {
 import {StartSessionModal} from '../../../components/floor/StartSessionModal';
 import {TableActionsSheet} from '../../../components/floor/TableActionsSheet';
 import {TableReadonlySheet} from '../../../components/floor/TableReadonlySheet';
+import {NetworkErrorState} from '../../../components/common/NetworkErrorState';
 import {colors} from '../../../constants/colors';
 import {useAuth} from '../../../hooks/useAuth';
 import {useFloorData} from '../../../hooks/useFloorData';
@@ -186,6 +187,7 @@ export function FloorScreen({navigation}: Props) {
     setActionsSession(readonlySession);
   }, [readonlyTable, readonlySession]);
 
+
   return (
     <SafeAreaView style={styles.safe} edges={['bottom', 'left', 'right']}>
       <FloorHeader
@@ -210,19 +212,13 @@ export function FloorScreen({navigation}: Props) {
       />
 
       {error ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorText}>{error}</Text>
-          <Pressable
-            style={({pressed}) => [
-              styles.retryButton,
-              pressed && styles.retryButtonPressed,
-            ]}
-            onPress={retry}
-            accessibilityRole="button"
-            accessibilityLabel="Retry loading floor">
-            <Text style={styles.retryText}>Retry</Text>
-          </Pressable>
-        </View>
+        <NetworkErrorState
+          compact
+          title="Unable to load floor"
+          message={error}
+          onRetry={retry}
+          retryLabel="Retry"
+        />
       ) : null}
 
       <View style={styles.body}>

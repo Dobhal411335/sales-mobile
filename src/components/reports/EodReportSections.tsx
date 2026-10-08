@@ -18,9 +18,41 @@ export function EodReportSections({report}: EodReportSectionsProps) {
   const ts = report.tipsSummary;
   const st = report.salesTaxAndTipSummary;
   const cd = report.cashDeposit;
+  const sbs = report.salesBySource;
+  const dss = report.detailedSalesSummary;
 
   return (
     <>
+      {sbs ? (
+        <CollapsibleReportSection title="Orders by Source" defaultExpanded>
+          <ReportDataTable
+            headers={['Source', 'Orders', 'Paid', 'Net Sales', 'Gross Sales', 'Tips']}
+            rows={[
+              ...sbs.rows.map((r) => [
+                r.label,
+                r.orderCount,
+                r.paidCount,
+                formatReportMoney(r.netSales),
+                formatReportMoney(r.grossSales),
+                formatReportMoney(r.tips),
+              ]),
+              [
+                'TOTAL',
+                sbs.total.orderCount,
+                sbs.total.paidCount,
+                formatReportMoney(sbs.total.netSales ?? dss?.netSales),
+                formatReportMoney(sbs.total.grossSales ?? dss?.grossSales),
+                formatReportMoney(sbs.total.tips ?? ts?.totalTips),
+              ],
+            ]}
+          />
+          <Text style={styles.note}>
+            POS / Table, Takeaway, Staff, and Online orders are all included in
+            End-of-Day sales when paid.
+          </Text>
+        </CollapsibleReportSection>
+      ) : null}
+
       <CollapsibleReportSection title="Detailed Labor Summary">
         <ReportMetricGrid>
           <ReportMetricCard label="Total Labor Cost" value={formatReportMoney(dls.totalLaborCost)} />

@@ -5,6 +5,7 @@ import {
   getItemExtraOptions,
   isStandaloneExtraLine,
   normalizeChoiceSelections,
+  normalizeCustomDataSelections,
   normalizeCustomExtras,
 } from './productChoices';
 
@@ -77,6 +78,18 @@ export function getReceiptModifierLines(
     return lines;
   }
 
+  for (const group of normalizeCustomDataSelections(
+    (item as CartLineItem).customDataSelections,
+  )) {
+    lines.push({kind: 'custom-data', text: `${group.name}:`});
+    for (const option of group.subChoices) {
+      lines.push({kind: 'custom-data-option', text: `${option.name}:`});
+      for (const choice of option.choices) {
+        lines.push({kind: 'custom-data-item', text: `• ${choice}`});
+      }
+    }
+  }
+
   for (const group of normalizeChoiceSelections(item.choiceSelections)) {
     lines.push({kind: 'choice', text: `${group.name}:`});
     for (const sub of group.subChoices) {
@@ -112,6 +125,7 @@ export function getReceiptModifierLines(
   if (
     lines.length === (style ? 1 : 0) &&
     !item.choiceSelections?.length &&
+    !(item as CartLineItem).customDataSelections?.length &&
     !item.addonChoiceSelections?.length
   ) {
     if (item.modifier && !isRedundantExtraModifier(item, String(item.modifier))) {
@@ -147,6 +161,7 @@ export function cartLineToKotItem(line: CartLineItem): KotLineItem {
     choices: line.choices,
     drinks: line.drinks,
     choiceSelections: line.choiceSelections,
+    customDataSelections: line.customDataSelections,
     addonChoiceSelections: line.addonChoiceSelections,
     customExtras: normalizeCustomExtras(line.customExtras),
     modifier: line.modifier,

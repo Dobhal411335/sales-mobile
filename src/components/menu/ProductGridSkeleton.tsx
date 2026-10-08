@@ -25,7 +25,7 @@ function TileSkeletonCard() {
   );
 }
 
-export function ProductGridSkeleton({gridCols = 2}: ProductGridSkeletonProps) {
+export function ProductGridSkeleton({gridCols = 4}: ProductGridSkeletonProps) {
   const numColumns = gridCols;
   const placeholders = useMemo(
     () => Array.from({length: TILE_PLACEHOLDER_COUNT}, (_, i) => `sk-${i}`),

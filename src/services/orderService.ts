@@ -129,6 +129,9 @@ function normalizeKotItems(raw: unknown[]): KotLineItem[] {
       choiceSelections: Array.isArray(row.choiceSelections)
         ? (row.choiceSelections as CartLineItem['choiceSelections'])
         : undefined,
+      customDataSelections: Array.isArray(row.customDataSelections)
+        ? (row.customDataSelections as CartLineItem['customDataSelections'])
+        : undefined,
       addonChoiceSelections: Array.isArray(row.addonChoiceSelections)
         ? (row.addonChoiceSelections as CartLineItem['addonChoiceSelections'])
         : undefined,

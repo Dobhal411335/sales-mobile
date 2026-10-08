@@ -6,9 +6,11 @@ import type {AppliedDiscount, CartLineItem, CartTotals} from '../types/cart';
 import type {TaxRate} from '../types/product';
 import {
   cartChoiceSelectionsKey,
+  cartCustomDataSelectionsKey,
   cartCustomExtrasKey,
   getItemLineTotal,
   normalizeChoiceSelections,
+  normalizeCustomDataSelections,
 } from './productChoices';
 
 export function calculateItemTax(
@@ -94,6 +96,8 @@ export function isSameCartLine(a: CartLineItem, b: CartLineItem): boolean {
       JSON.stringify(sortedOptions(b.options)) &&
     cartChoiceSelectionsKey(a.choiceSelections) ===
       cartChoiceSelectionsKey(b.choiceSelections) &&
+    cartCustomDataSelectionsKey(a.customDataSelections) ===
+      cartCustomDataSelectionsKey(b.customDataSelections) &&
     cartChoiceSelectionsKey(a.addonChoiceSelections) ===
       cartChoiceSelectionsKey(b.addonChoiceSelections) &&
     cartCustomExtrasKey(a.customExtras) === cartCustomExtrasKey(b.customExtras)
@@ -133,6 +137,9 @@ export function getCartFingerprint(items: CartLineItem[]): string {
       notes: String(item.notes || '').trim(),
       options: sortedOptions(item.options),
       choiceSelections: normalizeChoiceSelections(item.choiceSelections),
+      customDataSelections: normalizeCustomDataSelections(
+        item.customDataSelections,
+      ),
       addonChoiceSelections: normalizeChoiceSelections(
         item.addonChoiceSelections,
       ),

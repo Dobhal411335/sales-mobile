@@ -12,6 +12,8 @@ interface OrderSummarySectionProps {
 }
 
 export function OrderSummarySection({orderCounts}: OrderSummarySectionProps) {
+  const bySource = orderCounts.bySource;
+
   return (
     <CollapsibleReportSection title="Order Summary" defaultExpanded>
       <ReportMetricGrid>
@@ -30,6 +32,26 @@ export function OrderSummarySection({orderCounts}: OrderSummarySectionProps) {
         />
         <ReportMetricCard label="Refunded" value={formatReportNumber(orderCounts.refunded)} />
       </ReportMetricGrid>
+      {bySource ? (
+        <ReportMetricGrid>
+          <ReportMetricCard
+            label="POS / Table"
+            value={`${formatReportNumber(bySource.pos)} (${formatReportNumber(bySource.posPaid)} paid)`}
+          />
+          <ReportMetricCard
+            label="Takeaway"
+            value={`${formatReportNumber(bySource.takeAway)} (${formatReportNumber(bySource.takeAwayPaid)} paid)`}
+          />
+          <ReportMetricCard
+            label="Staff"
+            value={`${formatReportNumber(bySource.staff)} (${formatReportNumber(bySource.staffPaid)} paid)`}
+          />
+          <ReportMetricCard
+            label="Online"
+            value={`${formatReportNumber(bySource.online)} (${formatReportNumber(bySource.onlinePaid)} paid)`}
+          />
+        </ReportMetricGrid>
+      ) : null}
       {orderCounts.refundedNote ? (
         <Text style={styles.note}>{orderCounts.refundedNote}</Text>
       ) : null}

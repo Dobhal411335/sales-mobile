@@ -115,8 +115,6 @@ export function TakeAwayHubScreen({navigation}: Props) {
               Same-day takeaway sales · tap a card to filter
             </Text>
           </View>
-        </View>
-
         <View style={styles.headerActions}>
           <Pressable
             style={({pressed}) => [
@@ -146,6 +144,8 @@ export function TakeAwayHubScreen({navigation}: Props) {
             <Text style={styles.newBtnText}>New takeaway</Text>
           </Pressable>
         </View>
+        </View>
+
 
         <OrderHubStats
           stats={stats}

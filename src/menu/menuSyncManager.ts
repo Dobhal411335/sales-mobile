@@ -252,6 +252,24 @@ async function applyAndPublish(
   const hydrated = await hydrateFromSqlite();
   const hydratedCount = state.menu?.products?.length ?? 0;
 
+  // Full sync (and any non-empty pull): always publish a fresh in-memory menu so
+  // price/variant edits replace stale FlatList/memo cells on Android.
+  if (fullSync && incomingProducts > 0) {
+    const menu =
+      hydrated && hydratedCount >= incomingProducts
+        ? state.menu!
+        : menuFromPayload(payload);
+    setState({
+      menu,
+      hasLocalData: true,
+      status: 'ready',
+      lastSyncedAt: payload.serverTime,
+      error: null,
+    });
+    prefetchMenuImages(24);
+    return;
+  }
+
   // Prefer live API payload when SQLite is empty/partial after a non-empty response
   if (incomingProducts > 0 && hydratedCount < incomingProducts) {
     const menu = menuFromPayload(payload);
@@ -286,6 +304,22 @@ async function applyAndPublish(
         'Server returned 0 products for this restaurant. Check Admin → Products are Active.',
     });
     return;
+  }
+
+  // Incremental upserts: re-read SQLite so variant price changes replace memory
+  if (incomingProducts > 0) {
+    const local = await readLocalMenu();
+    if (local) {
+      setState({
+        menu: toMenuData(local),
+        hasLocalData: true,
+        status: 'ready',
+        lastSyncedAt: payload.serverTime,
+        error: null,
+      });
+      prefetchMenuImages(24);
+      return;
+    }
   }
 
   setState({

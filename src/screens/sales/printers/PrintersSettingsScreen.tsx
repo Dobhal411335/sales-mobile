@@ -16,6 +16,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {config} from '../../../constants/config';
 import {colors} from '../../../constants/colors';
+import {NetworkErrorState} from '../../../components/common/NetworkErrorState';
 import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {useAuth} from '../../../hooks/useAuth';
 import type {SalesStackParamList} from '../../../navigation/types';
@@ -866,11 +867,6 @@ export function PrintersSettingsScreen(_props: Props) {
       {priceDisplayInfo ? (
         <View style={styles.displayLink}>
           <Text style={styles.displayLinkTitle}>Customer price LED</Text>
-          <Text style={styles.hint}>{priceDisplayInfo}</Text>
-          <Text style={styles.hint}>
-            Shows bill total on the green 0.00 panel while you ring up / pay.
-            The black tinted window is decorative only.
-          </Text>
           <View style={styles.priceActions}>
             <Pressable
               style={[styles.secondaryBtn, priceTestBusy && styles.btnDisabled]}
@@ -880,7 +876,7 @@ export function PrintersSettingsScreen(_props: Props) {
                   setPriceTestBusy(true);
                   try {
                     await updatePriceDisplaySettings({enabled: true});
-                    const res = await showPriceDisplayAmount(12.34, 'total');
+                    const res = await showPriceDisplayAmount(137.52, 'total');
                     setMessage(
                       res.success
                         ? `Price LED test OK (${res.port || 'AUTO'})`
@@ -892,7 +888,7 @@ export function PrintersSettingsScreen(_props: Props) {
                 })();
               }}>
               <Text style={styles.secondaryBtnText}>
-                {priceTestBusy ? 'Sending…' : 'Test 12.34'}
+                {priceTestBusy ? 'Sending…' : 'Test 137.52'}
               </Text>
             </Pressable>
             <Pressable
@@ -907,7 +903,16 @@ export function PrintersSettingsScreen(_props: Props) {
         </View>
       ) : null}
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? (
+        <NetworkErrorState
+          compact
+          title="Printers"
+          message={error}
+          onRetry={() => {
+            void load(false);
+          }}
+        />
+      ) : null}
       {message ? <Text style={styles.message}>{message}</Text> : null}
 
       {sorted.map((printer) => {

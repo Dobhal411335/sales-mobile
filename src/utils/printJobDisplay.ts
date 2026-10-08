@@ -9,6 +9,8 @@ import type {
 } from '../types/printJob';
 import {
   filterItemsBySeat,
+  formatMergedSeatLabel,
+  formatSeatLabel,
   proportionalOrderTotalsForItems,
   resolveSplitReceiptSeatFilter,
 } from './seatHelpers';
@@ -50,6 +52,51 @@ export function tableLabel(job: PrintJob): string | null {
     return null;
   }
   return `Table ${tableNo}`;
+}
+
+export function printJobSeatLabel(
+  job: PrintJob,
+  order?: PrintJobDetailData['order'] | null,
+): string | null {
+  const meta = job.metadata ?? {};
+  const seatFilter = resolveSplitReceiptSeatFilter(
+    meta as Record<string, unknown>,
+    order
+      ? {
+          items: order.items,
+          paymentSplits: order.paymentSplits,
+        }
+      : null,
+  );
+
+  if (seatFilter.filter) {
+    if (
+      Array.isArray(meta.splitSeatNumbers) &&
+      meta.splitSeatNumbers.length > 1
+    ) {
+      return formatMergedSeatLabel(meta.splitSeatNumbers);
+    }
+    // Shared table-bucket slips already show the table number — skip "Table" seat.
+    if (seatFilter.seatNumber == null) {
+      return null;
+    }
+    return formatSeatLabel(seatFilter.seatNumber);
+  }
+
+  if (meta.filterReceiptBySeat || meta.splitSeatNumber != null) {
+    if (
+      Array.isArray(meta.splitSeatNumbers) &&
+      meta.splitSeatNumbers.length > 1
+    ) {
+      return formatMergedSeatLabel(meta.splitSeatNumbers);
+    }
+    if (meta.splitSeatNumber == null) {
+      return null;
+    }
+    return formatSeatLabel(meta.splitSeatNumber);
+  }
+
+  return null;
 }
 
 export function employeeLabel(employee?: PrintJobEmployee | string | null): string {

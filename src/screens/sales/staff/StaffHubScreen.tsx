@@ -13,6 +13,7 @@ import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {ArrowLeft, Percent, RefreshCw, Users} from 'lucide-react-native';
 import {OrderHubCard} from '../../../components/sales/OrderHubCard';
 import {OrderHubStats} from '../../../components/sales/OrderHubStats';
+import {NetworkErrorState} from '../../../components/common/NetworkErrorState';
 import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {toast} from '../../../components/common/Toast';
 import {colors} from '../../../constants/colors';
@@ -337,9 +338,14 @@ export function StaffHubScreen({navigation}: Props) {
               {showOrdersSkeleton ? (
                 <SalesPageSkeleton variant="orderList" rows={4} />
               ) : error && filtered.length === 0 ? (
-                <View style={styles.centeredInline}>
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
+                <NetworkErrorState
+                  title="Unable to load staff orders"
+                  message={error}
+                  onRetry={() => {
+                    void refresh();
+                    void refreshEmployees();
+                  }}
+                />
               ) : null}
             </View>
           }

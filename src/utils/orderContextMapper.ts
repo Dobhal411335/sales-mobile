@@ -4,7 +4,7 @@ import {DIRECT_ORDER_STORAGE_KEYS} from '../types/orderContext';
 import {formatTableLocation} from './partyName';
 
 const ORDER_TYPE_LABELS: Record<OrderType, string> = {
-  table: 'Table Order',
+  table: 'Dine-in',
   takeaway: 'Takeaway Order',
   staff: 'Staff Order',
   online: 'Online Order',
@@ -75,7 +75,7 @@ export function buildBaseOrderContext(params: {
     source: 'POS',
     tableId: params.tableId,
     sessionId: params.sessionId,
-    titleLabel: 'Table Order',
+    titleLabel: 'Dine-in',
     partyLabel: 'Create Order',
   };
 }

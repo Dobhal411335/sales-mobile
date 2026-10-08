@@ -91,11 +91,24 @@ export async function fetchMenuSync(
   }
 
   try {
-    const params = since ? {since} : undefined;
+    // `_t` busts any intermediary/Android HTTP caches so price edits always land
+    const params: Record<string, string> = {
+      _t: String(Date.now()),
+    };
+    if (since) {
+      params.since = since;
+    }
     // Full menu can be large (100+ products) and slow on emulator — allow up to 60s
     const res = await api.get<ApiEnvelope<MenuSyncResponse>>(
       '/api/sales/menu/sync',
-      {params, timeout: 60000},
+      {
+        params,
+        timeout: 60000,
+        headers: {
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+      },
     );
 
     if (!res.data?.success || !res.data.data) {

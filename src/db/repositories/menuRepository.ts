@@ -93,6 +93,15 @@ async function upsertCategory(tx: Transaction, category: MenuCategory) {
   );
 }
 
+function resolveProductPrice(product: MenuProduct): number {
+  if (Array.isArray(product.variants) && product.variants.length > 0) {
+    return Math.min(
+      ...product.variants.map((variant) => Number(variant.price) || 0),
+    );
+  }
+  return Number(product.price) || 0;
+}
+
 async function upsertProduct(tx: Transaction, product: MenuProduct) {
   const imageUrl = product.imageUrl ?? null;
   const existing = await tx.execute(
@@ -106,6 +115,14 @@ async function upsertProduct(tx: Transaction, product: MenuProduct) {
     prev.local_image_path
       ? String(prev.local_image_path)
       : null;
+
+  // Always persist a price derived from variants so SQLite/UI stay in sync
+  // with admin size-price edits (products have no separate top-level price).
+  const unitPrice = resolveProductPrice(product);
+  const payloadProduct: MenuProduct = {
+    ...product,
+    price: unitPrice,
+  };
 
   await tx.execute(
     `INSERT INTO products (
@@ -127,14 +144,14 @@ async function upsertProduct(tx: Transaction, product: MenuProduct) {
       product.id,
       product.category?.id ?? null,
       product.name,
-      product.price || 0,
+      unitPrice,
       product.status ?? 'Active',
       imageUrl,
       imageUrl,
       keepLocal,
       product.isOffer ? 1 : 0,
       (product as {updatedAt?: string}).updatedAt ?? null,
-      JSON.stringify(product),
+      JSON.stringify(payloadProduct),
     ],
   );
 }

@@ -28,6 +28,7 @@ import {
   buildReceiptOrderFromDetail,
   getTicketItems,
   orderLabel,
+  printJobSeatLabel,
   printTypeLabelForJob,
   printerNameForTarget,
   printerTargetLabel,
@@ -135,6 +136,8 @@ export function PrintJobDetailPanel({
     : null;
 
   const tableStr = tableLabel(job);
+  const seatStr = printJobSeatLabel(job, detail?.order ?? null);
+  const floorName = job.metadata?.floorName;
 
   return (
     <ScrollView
@@ -193,7 +196,29 @@ export function PrintJobDetailPanel({
           label="Target Station"
           value={printerName ? `${targetLabel} (${printerName})` : targetLabel}
         />
-        {tableStr && <DetailRow label="Table" value={tableStr} />}
+        {(tableStr || seatStr) && (
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>
+              {seatStr ? 'Table / Seat' : 'Table'}
+            </Text>
+            <View style={styles.tableSeatValue}>
+              <View style={styles.tableSeatBadge}>
+                {tableStr ? (
+                  <Text style={styles.tableSeatBadgeText}>{tableStr}</Text>
+                ) : null}
+                {tableStr && seatStr ? (
+                  <Text style={styles.tableSeatDivider}>·</Text>
+                ) : null}
+                {seatStr ? (
+                  <Text style={styles.tableSeatBadgeText}>{seatStr}</Text>
+                ) : null}
+              </View>
+              {floorName ? (
+                <Text style={styles.floorHint}>{floorName}</Text>
+              ) : null}
+            </View>
+          </View>
+        )}
         {job.metadata?.isSplitReceipt ? (
           <>
             <DetailRow
@@ -651,6 +676,41 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     flex: 1,
     marginLeft: 12,
+  },
+  tableSeatValue: {
+    flex: 1,
+    marginLeft: 12,
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  tableSeatBadge: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 4,
+    maxWidth: '100%',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    backgroundColor: '#F0F9FF',
+  },
+  tableSeatBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#0C4A6E',
+  },
+  tableSeatDivider: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#7DD3FC',
+  },
+  floorHint: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.textSecondary,
   },
   monoValue: {
     fontFamily: 'monospace',

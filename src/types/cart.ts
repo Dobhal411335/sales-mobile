@@ -5,6 +5,16 @@ export interface ChoiceSelection {
   subChoices: string[];
 }
 
+export interface CustomDataOptionSelection {
+  name: string;
+  choices: string[];
+}
+
+export interface CustomDataSelection {
+  name: string;
+  subChoices: CustomDataOptionSelection[];
+}
+
 export interface CustomExtra {
   name: string;
   price: number;
@@ -30,6 +40,7 @@ export interface CartLineItem {
   choices?: string[];
   drinks?: string[];
   choiceSelections?: ChoiceSelection[];
+  customDataSelections?: CustomDataSelection[];
   addonChoiceSelections?: ChoiceSelection[];
   /** Free-text extras from POS (name + price). */
   customExtras?: CustomExtra[];

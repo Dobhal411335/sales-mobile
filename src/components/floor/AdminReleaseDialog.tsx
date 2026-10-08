@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import {
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -8,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import {colors} from '../../constants/colors';
+import {useKeyboardBottomInset} from '../../hooks/useKeyboardBottomInset';
 
 interface AdminReleaseDialogProps {
   visible: boolean;
@@ -23,6 +26,7 @@ export function AdminReleaseDialog({
   onConfirm,
 }: AdminReleaseDialogProps) {
   const [reason, setReason] = useState('');
+  const keyboardInset = useKeyboardBottomInset();
 
   const handleConfirm = () => {
     const trimmed = reason.trim();
@@ -38,52 +42,67 @@ export function AdminReleaseDialog({
       transparent
       animationType="fade"
       onRequestClose={onCancel}>
-      <Pressable style={styles.backdrop} onPress={onCancel}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <Text style={styles.title}>Admin Override Release</Text>
-          <Text style={styles.description}>
-            This table has unpaid orders. Enter a reason to force release.
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={reason}
-            onChangeText={setReason}
-            placeholder="Release reason"
-            multiline
-            editable={!loading}
-          />
-          <View style={styles.actions}>
-            <Pressable
-              style={styles.cancelButton}
-              onPress={onCancel}
-              disabled={loading}>
-              <Text style={styles.cancelText}>Cancel</Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.confirmButton,
-                (!reason.trim() || loading) && styles.confirmDisabled,
-              ]}
-              onPress={handleConfirm}
-              disabled={!reason.trim() || loading}>
-              <Text style={styles.confirmText}>
-                {loading ? 'Releasing...' : 'Force Release'}
-              </Text>
-            </Pressable>
-          </View>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <Pressable
+          style={[
+            styles.backdrop,
+            keyboardInset > 0 && styles.backdropKeyboardOpen,
+          ]}
+          onPress={onCancel}>
+          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.title}>Admin Override Release</Text>
+            <Text style={styles.description}>
+              This table has unpaid orders. Enter a reason to force release.
+            </Text>
+            <TextInput
+              style={styles.input}
+              value={reason}
+              onChangeText={setReason}
+              placeholder="Release reason"
+              multiline
+              editable={!loading}
+            />
+            <View style={styles.actions}>
+              <Pressable
+                style={styles.cancelButton}
+                onPress={onCancel}
+                disabled={loading}>
+                <Text style={styles.cancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.confirmButton,
+                  (!reason.trim() || loading) && styles.confirmDisabled,
+                ]}
+                onPress={handleConfirm}
+                disabled={!reason.trim() || loading}>
+                <Text style={styles.confirmText}>
+                  {loading ? 'Releasing...' : 'Force Release'}
+                </Text>
+              </Pressable>
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  backdropKeyboardOpen: {
+    justifyContent: 'flex-end',
   },
   sheet: {
     width: '100%',

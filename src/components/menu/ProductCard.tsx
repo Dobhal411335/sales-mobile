@@ -110,7 +110,27 @@ function ProductCardComponent({product, onPress}: ProductCardProps) {
   );
 }
 
-export const ProductCard = memo(ProductCardComponent);
+function productPriceSignature(product: MenuProduct): string {
+  if (product.variants?.length) {
+    return product.variants
+      .map((v) => `${v.size}:${Number(v.price) || 0}`)
+      .join('|');
+  }
+  return String(Number(product.price) || 0);
+}
+
+export const ProductCard = memo(ProductCardComponent, (prev, next) => {
+  return (
+    prev.product.id === next.product.id &&
+    prev.product.name === next.product.name &&
+    prev.product.imageUrl === next.product.imageUrl &&
+    prev.product.inStock === next.product.inStock &&
+    prev.product.productCode === next.product.productCode &&
+    productPriceSignature(prev.product) ===
+      productPriceSignature(next.product) &&
+    prev.onPress === next.onPress
+  );
+});
 
 const styles = StyleSheet.create({
   tile: {

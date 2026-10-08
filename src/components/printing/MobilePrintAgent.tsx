@@ -7,6 +7,7 @@ import {
   reportPrinterProbeResult,
 } from '../../services/printJobService';
 import {
+  allPrinterConfigsDisabled,
   canPrintLocally,
   drainQueuedNetworkJobs,
   isBluetoothPrinter,
@@ -15,6 +16,7 @@ import {
   pickLocalPrinter,
   printJobById,
   printerService,
+  resolveAndroidBuiltinFallback,
   wasPrintJobHandledLocally,
 } from '../../printer/printerService';
 import {probeNetworkPrinter} from '../../printer/networkPrinter';
@@ -228,35 +230,38 @@ export function MobilePrintAgent() {
           printerTarget: payload?.printerTarget,
         });
 
-        // Fallback: any enabled USB printer on this Android POS tablet
+        // Fallback: enabled USB only — never invent a printer when all are off
         if (
           (!targetPrinter || !canPrintLocally(targetPrinter)) &&
           Platform.OS === 'android'
         ) {
-          targetPrinter =
-            printersRef.current.find((p) => isBuiltInUsbPrinter(p)) || null;
-        }
-
-        // Last resort on Android POS: if hardware probe succeeds, print anyway
-        // (covers empty printer list after reinstall / socket events with no conn)
-        if (
-          (!targetPrinter || !canPrintLocally(targetPrinter)) &&
-          Platform.OS === 'android'
-        ) {
-          const probe = await probeBuiltInUsbPrinter();
-          if (probe.success) {
-            targetPrinter = {
-              _id: payload?.printerId || 'builtin-fallback',
-              name: 'Built-in Receipt',
-              target: (payload?.printerTarget as PrinterConfig['target']) || 'KITCHEN',
-              connectionType: 'USB',
-              systemPrinterName: 'BUILTIN',
-              enabled: true,
-            };
+          if (allPrinterConfigsDisabled(printersRef.current)) {
             console.warn(
-              '[MobilePrintAgent] using built-in USB fallback for job',
+              '[MobilePrintAgent] skip job — all printers disabled',
               jobId,
             );
+            return;
+          }
+          targetPrinter = resolveAndroidBuiltinFallback(printersRef.current);
+          // Fresh install only: empty config list → probe hardware
+          if (!targetPrinter && printersRef.current.length === 0) {
+            const probe = await probeBuiltInUsbPrinter();
+            if (probe.success) {
+              targetPrinter = {
+                _id: payload?.printerId || 'builtin-fallback',
+                name: 'Built-in Receipt',
+                target:
+                  (payload?.printerTarget as PrinterConfig['target']) ||
+                  'KITCHEN',
+                connectionType: 'USB',
+                systemPrinterName: 'BUILTIN',
+                enabled: true,
+              };
+              console.warn(
+                '[MobilePrintAgent] using built-in USB fallback for job',
+                jobId,
+              );
+            }
           }
         }
 

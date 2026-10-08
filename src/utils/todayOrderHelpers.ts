@@ -43,20 +43,56 @@ export function getOrderItemCount(order: TodayOrder): number {
   );
 }
 
+export type PaymentVariant =
+  | 'unpaid'
+  | 'waived'
+  | 'card'
+  | 'cash'
+  | 'gift'
+  | 'combo'
+  | 'split'
+  | 'other';
+
 export interface PaymentTypeInfo {
   label: string;
-  variant: 'unpaid' | 'waived' | 'card' | 'cash' | 'gift' | 'combo' | 'other';
+  variant: PaymentVariant;
 }
 
 export interface ParsedPaymentDetails {
   label: string;
   shortLabel: string;
-  variant: 'unpaid' | 'waived' | 'card' | 'cash' | 'gift' | 'combo' | 'other';
+  variant: PaymentVariant;
   hasCash: boolean;
   hasCard: boolean;
   hasGift: boolean;
   cardBrand: string | null;
   displayBreakdown?: string;
+  isSplit?: boolean;
+  splitCount?: number;
+}
+
+export function getPaymentSplits(order?: Partial<TodayOrder> | null) {
+  return Array.isArray(order?.paymentSplits) ? order.paymentSplits : [];
+}
+
+export function isSplitBillOrder(order?: Partial<TodayOrder> | null): boolean {
+  const splits = getPaymentSplits(order);
+  if (splits.length > 1) {
+    return true;
+  }
+  return /^split\b/i.test(String(order?.paymentMethod || '').trim());
+}
+
+export function formatSplitMethodLabel(
+  split?: {method?: string; cardType?: string | null} | null,
+): string {
+  if (!split) {
+    return '—';
+  }
+  if (split.cardType) {
+    return `Card - ${split.cardType}`;
+  }
+  return split.method || '—';
 }
 
 export function parsePaymentDetails(
@@ -74,13 +110,45 @@ export function parsePaymentDetails(
       hasCard: false,
       hasGift: false,
       cardBrand: null,
+      isSplit: false,
+      splitCount: 0,
     };
   }
 
+  const splits = getPaymentSplits(order);
   const rawMethod = String(order?.paymentMethod || '').trim();
   const lower = rawMethod.toLowerCase();
   const giftAmount = Number(order?.giftcardUsedAmount || 0);
   const usedGiftCard = giftAmount > 0 || Boolean(order?.giftcardCode);
+
+  if (splits.length > 1 || /^split\b/i.test(lower)) {
+    const count = splits.length || 0;
+    return {
+      label: count > 1 ? `Split · ${count}` : 'Split Bill',
+      shortLabel: count > 1 ? `Split · ${count}` : 'Split',
+      variant: 'split',
+      hasCash: splits.some((s) => /cash/i.test(String(s.method || ''))),
+      hasCard: splits.some((s) => /card/i.test(String(s.method || ''))),
+      hasGift: usedGiftCard,
+      cardBrand: null,
+      isSplit: true,
+      splitCount: count,
+    };
+  }
+
+  if (paymentStatus === 'PARTIAL') {
+    return {
+      label: splits.length ? `Partial · ${splits.length}` : 'Partial',
+      shortLabel: 'Partial',
+      variant: 'combo',
+      hasCash: false,
+      hasCard: false,
+      hasGift: usedGiftCard,
+      cardBrand: null,
+      isSplit: splits.length > 0,
+      splitCount: splits.length,
+    };
+  }
 
   const isPaid = paymentStatus === 'PAID' || status === 'PAID';
   if ((!rawMethod || lower === 'unpaid') && !usedGiftCard && !isPaid) {
@@ -92,6 +160,8 @@ export function parsePaymentDetails(
       hasCard: false,
       hasGift: false,
       cardBrand: null,
+      isSplit: false,
+      splitCount: 0,
     };
   }
 
@@ -323,6 +393,8 @@ export function getPaymentBadgeColors(variant: PaymentTypeInfo['variant']) {
       return {bg: '#E0F2FE', text: '#0369A1', border: '#BAE6FD'};
     case 'cash':
       return {bg: '#D1FAE5', text: '#047857', border: '#A7F3D0'};
+    case 'split':
+      return {bg: '#F5F3FF', text: '#5B21B6', border: '#C4B5FD'};
     case 'gift':
     case 'combo':
       return {bg: '#EDE9FE', text: '#6D28D9', border: '#DDD6FE'};

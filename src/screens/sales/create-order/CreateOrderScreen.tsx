@@ -131,6 +131,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
     globalTaxes,
     loading: menuLoading,
     error: menuError,
+    needsProductSync,
     syncStatus,
     lastSyncedAt,
     setActiveCategory,
@@ -138,6 +139,7 @@ export function CreateOrderScreen({navigation, route}: Props) {
     setPanelLayout,
     setGridCols,
     setSearchQuery,
+    reload: reloadMenu,
   } = useMenuData();
 
   const items = useCartStore((state) => state.items);
@@ -748,6 +750,10 @@ export function CreateOrderScreen({navigation, route}: Props) {
           onProductPress={handleProductPress}
           syncBanner={syncBanner}
           showSessionLoader={showSessionLoader}
+          needsProductSync={needsProductSync}
+          onSyncProducts={() => navigation.navigate('MenuSync')}
+          onRetryMenu={reloadMenu}
+          searchQueryForEmpty={searchQuery}
         />
 
         <CreateOrderCartPane

@@ -14,7 +14,6 @@ import type {LayoutChangeEvent} from 'react-native';
 import {useFocusEffect} from '@react-navigation/native';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {
-  AlertTriangle,
   ArrowLeft,
   Banknote,
   ChevronLeft,
@@ -29,10 +28,12 @@ import {
   Search,
   ShoppingBag,
   TrendingUp,
+  Users,
   Wallet,
   X,
 } from 'lucide-react-native';
 import {colors} from '../../../constants/colors';
+import {NetworkErrorState} from '../../../components/common/NetworkErrorState';
 import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import type {SalesStackParamList} from '../../../navigation/types';
 import type {
@@ -52,10 +53,13 @@ import {
   getPlacerName,
 } from '../../../utils/orderDisplay';
 import {
+  formatSplitMethodLabel,
   getOrderGrandTotal,
   getOrderTypeBadgeColors,
   getPaymentBadgeColors,
+  getPaymentSplits,
   getStatusColors,
+  isSplitBillOrder,
   parsePaymentDetails,
 } from '../../../utils/todayOrderHelpers';
 import {fetchEmployeeSales} from '../../../services/todayOrdersService';
@@ -80,6 +84,8 @@ function getPaymentBadgeInfo(order: TodayOrder) {
     Icon = Banknote;
   } else if (parsed.variant === 'card') {
     Icon = CreditCard;
+  } else if (parsed.variant === 'split') {
+    Icon = Users;
   } else if (parsed.variant === 'gift' || parsed.variant === 'combo') {
     Icon = parsed.hasGift ? Gift : CreditCard;
   }
@@ -91,6 +97,8 @@ function getPaymentBadgeInfo(order: TodayOrder) {
     bg: badgeColors.bg,
     text: badgeColors.text,
     border: badgeColors.border,
+    isSplit: Boolean(parsed.isSplit),
+    splitCount: parsed.splitCount || 0,
   };
 }
 
@@ -236,6 +244,10 @@ export function TodaySalesScreen({navigation}: Props) {
       const paymentLabel = parsePaymentDetails(o).label.toLowerCase();
       const placer = (getPlacerName(o) || '').toLowerCase();
       const type = getOrderTypeLabel(o).toLowerCase();
+      const splitNames = getPaymentSplits(o)
+        .map((s) => String(s?.name || '').toLowerCase())
+        .filter(Boolean)
+        .join(' ');
 
       const matchesSearch =
         orderNum.includes(q) ||
@@ -245,7 +257,9 @@ export function TodaySalesScreen({navigation}: Props) {
         method.includes(q) ||
         paymentLabel.includes(q) ||
         placer.includes(q) ||
-        type.includes(q);
+        type.includes(q) ||
+        splitNames.includes(q) ||
+        (q.includes('split') && isSplitBillOrder(o));
 
       return matchesStatus && matchesSearch;
     });
@@ -356,12 +370,16 @@ export function TodaySalesScreen({navigation}: Props) {
         </View>
 
         {/* ERROR STATE */}
-        {error && (
-          <View style={styles.errorBanner}>
-            <AlertTriangle size={18} color="#ef4444" />
-            <Text style={styles.errorBannerText}>{error}</Text>
-          </View>
-        )}
+        {error ? (
+          <NetworkErrorState
+            compact
+            title="Unable to load sales"
+            message={error}
+            onRetry={() => {
+              void loadOrders(false);
+            }}
+          />
+        ) : null}
 
         {/* KPI STATS ROW */}
         {loading && orders.length === 0 ? (
@@ -625,6 +643,7 @@ export function TodaySalesScreen({navigation}: Props) {
                     );
                     const statusColors = getStatusColors(order.status);
                     const isSelected = selectedOrderId === order._id;
+                    const splits = getPaymentSplits(order);
 
                     const formattedTime = new Date(
                       order.createdAt,
@@ -663,6 +682,11 @@ export function TodaySalesScreen({navigation}: Props) {
                                 {orderType}
                               </Text>
                             </View>
+                            {payment.isSplit ? (
+                              <View style={styles.splitTag}>
+                                <Text style={styles.splitTagText}>Split</Text>
+                              </View>
+                            ) : null}
                           </View>
                         </View>
 
@@ -683,6 +707,13 @@ export function TodaySalesScreen({navigation}: Props) {
                                 : ''}
                             </Text>
                           )}
+                          {payment.isSplit && splits.length > 0 ? (
+                            <Text style={styles.splitPayersHint} numberOfLines={1}>
+                              {splits.length} payers
+                              {splits[0]?.name ? ` · ${splits[0].name}` : ''}
+                              {splits.length > 1 ? '…' : ''}
+                            </Text>
+                          ) : null}
                         </View>
 
                         {/* Items */}
@@ -727,6 +758,15 @@ export function TodaySalesScreen({navigation}: Props) {
                               {payment.label}
                             </Text>
                           </View>
+                          {payment.isSplit && splits.length > 0 ? (
+                            <Text style={styles.splitMethodsHint} numberOfLines={1}>
+                              {splits
+                                .slice(0, 2)
+                                .map((s) => formatSplitMethodLabel(s))
+                                .join(' · ')}
+                              {splits.length > 2 ? '…' : ''}
+                            </Text>
+                          ) : null}
                         </View>
 
                         {/* Time */}
@@ -1316,6 +1356,7 @@ const styles = StyleSheet.create({
   orderNumberCell: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
   },
   orderNumberText: {
@@ -1333,6 +1374,21 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
   },
+  splitTag: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+    backgroundColor: '#F5F3FF',
+  },
+  splitTagText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#5B21B6',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
   locationTitle: {
     fontSize: 12,
     fontWeight: '700',
@@ -1343,6 +1399,19 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#71717a',
     marginTop: 1,
+  },
+  splitPayersHint: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#6D28D9',
+    marginTop: 2,
+  },
+  splitMethodsHint: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#71717a',
+    marginTop: 3,
+    maxWidth: '100%',
   },
   itemsBadge: {
     backgroundColor: '#f4f4f5',

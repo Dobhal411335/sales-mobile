@@ -1,7 +1,8 @@
-import React from 'react';
+import React, {useEffect, useMemo} from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Dimensions,
+  Keyboard,
   Modal,
   Platform,
   Pressable,
@@ -12,6 +13,7 @@ import {
   ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
+import {useKeyboardBottomInset} from '../../hooks/useKeyboardBottomInset';
 
 interface TabletModalFooterAction {
   label: string;
@@ -45,20 +47,71 @@ export function TabletModal({
   maxWidth = 880,
 }: TabletModalProps) {
   const {width, height} = useWindowDimensions();
+  const keyboardInset = useKeyboardBottomInset();
   const isLandscapeSplit = splitContent && width >= 720;
+  const keyboardOpen = visible && keyboardInset > 0;
+
+  // If the activity already resized for the keyboard (adjustResize), the
+  // window height shrank — do not pad by the full keyboard height again.
+  const effectiveKeyboardInset = useMemo(() => {
+    if (!keyboardOpen) {
+      return 0;
+    }
+    const screenH = Dimensions.get('screen').height;
+    const resizedBy = Math.max(0, screenH - height);
+    if (resizedBy >= keyboardInset * 0.4) {
+      return 0;
+    }
+    return keyboardInset;
+  }, [keyboardOpen, keyboardInset, height]);
+
+  // Keep modal above keyboard: pad the backdrop by the keyboard height and
+  // cap modal height to the remaining viewport so the body can scroll.
+  const edgePad = 16;
+  const bottomPad =
+    effectiveKeyboardInset > 0
+      ? Math.max(effectiveKeyboardInset, edgePad)
+      : edgePad;
+  const topPad = edgePad;
+  const maxModalHeight = Math.max(
+    220,
+    height - topPad - bottomPad - (Platform.OS === 'ios' ? 8 : 0),
+  );
+  const liftForKeyboard = effectiveKeyboardInset > 0;
+
+  useEffect(() => {
+    if (!visible) {
+      Keyboard.dismiss();
+    }
+  }, [visible]);
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="fade"
+      statusBarTranslucent
       onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <Pressable style={styles.backdrop} onPress={onClose}>
+      <View style={styles.flex}>
+        <Pressable
+          style={[
+            styles.backdrop,
+            {
+              justifyContent: liftForKeyboard ? 'flex-end' : 'center',
+              paddingTop: topPad,
+              paddingBottom: bottomPad,
+              paddingHorizontal: edgePad,
+            },
+          ]}
+          onPress={onClose}>
           <Pressable
-            style={[styles.modal, {maxWidth, maxHeight: height * 0.92}]}
+            style={[
+              styles.modal,
+              {
+                maxWidth,
+                maxHeight: maxModalHeight,
+              },
+            ]}
             onPress={(event) => event.stopPropagation()}>
             <View style={styles.header}>
               <Text style={styles.title}>{title}</Text>
@@ -72,11 +125,12 @@ export function TabletModal({
             </View>
 
             {isLandscapeSplit ? (
-              <View style={styles.splitBody}>
+              <View style={[styles.splitBody, {maxHeight: maxModalHeight - 140}]}>
                 <ScrollView
                   style={styles.splitLeft}
                   contentContainerStyle={styles.splitLeftContent}
-                  keyboardShouldPersistTaps="handled">
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag">
                   {splitContent.left}
                 </ScrollView>
                 <View style={styles.splitRight}>{splitContent.right}</View>
@@ -84,8 +138,13 @@ export function TabletModal({
             ) : (
               <ScrollView
                 style={styles.body}
-                contentContainerStyle={styles.bodyContent}
-                keyboardShouldPersistTaps="handled">
+                contentContainerStyle={[
+                  styles.bodyContent,
+                  liftForKeyboard && styles.bodyContentKeyboard,
+                ]}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                nestedScrollEnabled>
                 {splitContent ? (
                   <>
                     {splitContent.left}
@@ -155,7 +214,7 @@ export function TabletModal({
             ) : null}
           </Pressable>
         </Pressable>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }
@@ -168,8 +227,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'rgba(24, 24, 27, 0.5)',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 20,
   },
   modal: {
     width: '100%',
@@ -214,10 +271,13 @@ const styles = StyleSheet.create({
   bodyContent: {
     padding: 20,
   },
+  bodyContentKeyboard: {
+    paddingBottom: 28,
+  },
   splitBody: {
     flexDirection: 'row',
     flexShrink: 1,
-    minHeight: 280,
+    minHeight: 200,
   },
   splitLeft: {
     flex: 1.2,

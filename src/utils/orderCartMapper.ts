@@ -10,6 +10,7 @@ import {
 } from './offerDetails';
 import {
   normalizeChoiceSelections,
+  normalizeCustomDataSelections,
   normalizeCustomExtras,
 } from './productChoices';
 
@@ -68,6 +69,9 @@ export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineIte
       choices,
       drinks,
       choiceSelections: normalizeChoiceSelections(item.choiceSelections),
+      customDataSelections: normalizeCustomDataSelections(
+        item.customDataSelections,
+      ),
       addonChoiceSelections: normalizeChoiceSelections(
         item.addonChoiceSelections,
       ),

@@ -102,6 +102,27 @@ export function canPrintLocally(printer?: PrinterConfig | null): boolean {
 }
 
 /**
+ * Synthetic BUILTIN fallback must never run when every saved printer is
+ * explicitly disabled — inactive printers must not print.
+ * Empty list (fresh install / not loaded) may still probe hardware.
+ */
+export function allPrinterConfigsDisabled(
+  printers?: PrinterConfig[] | null,
+): boolean {
+  const list = printers || [];
+  return list.length > 0 && list.every((p) => p.enabled === false);
+}
+
+/** Prefer an enabled built-in USB config; never invent one if all are off. */
+export function resolveAndroidBuiltinFallback(
+  printers: PrinterConfig[],
+): PrinterConfig | null {
+  const enabledBuiltin = printers.find((p) => isBuiltInUsbPrinter(p)) || null;
+  if (enabledBuiltin) return enabledBuiltin;
+  return null;
+}
+
+/**
  * Pick a locally printable printer for a job:
  * - Prefer job.printerId when still enabled/printable
  * - Exactly one enabled local printer → use it for any target
@@ -314,18 +335,26 @@ export async function printJobById(
   });
 
   if ((!targetPrinter || !canPrintLocally(targetPrinter)) && Platform.OS === 'android') {
-    targetPrinter = printers.find((p) => isBuiltInUsbPrinter(p)) || null;
-    if (!targetPrinter) {
-      const probe = await probeBuiltInUsbPrinter();
-      if (probe.success) {
-        targetPrinter = {
-          _id: job.printerId || 'builtin-fallback',
-          name: 'Built-in Receipt',
-          target: job.printerTarget || 'KITCHEN',
-          connectionType: 'USB',
-          systemPrinterName: 'BUILTIN',
-          enabled: true,
-        };
+    if (allPrinterConfigsDisabled(printers)) {
+      console.warn(
+        '[printJobById] all printers disabled — refusing built-in fallback',
+        jobId,
+      );
+    } else {
+      targetPrinter = resolveAndroidBuiltinFallback(printers);
+      // Fresh install only: no saved configs yet → probe hardware
+      if (!targetPrinter && printers.length === 0) {
+        const probe = await probeBuiltInUsbPrinter();
+        if (probe.success) {
+          targetPrinter = {
+            _id: job.printerId || 'builtin-fallback',
+            name: 'Built-in Receipt',
+            target: job.printerTarget || 'KITCHEN',
+            connectionType: 'USB',
+            systemPrinterName: 'BUILTIN',
+            enabled: true,
+          };
+        }
       }
     }
   }
@@ -501,18 +530,24 @@ export async function printTicketLocally(
   });
 
   if ((!targetPrinter || !canPrintLocally(targetPrinter)) && Platform.OS === 'android') {
-    targetPrinter = printers.find((p) => isBuiltInUsbPrinter(p)) || null;
-    if (!targetPrinter) {
-      const probe = await probeBuiltInUsbPrinter();
-      if (probe.success) {
-        targetPrinter = {
-          _id: 'builtin-fallback',
-          name: 'Built-in Receipt',
-          target,
-          connectionType: 'USB',
-          systemPrinterName: 'BUILTIN',
-          enabled: true,
-        };
+    if (allPrinterConfigsDisabled(printers)) {
+      console.warn(
+        '[printTicketLocally] all printers disabled — refusing built-in fallback',
+      );
+    } else {
+      targetPrinter = resolveAndroidBuiltinFallback(printers);
+      if (!targetPrinter && printers.length === 0) {
+        const probe = await probeBuiltInUsbPrinter();
+        if (probe.success) {
+          targetPrinter = {
+            _id: 'builtin-fallback',
+            name: 'Built-in Receipt',
+            target,
+            connectionType: 'USB',
+            systemPrinterName: 'BUILTIN',
+            enabled: true,
+          };
+        }
       }
     }
   }

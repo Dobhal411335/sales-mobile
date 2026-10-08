@@ -201,6 +201,47 @@ export function filterItemsBySeat<
   );
 }
 
+/** Items belonging to any of the given seat buckets. */
+export function filterItemsBySeats<
+  T extends {seatNumber?: number | null; seat?: unknown},
+>(items: T[] = [], seatNumbers: unknown[] = []): T[] {
+  const targets = new Set(
+    (Array.isArray(seatNumbers) ? seatNumbers : []).map((n) => {
+      const seat = normalizeSeatNumber(n);
+      return seat == null ? 'table' : String(seat);
+    }),
+  );
+  if (!targets.size) {
+    return [];
+  }
+  return (Array.isArray(items) ? items : []).filter((item) => {
+    const seat = normalizeSeatNumber(item?.seatNumber ?? item?.seat);
+    const key = seat == null ? 'table' : String(seat);
+    return targets.has(key);
+  });
+}
+
+export function formatMergedSeatLabel(seatNumbers: unknown[] = []): string {
+  const seats = (Array.isArray(seatNumbers) ? seatNumbers : []).map((n) =>
+    normalizeSeatNumber(n),
+  );
+  if (!seats.length) {
+    return 'Seats';
+  }
+  const numbered = seats
+    .filter((n): n is number => n != null)
+    .sort((a, b) => a - b);
+  const hasTable = seats.some((n) => n == null);
+  const parts: string[] = [];
+  if (numbered.length) {
+    parts.push(`Seat ${numbered.join('+')}`);
+  }
+  if (hasTable) {
+    parts.push('Table');
+  }
+  return parts.join(' + ') || 'Seats';
+}
+
 /**
  * Whether a split receipt should list only one seat's lines (preview + print).
  * Uses job metadata when present; otherwise matches order.paymentSplits by splitIndex.

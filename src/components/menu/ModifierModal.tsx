@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {
+  KeyboardAvoidingView,
   LayoutAnimation,
   Modal,
   Platform,
@@ -11,9 +12,14 @@ import {
   UIManager,
   View,
 } from 'react-native';
-import {ChevronDown} from 'lucide-react-native';
+import {ChevronDown, Minus, Plus} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
-import type {CartLineItem, ChoiceSelection} from '../../types/cart';
+import {useKeyboardBottomInset} from '../../hooks/useKeyboardBottomInset';
+import type {
+  CartLineItem,
+  ChoiceSelection,
+  CustomDataSelection,
+} from '../../types/cart';
 import type {MenuProduct, ProductAddon, TaxRate} from '../../types/product';
 import {calculateItemTax, nextCartId} from '../../utils/cartPricing';
 import {buildModifiedRequestRemark} from '../../utils/modifiedRequestRemark';
@@ -21,6 +27,7 @@ import {
   buildAddonChoiceSelectionsFromQtyMaps,
   normalizeAddonChoiceQtyMap,
   normalizeChoiceOptions,
+  normalizeCustomDataSelections,
   sumAddonChoiceQtyMap,
   validateAddonNestedChoiceQtys,
 } from '../../utils/productChoices';
@@ -234,6 +241,7 @@ export function ModifierModal({
   onClose,
   onAdd,
 }: ModifierModalProps) {
+  const keyboardInset = useKeyboardBottomInset();
   const [variantQtyBySize, setVariantQtyBySize] = useState<
     Record<string, number>
   >({});
@@ -244,11 +252,20 @@ export function ModifierModal({
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
   >({});
+  /** { [groupName]: { [optionName]: string[] } } */
+  const [selectedCustomData, setSelectedCustomData] = useState<
+    Record<string, Record<string, string[]>>
+  >({});
   const [noteWithout, setNoteWithout] = useState('');
   const [noteAdd, setNoteAdd] = useState('');
+  const [modifiedRequestOpen, setModifiedRequestOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openSections, setOpenSections] = useState<string[]>([]);
 
+  const customDataGroups = useMemo(
+    () => normalizeCustomDataSelections(product?.customData),
+    [product],
+  );
   const choiceGroups = useMemo(
     () => normalizeChoiceOptions(product?.choiceOptions),
     [product],
@@ -262,10 +279,13 @@ export function ModifierModal({
     return [
       ...(product.variants?.length ? ['variants'] : []),
       ...(prepStyles.length ? ['preparation'] : []),
+      ...customDataGroups.map(
+        (group, index) => `custom-${index}-${group.name}`,
+      ),
       ...choiceGroups.map((group, index) => `choice-${index}-${group.name}`),
       ...(product.addons?.length ? ['addons'] : []),
     ];
-  }, [product, choiceGroups]);
+  }, [product, customDataGroups, choiceGroups]);
 
   useEffect(() => {
     if (!product || !visible) {
@@ -275,9 +295,11 @@ export function ModifierModal({
     setVariantQtyBySize({});
     setAddonStateByKey({});
     setSelectedChoices({});
+    setSelectedCustomData({});
     setSelectedStyle(stylesList.length === 1 ? stylesList[0] : '');
     setNoteWithout('');
     setNoteAdd('');
+    setModifiedRequestOpen(false);
     setError(null);
     setOpenSections(sectionIds[0] ? [sectionIds[0]] : []);
   }, [product, visible, sectionIds]);
@@ -299,6 +321,27 @@ export function ModifierModal({
         [groupName]: exists
           ? current.filter((value) => value !== subChoice)
           : [...current, subChoice],
+      };
+    });
+  };
+
+  const toggleCustomDataChoice = (
+    groupName: string,
+    optionName: string,
+    choice: string,
+  ) => {
+    setSelectedCustomData((prev) => {
+      const group = prev[groupName] || {};
+      const current = group[optionName] || [];
+      const exists = current.includes(choice);
+      return {
+        ...prev,
+        [groupName]: {
+          ...group,
+          [optionName]: exists
+            ? current.filter((value) => value !== choice)
+            : [...current, choice],
+        },
       };
     });
   };
@@ -382,6 +425,17 @@ export function ModifierModal({
     const choiceSelections: ChoiceSelection[] = Object.entries(selectedChoices)
       .map(([name, subChoices]) => ({name, subChoices}))
       .filter((group) => group.subChoices.length > 0);
+    const customDataSelections: CustomDataSelection[] = customDataGroups
+      .map((group) => ({
+        name: group.name,
+        subChoices: group.subChoices
+          .map((option) => ({
+            name: option.name,
+            choices: selectedCustomData[group.name]?.[option.name] || [],
+          }))
+          .filter((option) => option.choices.length > 0),
+      }))
+      .filter((group) => group.subChoices.length > 0);
     const nextWithout = String(noteWithout || '').trim();
     const nextAdd = String(noteAdd || '').trim();
     const notes = buildModifiedRequestRemark(nextWithout, nextAdd);
@@ -399,6 +453,11 @@ export function ModifierModal({
         const modifierParts = [
           size ? `Size: ${size}` : undefined,
           selectedStyle || undefined,
+          ...customDataSelections.flatMap((group) =>
+            group.subChoices.map(
+              (option) => `${group.name} · ${option.name}: ${option.choices.join(', ')}`,
+            ),
+          ),
           ...choiceSelections.flatMap((group) =>
             group.subChoices.map((value) => `${group.name}: ${value}`),
           ),
@@ -418,6 +477,7 @@ export function ModifierModal({
           taxes: product.taxes,
           preparationStyle: selectedStyle || null,
           choiceSelections,
+          customDataSelections,
           modifier: modifierParts.join(' | ') || undefined,
           noteWithout: nextWithout,
           noteAdd: nextAdd,
@@ -471,6 +531,12 @@ export function ModifierModal({
       const modifierParts = [
         'Size: Standard',
         selectedStyle || undefined,
+        ...customDataSelections.flatMap((group) =>
+          group.subChoices.map(
+            (option) =>
+              `${group.name} · ${option.name}: ${option.choices.join(', ')}`,
+          ),
+        ),
         ...choiceSelections.flatMap((group) =>
           group.subChoices.map((value) => `${group.name}: ${value}`),
         ),
@@ -490,6 +556,7 @@ export function ModifierModal({
         taxes: product.taxes,
         preparationStyle: selectedStyle || null,
         choiceSelections,
+        customDataSelections,
         modifier: modifierParts.join(' | ') || undefined,
         noteWithout: nextWithout,
         noteAdd: nextAdd,
@@ -560,21 +627,30 @@ export function ModifierModal({
       transparent
       animationType="fade"
       onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={styles.modal}>
-          <View style={styles.header}>
-            <Text style={styles.title}>
-              {product.productCode ? (
-                <Text style={styles.productCode}>{product.productCode} </Text>
-              ) : null}
-              {product.name}
-            </Text>
-            <Text style={styles.subtitle}>Select variations and extras</Text>
-          </View>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View
+          style={[
+            styles.backdrop,
+            keyboardInset > 0 && styles.backdropKeyboardOpen,
+            {paddingBottom: Math.max(24, keyboardInset > 0 ? 12 : 24)},
+          ]}>
+          <View style={styles.modal}>
+            <View style={styles.header}>
+              <Text style={styles.title}>
+                {product.productCode ? (
+                  <Text style={styles.productCode}>{product.productCode} </Text>
+                ) : null}
+                {product.name}
+              </Text>
+              <Text style={styles.subtitle}>Select variations and extras</Text>
+            </View>
 
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}>
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.scrollContent}
+              keyboardShouldPersistTaps="handled">
             <View style={styles.accordionList}>
               {product.variants?.length ? (
                 <AccordionSection
@@ -620,6 +696,51 @@ export function ModifierModal({
                   </View>
                 </AccordionSection>
               ) : null}
+
+              {customDataGroups.map((group, groupIndex) => {
+                const sectionId = `custom-${groupIndex}-${group.name}`;
+                return (
+                  <AccordionSection
+                    key={sectionId}
+                    title={group.name}
+                    open={isSectionOpen(sectionId)}
+                    onToggle={() => toggleSection(sectionId)}>
+                    <View style={styles.customDataBlock}>
+                      {group.subChoices.map((option) => (
+                        <View
+                          key={`${group.name}-${option.name}`}
+                          style={styles.customDataOption}>
+                          <Text style={styles.customDataOptionLabel}>
+                            {option.name}
+                          </Text>
+                          <View style={styles.choiceGrid}>
+                            {option.choices.map((choice) => {
+                              const active = (
+                                selectedCustomData[group.name]?.[option.name] ||
+                                []
+                              ).includes(choice);
+                              return (
+                                <ChoiceChip
+                                  key={`${group.name}-${option.name}-${choice}`}
+                                  label={choice}
+                                  active={active}
+                                  onPress={() =>
+                                    toggleCustomDataChoice(
+                                      group.name,
+                                      option.name,
+                                      choice,
+                                    )
+                                  }
+                                />
+                              );
+                            })}
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  </AccordionSection>
+                );
+              })}
 
               {choiceGroups.map((group, groupIndex) => {
                 const sectionId = `choice-${groupIndex}-${group.name}`;
@@ -772,37 +893,57 @@ export function ModifierModal({
             </View>
 
             <View style={styles.modifiedRequestBlock}>
-              <Text style={styles.modifiedRequestHeading}>
-                Modified request
-              </Text>
-              <View style={styles.modifiedRequestFields}>
-                <View style={styles.modifiedRequestRow}>
-                  <Text style={styles.modifiedRequestLabel}>Without</Text>
-                  <TextInput
-                    style={styles.modifiedRequestInput}
-                    value={noteWithout}
-                    onChangeText={setNoteWithout}
-                    onBlur={() => setNoteWithout((value) => value.trim())}
-                    placeholder="Type Here"
-                    placeholderTextColor={colors.textSecondary}
-                    maxLength={80}
-                    accessibilityLabel={`Without for ${product.name}`}
-                  />
+              <Pressable
+                style={styles.modifiedRequestHeadingRow}
+                onPress={() => setModifiedRequestOpen((prev) => !prev)}
+                accessibilityRole="button"
+                accessibilityState={{expanded: modifiedRequestOpen}}
+                accessibilityLabel="Modified request">
+                <Text style={styles.modifiedRequestHeading}>
+                  Modified request
+                </Text>
+                <View
+                  style={[
+                    styles.modifiedRequestToggle,
+                    modifiedRequestOpen && styles.modifiedRequestToggleOpen,
+                  ]}>
+                  {modifiedRequestOpen ? (
+                    <Minus size={12} color={colors.primary} />
+                  ) : (
+                    <Plus size={12} color={colors.textSecondary} />
+                  )}
                 </View>
-                <View style={styles.modifiedRequestRow}>
-                  <Text style={styles.modifiedRequestLabel}>Add</Text>
-                  <TextInput
-                    style={styles.modifiedRequestInput}
-                    value={noteAdd}
-                    onChangeText={setNoteAdd}
-                    onBlur={() => setNoteAdd((value) => value.trim())}
-                    placeholder="Type Here"
-                    placeholderTextColor={colors.textSecondary}
-                    maxLength={80}
-                    accessibilityLabel={`Add for ${product.name}`}
-                  />
+              </Pressable>
+              {modifiedRequestOpen ? (
+                <View style={styles.modifiedRequestFields}>
+                  <View style={styles.modifiedRequestRow}>
+                    <Text style={styles.modifiedRequestLabel}>Without</Text>
+                    <TextInput
+                      style={styles.modifiedRequestInput}
+                      value={noteWithout}
+                      onChangeText={setNoteWithout}
+                      onBlur={() => setNoteWithout((value) => value.trim())}
+                      placeholder="Type Here"
+                      placeholderTextColor={colors.textSecondary}
+                      maxLength={80}
+                      accessibilityLabel={`Without for ${product.name}`}
+                    />
+                  </View>
+                  <View style={styles.modifiedRequestRow}>
+                    <Text style={styles.modifiedRequestLabel}>Add</Text>
+                    <TextInput
+                      style={styles.modifiedRequestInput}
+                      value={noteAdd}
+                      onChangeText={setNoteAdd}
+                      onBlur={() => setNoteAdd((value) => value.trim())}
+                      placeholder="Type Here"
+                      placeholderTextColor={colors.textSecondary}
+                      maxLength={80}
+                      accessibilityLabel={`Add for ${product.name}`}
+                    />
+                  </View>
                 </View>
-              </View>
+              ) : null}
             </View>
 
             {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -825,18 +966,25 @@ export function ModifierModal({
             </Pressable>
           </View>
         </View>
-      </View>
+        </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.35)',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  backdropKeyboardOpen: {
+    justifyContent: 'flex-end',
   },
   modal: {
     width: '100%',
@@ -1008,6 +1156,19 @@ const styles = StyleSheet.create({
     minWidth: 20,
     fontSize: 15,
   },
+  customDataBlock: {
+    gap: 14,
+  },
+  customDataOption: {
+    gap: 8,
+  },
+  customDataOptionLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
   choiceGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1138,12 +1299,32 @@ const styles = StyleSheet.create({
     marginTop: 14,
     gap: 8,
   },
+  modifiedRequestHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+  },
   modifiedRequestHeading: {
     fontSize: 11,
     fontWeight: '800',
     color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  modifiedRequestToggle: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modifiedRequestToggleOpen: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF7ED',
   },
   modifiedRequestFields: {
     gap: 6,

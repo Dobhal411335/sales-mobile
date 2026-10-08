@@ -18,10 +18,12 @@ import {PasswordInput} from '../../components/common/PasswordInput';
 import {TastyBitesLogo} from '../../components/branding/TastyBitesLogo';
 import {colors} from '../../constants/colors';
 import {useAuth} from '../../hooks/useAuth';
+import {useKeyboardBottomInset} from '../../hooks/useKeyboardBottomInset';
 
 export function LoginScreen() {
   const {width, height} = useWindowDimensions();
   const isLandscape = width > height;
+  const keyboardInset = useKeyboardBottomInset();
   const {
     login,
     activateAndLogin,
@@ -251,7 +253,7 @@ export function LoginScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}>
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -279,46 +281,57 @@ export function LoginScreen() {
             setShowActivationModal(false);
           }
         }}>
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Activate POS Device</Text>
-            <Text style={styles.modalDescription}>
-              This device has not yet been registered. Enter the activation code
-              provided by your administrator.
-            </Text>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View
+            style={[
+              styles.modalBackdrop,
+              keyboardInset > 0 && styles.modalBackdropKeyboardOpen,
+            ]}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalTitle}>Activate POS Device</Text>
+              <Text style={styles.modalDescription}>
+                This device has not yet been registered. Enter the activation
+                code provided by your administrator.
+              </Text>
 
-            <Text style={styles.label}>Activation Code</Text>
-            <TextInput
-              style={[styles.input, styles.activationInput]}
-              value={activationCode}
-              onChangeText={setActivationCode}
-              placeholder="EMP-XXXX-XXXX"
-              placeholderTextColor={colors.textSecondary}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              editable={!isLoading}
-            />
+              <Text style={styles.label}>Activation Code</Text>
+              <TextInput
+                style={[styles.input, styles.activationInput]}
+                value={activationCode}
+                onChangeText={setActivationCode}
+                placeholder="EMP-XXXX-XXXX"
+                placeholderTextColor={colors.textSecondary}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!isLoading}
+              />
 
-            <View style={styles.modalActions}>
-              <Pressable
-                style={styles.modalSecondaryButton}
-                onPress={() => setShowActivationModal(false)}
-                disabled={isLoading}>
-                <Text style={styles.modalSecondaryText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalPrimaryButton, isLoading && styles.signInButtonDisabled]}
-                onPress={handleActivationSubmit}
-                disabled={isLoading}>
-                {isLoading ? (
-                  <ActivityIndicator color={colors.surface} />
-                ) : (
-                  <Text style={styles.modalPrimaryText}>Activate Device</Text>
-                )}
-              </Pressable>
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={styles.modalSecondaryButton}
+                  onPress={() => setShowActivationModal(false)}
+                  disabled={isLoading}>
+                  <Text style={styles.modalSecondaryText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.modalPrimaryButton,
+                    isLoading && styles.signInButtonDisabled,
+                  ]}
+                  onPress={handleActivationSubmit}
+                  disabled={isLoading}>
+                  {isLoading ? (
+                    <ActivityIndicator color={colors.surface} />
+                  ) : (
+                    <Text style={styles.modalPrimaryText}>Activate Device</Text>
+                  )}
+                </Pressable>
+              </View>
             </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -490,6 +503,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
+  },
+  modalBackdropKeyboardOpen: {
+    justifyContent: 'flex-end',
   },
   modalCard: {
     width: '100%',

@@ -61,6 +61,27 @@ export function normalizeChoiceSelections(
     .filter((group) => group.name && group.subChoices.length > 0);
 }
 
+export function normalizeCustomDataSelections(
+  list?:
+    | Array<{name?: string; subChoices?: Array<{name?: string; choices?: string[]}>}>
+    | null,
+): Array<{name: string; subChoices: Array<{name: string; choices: string[]}>}> {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list
+    .map((group) => ({
+      name: String(group?.name || '').trim(),
+      subChoices: (Array.isArray(group?.subChoices) ? group.subChoices : [])
+        .map((option) => ({
+          name: String(option?.name || '').trim(),
+          choices: cleanChoiceList(option?.choices),
+        }))
+        .filter((option) => option.name && option.choices.length > 0),
+    }))
+    .filter((group) => group.name && group.subChoices.length > 0);
+}
+
 export function productHasChoiceOptions(product?: MenuProduct | null): boolean {
   return normalizeChoiceOptions(product?.choiceOptions).length > 0;
 }
@@ -70,6 +91,23 @@ export function cartChoiceSelectionsKey(selections?: ChoiceSelection[]): string 
     normalizeChoiceSelections(selections).map((group) => ({
       name: group.name,
       subChoices: [...group.subChoices].sort(),
+    })),
+  );
+}
+
+export function cartCustomDataSelectionsKey(
+  selections?: Array<{
+    name?: string;
+    subChoices?: Array<{name?: string; choices?: string[]}>;
+  }>,
+): string {
+  return JSON.stringify(
+    normalizeCustomDataSelections(selections).map((group) => ({
+      name: group.name,
+      subChoices: group.subChoices.map((option) => ({
+        name: option.name,
+        choices: [...option.choices].sort(),
+      })),
     })),
   );
 }

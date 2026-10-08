@@ -12,20 +12,30 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import type {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  ChevronDown,
+  Percent,
+  User,
+} from 'lucide-react-native';
 import {CardTypeSelector} from '../../../components/payment/CardTypeSelector';
 import {DiscountSelectorModal} from '../../../components/payment/DiscountSelectorModal';
 import {GiftCardDetailsModal} from '../../../components/payment/GiftCardDetailsModal';
 import {PayRemainingActions} from '../../../components/payment/PayRemainingActions';
+import {PaymentHistoryPanel} from '../../../components/payment/PaymentHistoryPanel';
 import {PaymentMethodSelector} from '../../../components/payment/PaymentMethodSelector';
-import {PaymentSummary} from '../../../components/payment/PaymentSummary';
+import {ReceiptPreview} from '../../../components/payment/ReceiptPreview';
 import {
   createDefaultSplitRows,
   SplitBillEditor,
   type SplitMode,
 } from '../../../components/payment/SplitBillEditor';
+import {NetworkErrorState} from '../../../components/common/NetworkErrorState';
 import {toast} from '../../../components/common/Toast';
 import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
 import {colors} from '../../../constants/colors';
+import {config} from '../../../constants/config';
 import {
   applyDiscountCode,
   calculatePaymentTotals,
@@ -63,7 +73,15 @@ import {formatCurrency} from '../../../utils/currency';
 import {clearDirectOrderId, DIRECT_ORDER_STORAGE_KEYS} from '../../../utils/directOrderStorage';
 import {hydrateCartFromOrder} from '../../../utils/orderCartMapper';
 import {roundMoney} from '../../../utils/receiptFormat';
-import {SERVICE_CHARGE_NO_TIP_MESSAGE} from '../../../utils/serviceCharge';
+import {
+  formatServiceTaxRate,
+  SERVICE_CHARGE_NO_TIP_MESSAGE,
+} from '../../../utils/serviceCharge';
+import {
+  filterItemsBySeat,
+  proportionalOrderTotalsForItems,
+} from '../../../utils/seatHelpers';
+import type {ReceiptOrder} from '../../../types/receipt';
 
 type Props = NativeStackScreenProps<SalesStackParamList, 'Payment'>;
 
@@ -108,6 +126,7 @@ export function PaymentScreen({navigation, route}: Props) {
   const [serverTaxTotal, setServerTaxTotal] = useState(routeTaxTotal ?? 0);
   const [hydrating, setHydrating] = useState(Boolean(resolvedOrderId));
   const [hydrateError, setHydrateError] = useState('');
+  const [hydrateAttempt, setHydrateAttempt] = useState(0);
 
   const [giftCardDetails, setGiftCardDetails] = useState<GiftCardDetails | null>(null);
   const [isGiftCardModalOpen, setIsGiftCardModalOpen] = useState(false);
@@ -434,7 +453,9 @@ export function PaymentScreen({navigation, route}: Props) {
     };
   }, [
     resolvedOrderId,
+    sessionId,
     employees,
+    hydrateAttempt,
     hydrateFromOrder,
     navigateToReceipt,
     paymentSeed,
@@ -473,7 +494,8 @@ export function PaymentScreen({navigation, route}: Props) {
   }, []);
 
   const {width} = useWindowDimensions();
-  const isWide = width >= 768;
+  const isWide = width >= 900;
+  const isTabletThreeCol = width >= 1024;
 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethodKey>('Card');
   const [billMode, setBillMode] = useState<BillMode>('full');
@@ -481,6 +503,7 @@ export function PaymentScreen({navigation, route}: Props) {
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplitDraft[]>(() =>
     createDefaultSplitRows(),
   );
+  const [selectedSplitId, setSelectedSplitId] = useState<string | null>(null);
   const [selectedCardType, setSelectedCardType] = useState<CardTypeName | ''>(
     '',
   );
@@ -617,6 +640,306 @@ export function PaymentScreen({navigation, route}: Props) {
             Boolean(String(row.cardType || '').trim());
           return nameOk && amtOk && methodOk && cardOk;
         })));
+
+  const selectedSplit =
+    billMode === 'split'
+      ? paymentSplits.find((row) => row.id === selectedSplitId) ||
+        paymentSplits[0] ||
+        null
+      : null;
+
+  useEffect(() => {
+    if (billMode !== 'split') {
+      return;
+    }
+    if (
+      selectedSplitId &&
+      paymentSplits.some((row) => row.id === selectedSplitId)
+    ) {
+      return;
+    }
+    if (paymentSplits[0]?.id) {
+      setSelectedSplitId(paymentSplits[0].id);
+    }
+  }, [billMode, paymentSplits, selectedSplitId]);
+
+  const currentCardContribution =
+    paymentMethod === 'Card'
+      ? roundMoney(
+          lockedCardAmount + Math.min(cardPayAmount, effectiveCardDue),
+        )
+      : lockedCardAmount;
+  const currentCashContribution =
+    paymentMethod === 'Cash'
+      ? roundMoney(
+          lockedCashAmount +
+            (Number.isFinite(parsedCashAmount)
+              ? Math.min(cashPayAmount, effectiveCashDue)
+              : 0),
+        )
+      : lockedCashAmount;
+
+  const historyRemainingDue = useMemo(() => {
+    if (paymentMethod === 'GiftCard') {
+      return remainingAfterGift;
+    }
+    if (paymentMethod === 'Card') {
+      if (cashSplitAmount > 0) {
+        return cashSplitAmount;
+      }
+      return roundMoney(
+        Math.max(
+          0,
+          totals.totalDue -
+            lockedCashAmount -
+            lockedCardAmount -
+            Math.min(cardPayAmount, effectiveCardDue),
+        ),
+      );
+    }
+    if (paymentMethod === 'Cash') {
+      if (cardSplitFromCash > 0) {
+        return cardSplitFromCash;
+      }
+      return roundMoney(
+        Math.max(
+          0,
+          totals.totalDue -
+            lockedCardAmount -
+            lockedCashAmount -
+            (Number.isFinite(parsedCashAmount)
+              ? Math.min(cashPayAmount, effectiveCashDue)
+              : 0),
+        ),
+      );
+    }
+    return totals.totalDue;
+  }, [
+    paymentMethod,
+    remainingAfterGift,
+    cashSplitAmount,
+    cardSplitFromCash,
+    totals.totalDue,
+    lockedCashAmount,
+    lockedCardAmount,
+    cardPayAmount,
+    effectiveCardDue,
+    cashPayAmount,
+    effectiveCashDue,
+    parsedCashAmount,
+  ]);
+
+  const historyLines = useMemo(() => {
+    const lines: Array<{
+      id: string;
+      label: string;
+      value: string;
+      tone?: 'green' | 'orange' | 'emerald' | 'amber';
+      strong?: boolean;
+    }> = [];
+    if (giftUsedPreview > 0) {
+      lines.push({
+        id: 'gift',
+        label: 'Gift card',
+        value: `−${formatCurrency(giftUsedPreview)}`,
+        tone: 'green',
+      });
+    }
+    if (lockedCardAmount > 0) {
+      lines.push({
+        id: 'locked-card',
+        label: 'Locked card',
+        value: formatCurrency(lockedCardAmount),
+      });
+    }
+    if (lockedCashAmount > 0) {
+      lines.push({
+        id: 'locked-cash',
+        label: 'Locked cash',
+        value: formatCurrency(lockedCashAmount),
+      });
+    }
+    if (
+      paymentMethod === 'Card' &&
+      (currentCardContribution > 0 || cashSplitAmount > 0)
+    ) {
+      lines.push({
+        id: 'card-current',
+        label: selectedCardType
+          ? `Card · ${selectedCardType}`
+          : 'Card (current)',
+        value: formatCurrency(Math.min(cardPayAmount, effectiveCardDue)),
+        tone: 'orange',
+      });
+    }
+    if (paymentMethod === 'Cash') {
+      lines.push({
+        id: 'cash-current',
+        label: 'Cash (current)',
+        value: formatCurrency(
+          Number.isFinite(parsedCashAmount)
+            ? Math.min(cashPayAmount, effectiveCashDue)
+            : 0,
+        ),
+        tone: 'emerald',
+      });
+    }
+    if (autoTip > 0) {
+      lines.push({
+        id: 'tip',
+        label: `Tip (${tipMethod || '—'})`,
+        value: formatCurrency(autoTip),
+        tone: 'orange',
+      });
+    }
+    lines.push({
+      id: 'remaining',
+      label: 'Remaining due',
+      value: formatCurrency(historyRemainingDue),
+      tone: 'amber',
+      strong: true,
+    });
+    return lines;
+  }, [
+    giftUsedPreview,
+    lockedCardAmount,
+    lockedCashAmount,
+    paymentMethod,
+    currentCardContribution,
+    cashSplitAmount,
+    selectedCardType,
+    cardPayAmount,
+    effectiveCardDue,
+    parsedCashAmount,
+    cashPayAmount,
+    effectiveCashDue,
+    autoTip,
+    tipMethod,
+    historyRemainingDue,
+  ]);
+
+  const receiptPreviewOrder = useMemo((): ReceiptOrder => {
+    const showSeatFiltered =
+      billMode === 'split' &&
+      selectedSplit != null &&
+      selectedSplit.seatNumber !== undefined;
+
+    const receiptItems = showSeatFiltered
+      ? filterItemsBySeat(items, selectedSplit?.seatNumber ?? null)
+      : items;
+
+    const seatTotals =
+      showSeatFiltered && receiptItems.length
+        ? proportionalOrderTotalsForItems(
+            {
+              items,
+              discountTotal: totals.discountTotal,
+              taxTotal: totals.taxTotal,
+              serviceChargeTotal: totals.serviceChargeTotal,
+              totalAmount: totals.totalDue + giftUsedPreview,
+              taxBreakdown: totals.taxBreakdown,
+            },
+            receiptItems,
+          )
+        : null;
+
+    const splitAmount =
+      billMode === 'split' && selectedSplit
+        ? roundMoney(parseFloat(selectedSplit.amount) || 0)
+        : 0;
+
+    const previewMethod =
+      billMode === 'split' && selectedSplit
+        ? selectedSplit.method === 'Card' && selectedSplit.cardType
+          ? `Card - ${selectedSplit.cardType}`
+          : selectedSplit.method
+        : paymentMethod === 'Card' && selectedCardType
+          ? `Card - ${selectedCardType}`
+          : paymentMethod === 'GiftCard'
+            ? 'Gift Card'
+            : paymentMethod;
+
+    const party =
+      billMode === 'split' && selectedSplit
+        ? String(selectedSplit.name || '').trim() || partyName
+        : partyName;
+
+    return {
+      orderNumber: String(displayOrderNumber),
+      orderId: resolvedOrderId || undefined,
+      tableNo: tableNumber,
+      floorName,
+      guestName: party,
+      partyName: party,
+      guestCount,
+      items: items as ReceiptOrder['items'],
+      subTotal: Number(seatTotals?.subTotal ?? totals.subTotal),
+      taxTotal: Number(seatTotals?.taxTotal ?? totals.taxTotal),
+      discountTotal: Number(seatTotals?.discountTotal ?? totals.discountTotal),
+      discountCode: appliedDiscount?.code,
+      serviceChargeTotal: Number(
+        seatTotals?.serviceChargeTotal ?? totals.serviceChargeTotal,
+      ),
+      serviceChargeName: totals.serviceChargeName,
+      totalAmount:
+        billMode === 'split' && selectedSplit
+          ? splitAmount > 0
+            ? splitAmount
+            : Number(seatTotals?.totalAmount ?? totals.totalDue)
+          : totals.totalDue + giftUsedPreview,
+      tipAmount: billMode === 'full' ? (includeServiceCharge ? 0 : autoTip) : 0,
+      tipMethod:
+        billMode === 'full' && autoTip > 0
+          ? tipMethod || undefined
+          : undefined,
+      giftcardUsedAmount: billMode === 'full' ? giftUsedPreview : 0,
+      cashAmount:
+        billMode === 'full'
+          ? currentCashContribution
+          : selectedSplit?.method === 'Cash'
+            ? splitAmount
+            : 0,
+      cardAmount:
+        billMode === 'full'
+          ? currentCardContribution
+          : selectedSplit?.method === 'Card'
+            ? splitAmount
+            : 0,
+      paymentMethod: previewMethod,
+      taxBreakdown: (seatTotals?.taxBreakdown ??
+        totals.taxBreakdown) as ReceiptOrder['taxBreakdown'],
+      source:
+        orderType === 'staff'
+          ? 'STAFF'
+          : orderType === 'takeaway'
+            ? 'TAKEAWAY'
+            : orderType === 'online'
+              ? 'ONLINE'
+              : undefined,
+      filterReceiptBySeat: Boolean(showSeatFiltered),
+    };
+  }, [
+    billMode,
+    selectedSplit,
+    items,
+    totals,
+    giftUsedPreview,
+    paymentMethod,
+    selectedCardType,
+    partyName,
+    displayOrderNumber,
+    resolvedOrderId,
+    tableNumber,
+    floorName,
+    guestCount,
+    appliedDiscount?.code,
+    includeServiceCharge,
+    autoTip,
+    tipMethod,
+    currentCashContribution,
+    currentCardContribution,
+    orderType,
+  ]);
 
   const completeDisabled = useMemo(() => {
     if (hydrating || hydrateError) {
@@ -1252,6 +1575,111 @@ export function PaymentScreen({navigation, route}: Props) {
     navigation.goBack();
   };
 
+  const discountSection = (
+    <View style={styles.discountSection}>
+      <Text style={styles.controlsTitle}>
+        {isStaffOrder ? 'STAFF DISCOUNT' : 'APPLY DISCOUNT'}
+      </Text>
+      {appliedDiscount ? (
+        <View style={styles.appliedDiscount}>
+          <View style={styles.appliedDiscountInfo}>
+            <View style={styles.appliedDiscountLeft}>
+              <CheckCircle2 size={18} color="#16A34A" />
+              <View>
+                <Text style={styles.appliedDiscountCode}>
+                  {appliedDiscount.code}
+                </Text>
+                <Text style={styles.appliedDiscountSavings}>
+                  {appliedDiscount.type === 'percent'
+                    ? `${appliedDiscount.value}% off · -${formatCurrency(totals.discountTotal)}`
+                    : `-${formatCurrency(totals.discountTotal)}`}
+                </Text>
+              </View>
+            </View>
+          </View>
+          {!isStaffOrder ? (
+            <Pressable
+              style={styles.removeDiscountButton}
+              onPress={handleRemoveDiscount}
+              accessibilityRole="button"
+              accessibilityLabel="Remove discount">
+              <Text style={styles.removeText}>Remove</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : (
+        <View style={styles.discountControls}>
+          <Pressable
+            style={styles.selectDiscountBtn}
+            onPress={() => setIsDiscountModalOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Select a discount">
+            <Text style={styles.selectDiscountBtnText}>
+              {availableDiscounts.length > 0
+                ? 'Select a discount...'
+                : 'No active discounts'}
+            </Text>
+            <ChevronDown size={16} color={colors.primary} />
+          </Pressable>
+          <View style={styles.discountInputRow}>
+            <View style={styles.discountInputWrap}>
+              <Percent size={14} color="#A1A1AA" />
+              <TextInput
+                style={styles.discountInput}
+                value={discountCode}
+                onChangeText={(val) => setDiscountCode(val.toUpperCase())}
+                placeholder="Or enter code..."
+                placeholderTextColor="#A1A1AA"
+                autoCapitalize="characters"
+                accessibilityLabel="Discount code"
+              />
+            </View>
+            <Pressable
+              style={[
+                styles.exactButton,
+                !discountCode.trim() && styles.completeDisabled,
+              ]}
+              onPress={() => handleApplyDiscount()}
+              disabled={!discountCode.trim()}
+              accessibilityRole="button"
+              accessibilityLabel="Apply discount">
+              <Text style={styles.exactButtonText}>Apply</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+
+  const serviceChargeSection = serviceTax ? (
+    <Pressable
+      style={styles.serviceChargeCard}
+      onPress={handleToggleServiceCharge}
+      accessibilityRole="checkbox"
+      accessibilityState={{checked: includeServiceCharge}}>
+      <View
+        style={[
+          styles.checkbox,
+          includeServiceCharge && styles.checkboxChecked,
+        ]}>
+        {includeServiceCharge ? (
+          <Text style={styles.checkboxMark}>✓</Text>
+        ) : null}
+      </View>
+      <View style={styles.serviceChargeInfo}>
+        <Text style={styles.serviceChargeText}>
+          Add {serviceTax.name || 'Server Charge'}
+        </Text>
+        <Text style={styles.fieldHelper}>
+          {formatServiceTaxRate(serviceTax)}
+          {totals.serviceChargeTotal > 0
+            ? ` · ${formatCurrency(totals.serviceChargeTotal)}`
+            : ''}
+        </Text>
+      </View>
+    </Pressable>
+  ) : null;
+
   const paymentControls = (
     <ScrollView
       style={styles.controlsScroll}
@@ -1281,7 +1709,12 @@ export function PaymentScreen({navigation, route}: Props) {
             styles.billModeChip,
             billMode === 'split' && styles.billModeChipSelected,
           ]}
-          onPress={() => setBillMode('split')}
+          onPress={() => {
+            setBillMode('split');
+            if (paymentSplits[0]?.id) {
+              setSelectedSplitId(paymentSplits[0].id);
+            }
+          }}
           accessibilityRole="button"
           accessibilityState={{selected: billMode === 'split'}}>
           <Text
@@ -1296,336 +1729,365 @@ export function PaymentScreen({navigation, route}: Props) {
 
       {billMode === 'split' ? (
         <>
-          <Text style={styles.controlsTitle}>GIFT CARD (OPTIONAL)</Text>
-          <View style={styles.methodSection}>
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>GIFT CARD CODE</Text>
-              <View style={styles.giftRow}>
-                <TextInput
-                  style={[styles.input, styles.giftInput]}
-                  value={giftCardCode}
-                  onChangeText={setGiftCardCode}
-                  placeholder="Enter code"
-                  autoCapitalize="characters"
-                  accessibilityLabel="Gift card code"
-                />
-                <Pressable
-                  style={styles.verifyButton}
-                  onPress={handleVerifyGiftCard}
-                  disabled={isVerifyingGiftCard}
-                  accessibilityRole="button"
-                  accessibilityLabel="Verify gift card">
-                  {isVerifyingGiftCard ? (
-                    <ActivityIndicator size="small" color={colors.surface} />
-                  ) : (
-                    <Text style={styles.verifyText}>Verify</Text>
-                  )}
-                </Pressable>
-              </View>
-              {giftCardError ? (
-                <Text style={styles.errorText}>{giftCardError}</Text>
-              ) : null}
-              {giftCardBalance !== null ? (
-                <View style={styles.giftCardBadgeRow}>
-                  <Text style={styles.balanceText}>
-                    Balance: {formatCurrency(giftCardBalance)}
-                  </Text>
-                  <Pressable onPress={handleRemoveGiftCard}>
-                    <Text style={styles.removeTextSmall}>Remove</Text>
-                  </Pressable>
+          {splitMode !== 'by_seat' ? (
+            <>
+              <Text style={styles.controlsTitle}>GIFT CARD (OPTIONAL)</Text>
+              <View style={styles.methodSection}>
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>GIFT CARD CODE</Text>
+                  <View style={styles.giftRow}>
+                    <TextInput
+                      style={[styles.input, styles.giftInput]}
+                      value={giftCardCode}
+                      onChangeText={setGiftCardCode}
+                      placeholder="Enter code"
+                      autoCapitalize="characters"
+                      accessibilityLabel="Gift card code"
+                    />
+                    <Pressable
+                      style={styles.verifyButton}
+                      onPress={handleVerifyGiftCard}
+                      disabled={isVerifyingGiftCard}
+                      accessibilityRole="button"
+                      accessibilityLabel="Verify gift card">
+                      {isVerifyingGiftCard ? (
+                        <ActivityIndicator size="small" color={colors.surface} />
+                      ) : (
+                        <Text style={styles.verifyText}>Verify</Text>
+                      )}
+                    </Pressable>
+                  </View>
+                  {giftCardError ? (
+                    <Text style={styles.errorText}>{giftCardError}</Text>
+                  ) : null}
+                  {giftCardBalance !== null ? (
+                    <View style={styles.giftCardBadgeRow}>
+                      <Text style={styles.balanceText}>
+                        Balance: {formatCurrency(giftCardBalance)}
+                      </Text>
+                      <Pressable onPress={handleRemoveGiftCard}>
+                        <Text style={styles.removeTextSmall}>Remove</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
-            </View>
-            {giftCardBalance !== null ? (
-              <View style={styles.field}>
-                <Text style={styles.fieldLabel}>AMOUNT TO APPLY</Text>
-                <View style={styles.inputWithExactRow}>
-                  <TextInput
-                    style={[styles.input, styles.inputFlex]}
-                    value={giftCardUseAmount}
-                    onChangeText={setGiftCardUseAmount}
-                    keyboardType="decimal-pad"
-                    accessibilityLabel="Gift card amount"
-                  />
-                  <Pressable
-                    style={styles.exactButton}
-                    onPress={() => {
-                      const maxApplicable = roundMoney(
-                        Math.min(
-                          giftCardBalance,
-                          totals.subTotal -
-                            totals.discountTotal +
-                            totals.taxTotal +
-                            totals.serviceChargeTotal,
-                        ),
-                      );
-                      setGiftCardUseAmount(String(maxApplicable));
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel="Use exact gift card amount">
-                    <Text style={styles.exactButtonText}>Exact</Text>
-                  </Pressable>
-                </View>
+                {giftCardBalance !== null ? (
+                  <View style={styles.field}>
+                    <Text style={styles.fieldLabel}>AMOUNT TO APPLY</Text>
+                    <View style={styles.inputWithExactRow}>
+                      <TextInput
+                        style={[styles.input, styles.inputFlex]}
+                        value={giftCardUseAmount}
+                        onChangeText={setGiftCardUseAmount}
+                        keyboardType="decimal-pad"
+                        accessibilityLabel="Gift card amount"
+                      />
+                      <Pressable
+                        style={styles.exactButton}
+                        onPress={() => {
+                          const maxApplicable = roundMoney(
+                            Math.min(
+                              giftCardBalance,
+                              totals.subTotal -
+                                totals.discountTotal +
+                                totals.taxTotal +
+                                totals.serviceChargeTotal,
+                            ),
+                          );
+                          setGiftCardUseAmount(String(maxApplicable));
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Use exact gift card amount">
+                        <Text style={styles.exactButtonText}>Exact</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : null}
               </View>
-            ) : null}
-          </View>
+            </>
+          ) : null}
 
           <Text style={styles.controlsTitle}>SPLIT PAYERS</Text>
           <SplitBillEditor
             splitDue={splitDue}
             giftUsed={giftUsedPreview}
             rows={paymentSplits}
-            onChangeRows={setPaymentSplits}
+            onChangeRows={(rows) => {
+              setPaymentSplits(rows);
+              if (
+                selectedSplitId &&
+                !rows.some((row) => row.id === selectedSplitId)
+              ) {
+                setSelectedSplitId(rows[0]?.id ?? null);
+              }
+            }}
             splitMode={splitMode}
             onSplitModeChange={setSplitMode}
             orderItems={items}
+            selectedId={selectedSplitId}
+            onSelectRow={setSelectedSplitId}
           />
+          {serviceChargeSection}
+          {discountSection}
         </>
       ) : (
         <>
-      <Text style={styles.controlsTitle}>PAYMENT METHOD</Text>
-      <PaymentMethodSelector
-        selected={paymentMethod}
-        onSelect={handleSelectMethod}
-      />
-
-      {paymentMethod === 'Card' ? (
-        <View style={styles.methodSection}>
-          <Text style={styles.methodHeading}>CARD PAYMENT</Text>
-          <CardTypeSelector
-            selected={selectedCardType}
-            onSelect={setSelectedCardType}
+          <Text style={styles.controlsTitle}>PAYMENT METHOD</Text>
+          <PaymentMethodSelector
+            selected={paymentMethod}
+            onSelect={handleSelectMethod}
           />
-          {selectedCardType ? (
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>CARD AMOUNT</Text>
-              <View style={styles.inputWithExactRow}>
-                <TextInput
-                  style={[styles.input, styles.inputFlex]}
-                  value={cardAmountTendered}
-                  onChangeText={setCardAmountTendered}
-                  placeholder={formatCurrency(effectiveCardDue)}
-                  keyboardType="decimal-pad"
-                  accessibilityLabel="Card amount"
-                />
-                <Pressable
-                  style={styles.exactButton}
-                  onPress={() => {
-                    setCardAmountTendered(effectiveCardDue.toFixed(2));
-                    setCashAmountTendered('');
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Set exact card amount">
-                  <Text style={styles.exactButtonText}>Exact</Text>
-                </Pressable>
-              </View>
-              <Text style={styles.fieldHelper}>
-                Enter less than the card due to pay the rest with another method.
-              </Text>
-              {cardOverpay > 0 && paymentMethod === 'Card' ? (
-                includeServiceCharge ? (
-                  <View style={styles.serviceChargeErrorBox}>
-                    <Text style={styles.serviceChargeErrorText}>
-                      {SERVICE_CHARGE_NO_TIP_MESSAGE} Please enter the exact amount ({formatCurrency(effectiveCardDue)}) to complete payment.
-                    </Text>
+
+          {paymentMethod === 'Card' ? (
+            <View style={styles.methodSection}>
+              <Text style={styles.methodHeading}>CARD PAYMENT</Text>
+              <CardTypeSelector
+                selected={selectedCardType}
+                onSelect={setSelectedCardType}
+              />
+              {selectedCardType ? (
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>CARD AMOUNT</Text>
+                  <View style={styles.inputWithExactRow}>
+                    <TextInput
+                      style={[styles.input, styles.inputFlex]}
+                      value={cardAmountTendered}
+                      onChangeText={setCardAmountTendered}
+                      placeholder={formatCurrency(effectiveCardDue)}
+                      keyboardType="decimal-pad"
+                      accessibilityLabel="Card amount"
+                    />
                     <Pressable
-                      style={styles.setExactButton}
+                      style={styles.exactButton}
                       onPress={() => {
                         setCardAmountTendered(effectiveCardDue.toFixed(2));
                         setCashAmountTendered('');
                       }}
                       accessibilityRole="button"
                       accessibilityLabel="Set exact card amount">
-                      <Text style={styles.setExactButtonText}>
-                        Set Exact ({formatCurrency(effectiveCardDue)})
-                      </Text>
+                      <Text style={styles.exactButtonText}>Exact</Text>
                     </Pressable>
                   </View>
-                ) : (
-                  <Text style={styles.tipNote}>
-                    Overpay treated as tip: {formatCurrency(cardOverpay)}
+                  <Text style={styles.fieldHelper}>
+                    Enter less than the card due to pay the rest with another
+                    method.
                   </Text>
-                )
+                  {cardOverpay > 0 && paymentMethod === 'Card' ? (
+                    includeServiceCharge ? (
+                      <View style={styles.serviceChargeErrorBox}>
+                        <Text style={styles.serviceChargeErrorText}>
+                          {SERVICE_CHARGE_NO_TIP_MESSAGE} Please enter the exact
+                          amount ({formatCurrency(effectiveCardDue)}) to complete
+                          payment.
+                        </Text>
+                        <Pressable
+                          style={styles.setExactButton}
+                          onPress={() => {
+                            setCardAmountTendered(effectiveCardDue.toFixed(2));
+                            setCashAmountTendered('');
+                          }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Set exact card amount">
+                          <Text style={styles.setExactButtonText}>
+                            Set Exact ({formatCurrency(effectiveCardDue)})
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ) : (
+                      <Text style={styles.tipNote}>
+                        Overpay treated as tip: {formatCurrency(cardOverpay)}
+                      </Text>
+                    )
+                  ) : null}
+                </View>
+              ) : null}
+
+              {selectedCardType && cashSplitAmount > 0 ? (
+                <PayRemainingActions
+                  remaining={cashSplitAmount}
+                  currentMethod="Card"
+                  onSwitch={(nextMethod) => {
+                    const cardPortion = roundMoney(
+                      Math.min(cardPayAmount, effectiveCardDue),
+                    );
+                    if (nextMethod === 'Cash') {
+                      setCashAmountTendered(cashSplitAmount.toFixed(2));
+                    }
+                    handleSwitchForRemainder(nextMethod, {
+                      lockCard: cardPortion,
+                    });
+                  }}
+                />
               ) : null}
             </View>
           ) : null}
 
-          {selectedCardType && cashSplitAmount > 0 ? (
-            <PayRemainingActions
-              remaining={cashSplitAmount}
-              currentMethod="Card"
-              onSwitch={(nextMethod) => {
-                const cardPortion = roundMoney(
-                  Math.min(cardPayAmount, effectiveCardDue),
-                );
-                if (nextMethod === 'Cash') {
-                  setCashAmountTendered(cashSplitAmount.toFixed(2));
-                }
-                handleSwitchForRemainder(nextMethod, {lockCard: cardPortion});
-              }}
-            />
-          ) : null}
-        </View>
-      ) : null}
-
-      {paymentMethod === 'Cash' ? (
-        <View style={styles.methodSection}>
-          <Text style={styles.methodHeading}>CASH PAYMENT</Text>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>CASH RECEIVED</Text>
-            <View style={styles.inputWithExactRow}>
-              <TextInput
-                style={[styles.input, styles.inputFlex]}
-                value={cashAmountTendered}
-                onChangeText={setCashAmountTendered}
-                placeholder={formatCurrency(effectiveCashDue)}
-                keyboardType="decimal-pad"
-                accessibilityLabel="Cash amount"
-              />
-              <Pressable
-                style={styles.exactButton}
-                onPress={() => {
-                  setCashAmountTendered(effectiveCashDue.toFixed(2));
-                }}
-                accessibilityRole="button"
-                accessibilityLabel="Set exact cash amount">
-                <Text style={styles.exactButtonText}>Exact</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.fieldHelper}>
-              Enter less than the due amount to pay the rest with another method.
-            </Text>
-            {cashOverpay > 0 && paymentMethod === 'Cash' ? (
-              includeServiceCharge ? (
-                <View style={styles.serviceChargeErrorBox}>
-                  <Text style={styles.serviceChargeErrorText}>
-                    {SERVICE_CHARGE_NO_TIP_MESSAGE} Please enter the exact amount ({formatCurrency(effectiveCashDue)}) to complete payment.
-                  </Text>
+          {paymentMethod === 'Cash' ? (
+            <View style={styles.methodSection}>
+              <Text style={styles.methodHeading}>CASH PAYMENT</Text>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>CASH RECEIVED</Text>
+                <View style={styles.inputWithExactRow}>
+                  <TextInput
+                    style={[styles.input, styles.inputFlex]}
+                    value={cashAmountTendered}
+                    onChangeText={setCashAmountTendered}
+                    placeholder={formatCurrency(effectiveCashDue)}
+                    keyboardType="decimal-pad"
+                    accessibilityLabel="Cash amount"
+                  />
                   <Pressable
-                    style={styles.setExactButton}
+                    style={styles.exactButton}
                     onPress={() => {
                       setCashAmountTendered(effectiveCashDue.toFixed(2));
                     }}
                     accessibilityRole="button"
                     accessibilityLabel="Set exact cash amount">
-                    <Text style={styles.setExactButtonText}>
-                      Set Exact ({formatCurrency(effectiveCashDue)})
-                    </Text>
+                    <Text style={styles.exactButtonText}>Exact</Text>
                   </Pressable>
                 </View>
-              ) : (
-                <Text style={styles.tipNote}>
-                  Overpay treated as tip: {formatCurrency(cashOverpay)}
+                <Text style={styles.fieldHelper}>
+                  Enter less than the due amount to pay the rest with another
+                  method.
                 </Text>
-              )
-            ) : null}
-          </View>
-
-          {cardSplitFromCash > 0 ? (
-            <PayRemainingActions
-              remaining={cardSplitFromCash}
-              currentMethod="Cash"
-              onSwitch={(nextMethod) => {
-                const cashPortion = roundMoney(
-                  Math.min(cashPayAmount, effectiveCashDue),
-                );
-                if (nextMethod === 'Card') {
-                  setCardAmountTendered(cardSplitFromCash.toFixed(2));
-                  setSelectedCardType('');
-                }
-                handleSwitchForRemainder(nextMethod, {lockCash: cashPortion});
-              }}
-            />
-          ) : null}
-        </View>
-      ) : null}
-
-      {paymentMethod === 'GiftCard' ? (
-        <View style={styles.methodSection}>
-          <Text style={styles.methodHeading}>GIFT CARD</Text>
-          <View style={styles.field}>
-            <Text style={styles.fieldLabel}>GIFT CARD CODE</Text>
-            <View style={styles.giftRow}>
-              <TextInput
-                style={[styles.input, styles.giftInput]}
-                value={giftCardCode}
-                onChangeText={setGiftCardCode}
-                placeholder="Enter code"
-                autoCapitalize="characters"
-                accessibilityLabel="Gift card code"
-              />
-              <Pressable
-                style={styles.verifyButton}
-                onPress={handleVerifyGiftCard}
-                disabled={isVerifyingGiftCard}
-                accessibilityRole="button"
-                accessibilityLabel="Verify gift card">
-                {isVerifyingGiftCard ? (
-                  <ActivityIndicator size="small" color={colors.surface} />
-                ) : (
-                  <Text style={styles.verifyText}>Verify</Text>
-                )}
-              </Pressable>
-            </View>
-            {giftCardError ? (
-              <Text style={styles.errorText}>{giftCardError}</Text>
-            ) : null}
-            {giftCardBalance !== null ? (
-              <View style={styles.giftCardBadgeRow}>
-                <Text style={styles.balanceText}>
-                  Balance: {formatCurrency(giftCardBalance)}
-                </Text>
-                <Pressable onPress={handleRemoveGiftCard}>
-                  <Text style={styles.removeTextSmall}>Remove</Text>
-                </Pressable>
+                {cashOverpay > 0 && paymentMethod === 'Cash' ? (
+                  includeServiceCharge ? (
+                    <View style={styles.serviceChargeErrorBox}>
+                      <Text style={styles.serviceChargeErrorText}>
+                        {SERVICE_CHARGE_NO_TIP_MESSAGE} Please enter the exact
+                        amount ({formatCurrency(effectiveCashDue)}) to complete
+                        payment.
+                      </Text>
+                      <Pressable
+                        style={styles.setExactButton}
+                        onPress={() => {
+                          setCashAmountTendered(effectiveCashDue.toFixed(2));
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Set exact cash amount">
+                        <Text style={styles.setExactButtonText}>
+                          Set Exact ({formatCurrency(effectiveCashDue)})
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <Text style={styles.tipNote}>
+                      Overpay treated as tip: {formatCurrency(cashOverpay)}
+                    </Text>
+                  )
+                ) : null}
               </View>
-            ) : null}
-          </View>
 
-          {giftCardBalance !== null ? (
-            <View style={styles.field}>
-              <Text style={styles.fieldLabel}>AMOUNT TO APPLY</Text>
-              <View style={styles.inputWithExactRow}>
-                <TextInput
-                  style={[styles.input, styles.inputFlex]}
-                  value={giftCardUseAmount}
-                  onChangeText={setGiftCardUseAmount}
-                  keyboardType="decimal-pad"
-                  accessibilityLabel="Gift card amount"
-                />
-                <Pressable
-                  style={styles.exactButton}
-                  onPress={() => {
-                    const maxApplicable = roundMoney(
-                      Math.min(giftCardBalance, totals.totalDue),
+              {cardSplitFromCash > 0 ? (
+                <PayRemainingActions
+                  remaining={cardSplitFromCash}
+                  currentMethod="Cash"
+                  onSwitch={(nextMethod) => {
+                    const cashPortion = roundMoney(
+                      Math.min(cashPayAmount, effectiveCashDue),
                     );
-                    setGiftCardUseAmount(String(maxApplicable));
+                    if (nextMethod === 'Card') {
+                      setCardAmountTendered(cardSplitFromCash.toFixed(2));
+                      setSelectedCardType('');
+                    }
+                    handleSwitchForRemainder(nextMethod, {
+                      lockCash: cashPortion,
+                    });
                   }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Use exact gift card amount">
-                  <Text style={styles.exactButtonText}>Exact</Text>
-                </Pressable>
-              </View>
+                />
+              ) : null}
             </View>
           ) : null}
 
-          {remainingAfterGift > 0 && giftCardBalance !== null ? (
-            <PayRemainingActions
-              remaining={remainingAfterGift}
-              currentMethod="GiftCard"
-              onSwitch={(nextMethod) => {
-                if (nextMethod === 'Card') {
-                  setCardAmountTendered(remainingAfterGift.toFixed(2));
-                  setSelectedCardType('');
-                } else if (nextMethod === 'Cash') {
-                  setCashAmountTendered(remainingAfterGift.toFixed(2));
-                }
-                setPaymentMethod(nextMethod);
-              }}
-            />
+          {paymentMethod === 'GiftCard' ? (
+            <View style={styles.methodSection}>
+              <Text style={styles.methodHeading}>GIFT CARD</Text>
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>GIFT CARD CODE</Text>
+                <View style={styles.giftRow}>
+                  <TextInput
+                    style={[styles.input, styles.giftInput]}
+                    value={giftCardCode}
+                    onChangeText={setGiftCardCode}
+                    placeholder="Enter code"
+                    autoCapitalize="characters"
+                    accessibilityLabel="Gift card code"
+                  />
+                  <Pressable
+                    style={styles.verifyButton}
+                    onPress={handleVerifyGiftCard}
+                    disabled={isVerifyingGiftCard}
+                    accessibilityRole="button"
+                    accessibilityLabel="Verify gift card">
+                    {isVerifyingGiftCard ? (
+                      <ActivityIndicator size="small" color={colors.surface} />
+                    ) : (
+                      <Text style={styles.verifyText}>Verify</Text>
+                    )}
+                  </Pressable>
+                </View>
+                {giftCardError ? (
+                  <Text style={styles.errorText}>{giftCardError}</Text>
+                ) : null}
+                {giftCardBalance !== null ? (
+                  <View style={styles.giftCardBadgeRow}>
+                    <Text style={styles.balanceText}>
+                      Balance: {formatCurrency(giftCardBalance)}
+                    </Text>
+                    <Pressable onPress={handleRemoveGiftCard}>
+                      <Text style={styles.removeTextSmall}>Remove</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
+              </View>
+
+              {giftCardBalance !== null ? (
+                <View style={styles.field}>
+                  <Text style={styles.fieldLabel}>AMOUNT TO APPLY</Text>
+                  <View style={styles.inputWithExactRow}>
+                    <TextInput
+                      style={[styles.input, styles.inputFlex]}
+                      value={giftCardUseAmount}
+                      onChangeText={setGiftCardUseAmount}
+                      keyboardType="decimal-pad"
+                      accessibilityLabel="Gift card amount"
+                    />
+                    <Pressable
+                      style={styles.exactButton}
+                      onPress={() => {
+                        const maxApplicable = roundMoney(
+                          Math.min(giftCardBalance, totals.totalDue),
+                        );
+                        setGiftCardUseAmount(String(maxApplicable));
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Use exact gift card amount">
+                      <Text style={styles.exactButtonText}>Exact</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
+              {remainingAfterGift > 0 && giftCardBalance !== null ? (
+                <PayRemainingActions
+                  remaining={remainingAfterGift}
+                  currentMethod="GiftCard"
+                  onSwitch={(nextMethod) => {
+                    if (nextMethod === 'Card') {
+                      setCardAmountTendered(remainingAfterGift.toFixed(2));
+                      setSelectedCardType('');
+                    } else if (nextMethod === 'Cash') {
+                      setCashAmountTendered(remainingAfterGift.toFixed(2));
+                    }
+                    setPaymentMethod(nextMethod);
+                  }}
+                />
+              ) : null}
+            </View>
           ) : null}
-        </View>
-      ) : null}
+
+          {serviceChargeSection}
+          {discountSection}
         </>
       )}
 
@@ -1645,75 +2107,194 @@ export function PaymentScreen({navigation, route}: Props) {
     </ScrollView>
   );
 
+  const liveBillPane = (
+    <View style={styles.liveBillPane}>
+      <View style={styles.liveBillHeader}>
+        <Text style={styles.controlsTitle}>LIVE BILL</Text>
+        <Text style={styles.liveBillSubtitle}>
+          {billMode === 'split' && selectedSplit
+            ? `Preview · ${
+                String(selectedSplit.name || '').trim() ||
+                (selectedSplit.seatNumber == null &&
+                selectedSplit.seatNumber !== undefined
+                  ? 'Table'
+                  : selectedSplit.seatNumber != null
+                    ? `Seat ${selectedSplit.seatNumber}`
+                    : 'Selected group')
+              }`
+            : 'Customer receipt preview'}
+        </Text>
+      </View>
+      <ScrollView
+        style={styles.liveBillScroll}
+        contentContainerStyle={styles.liveBillContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.partyCard}>
+          <View style={styles.partyLabelRow}>
+            <User size={13} color="#4F46E5" strokeWidth={2.2} />
+            <Text style={styles.controlsTitle}>
+              PARTY NAME
+              {billMode === 'split' ? ' · THIS BILL' : ''}
+            </Text>
+          </View>
+          <TextInput
+            style={[
+              styles.input,
+              billMode === 'split' && !selectedSplit && styles.inputDisabled,
+            ]}
+            value={
+              billMode === 'split' && selectedSplit
+                ? String(selectedSplit.name || '')
+                : partyName
+            }
+            onChangeText={(next) => {
+              if (billMode === 'split' && selectedSplit) {
+                setPaymentSplits((prev) =>
+                  prev.map((row) =>
+                    row.id === selectedSplit.id ? {...row, name: next} : row,
+                  ),
+                );
+              } else {
+                setPartyName(next);
+              }
+            }}
+            editable={!(billMode === 'split' && !selectedSplit)}
+            placeholder="Customer name for this receipt"
+            placeholderTextColor="#A1A1AA"
+            accessibilityLabel="Party name"
+          />
+          <Text style={styles.fieldHelper}>
+            {billMode === 'split' && !selectedSplit
+              ? 'Select a seat/group on the left to set its party name.'
+              : billMode === 'split'
+                ? 'Prints as Party on this seat/group receipt only.'
+                : 'Prints as Party on the customer receipt.'}
+          </Text>
+        </View>
+
+        <View style={styles.receiptCard}>
+          <ReceiptPreview
+            mode="customer"
+            order={receiptPreviewOrder}
+            taxBreakdown={receiptPreviewOrder.taxBreakdown}
+            guestCount={guestCount}
+            restaurantName={config.APP_NAME.toUpperCase()}
+            jobMetadata={
+              billMode === 'split' && selectedSplit
+                ? ({
+                    isSplitReceipt: true,
+                    filterReceiptBySeat:
+                      selectedSplit.seatNumber !== undefined,
+                    splitSeatNumber: selectedSplit.seatNumber ?? null,
+                    splitSeatNumbers: [selectedSplit.seatNumber ?? null],
+                    splitName: String(selectedSplit.name || '').trim(),
+                    splitAmount: roundMoney(
+                      parseFloat(selectedSplit.amount) || 0,
+                    ),
+                    splitMethod: selectedSplit.method,
+                    paymentMethod: selectedSplit.method,
+                    cashAmount:
+                      selectedSplit.method === 'Cash'
+                        ? roundMoney(parseFloat(selectedSplit.amount) || 0)
+                        : 0,
+                    cardAmount:
+                      selectedSplit.method === 'Card'
+                        ? roundMoney(parseFloat(selectedSplit.amount) || 0)
+                        : 0,
+                    tipAmount: 0,
+                    giftcardUsedAmount: 0,
+                  } as Record<string, unknown>)
+                : null
+            }
+          />
+        </View>
+      </ScrollView>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom', 'left', 'right']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>PAYMENT</Text>
         <Pressable
-          style={styles.closeButton}
+          style={styles.backButton}
           onPress={handleCancel}
           accessibilityRole="button"
-          accessibilityLabel="Close payment">
-          <Text style={styles.closeText}>✕</Text>
+          accessibilityLabel="Back">
+          <ArrowLeft size={18} color={colors.text} strokeWidth={2.4} />
+          <Text style={styles.backButtonText}>Back</Text>
         </Pressable>
+        <Text style={styles.headerTitle}>Payment</Text>
+        <View style={styles.orderBadge}>
+          <Text style={styles.orderBadgeText}>#{displayOrderNumber}</Text>
+        </View>
       </View>
 
-      <View style={[styles.body, isWide && styles.bodyWide]}>
+      <View
+        style={[
+          styles.body,
+          isWide && styles.bodyWide,
+          isTabletThreeCol && styles.bodyThreeCol,
+        ]}>
         {hydrating ? (
           <View style={styles.hydrateLoading}>
             <SalesPageSkeleton variant="metricCards" rows={3} />
             <Text style={styles.hydrateText}>Loading order...</Text>
           </View>
         ) : hydrateError ? (
-          <View style={styles.hydrateLoading}>
-            <Text style={styles.hydrateError}>{hydrateError}</Text>
-          </View>
+          <NetworkErrorState
+            title="Unable to load order"
+            message={hydrateError}
+            onRetry={() => {
+              setHydrateError('');
+              setHydrating(true);
+              setHydrateAttempt((n) => n + 1);
+            }}
+          />
         ) : (
           <>
-        <View style={[styles.summaryPane, isWide && styles.summaryPaneWide]}>
-          <PaymentSummary
-            orderNumber={displayOrderNumber}
-            tableNumber={tableNumber}
-            floorName={floorName}
-            guestCount={guestCount}
-            partyName={partyName}
-            onChangePartyName={setPartyName}
-            items={items}
-            subtotal={totals.subTotal}
-            taxTotal={totals.taxTotal}
-            discountTotal={totals.discountTotal}
-            discountLabel={
-              appliedDiscount?.type === 'percent'
-                ? `Discount (${appliedDiscount.value}%)`
-                : totals.subTotal > 0 && totals.discountTotal > 0
-                  ? `Discount (${Math.round((totals.discountTotal / totals.subTotal) * 1000) / 10}%)`
-                  : 'Discount'
-            }
-            serviceChargeTotal={totals.serviceChargeTotal}
-            serviceChargeName={totals.serviceChargeName}
-            includeServiceCharge={includeServiceCharge}
-            onToggleServiceCharge={handleToggleServiceCharge}
-            serviceTax={serviceTax}
-            giftCardUsed={giftUsedPreview}
-            totalDue={totals.totalDue}
-            tipAmount={includeServiceCharge ? 0 : autoTip}
-            lockedCardAmount={lockedCardAmount}
-            lockedCashAmount={lockedCashAmount}
-            selectedCardType={selectedCardType || undefined}
-            availableDiscounts={availableDiscounts}
-            appliedDiscount={appliedDiscount}
-            discountCode={discountCode}
-            onChangeDiscountCode={(val) => setDiscountCode(val.toUpperCase())}
-            onApplyDiscount={handleApplyDiscount}
-            onRemoveDiscount={handleRemoveDiscount}
-            onOpenDiscountSelector={() => setIsDiscountModalOpen(true)}
-            isStaffOrder={isStaffOrder}
-          />
-        </View>
+            <View
+              style={[
+                styles.historyPane,
+                isWide && styles.historyPaneWide,
+                isTabletThreeCol && styles.historyPaneThreeCol,
+              ]}>
+              <PaymentHistoryPanel
+                billMode={billMode}
+                historyLines={historyLines}
+                billTotal={
+                  billMode === 'split'
+                    ? splitDue + giftUsedPreview
+                    : totals.totalDue +
+                      giftUsedPreview +
+                      (includeServiceCharge ? 0 : autoTip)
+                }
+                billTotalLabel={billMode === 'split' ? 'Split due' : 'Bill total'}
+                giftCoversSplitBill={giftCoversSplitBill}
+                paymentSplits={paymentSplits}
+                selectedSplitId={selectedSplitId}
+                onSelectSplit={setSelectedSplitId}
+                splitRemaining={splitRemaining}
+              />
+            </View>
 
-        <View style={[styles.controlsPane, isWide && styles.controlsPaneWide]}>
-          {paymentControls}
-        </View>
+            <View
+              style={[
+                styles.controlsPane,
+                isWide && styles.controlsPaneWide,
+                isTabletThreeCol && styles.controlsPaneThreeCol,
+              ]}>
+              {paymentControls}
+            </View>
+
+            <View
+              style={[
+                styles.receiptPane,
+                isWide && styles.receiptPaneWide,
+                isTabletThreeCol && styles.receiptPaneThreeCol,
+              ]}>
+              {liveBillPane}
+            </View>
           </>
         )}
       </View>
@@ -1772,35 +2353,61 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.surface,
+    gap: 8,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  backButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
   },
   headerTitle: {
-    fontSize: 18,
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 17,
     fontWeight: '900',
     color: colors.text,
-    letterSpacing: 0.5,
+    letterSpacing: -0.2,
   },
-  closeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.background,
+  orderBadge: {
+    minWidth: 72,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: '#FAFAFA',
   },
-  closeText: {
-    fontSize: 18,
-    color: colors.textSecondary,
-    fontWeight: '700',
+  orderBadgeText: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
   },
   body: {
     flex: 1,
   },
   bodyWide: {
+    flexDirection: 'row',
+  },
+  bodyThreeCol: {
     flexDirection: 'row',
   },
   hydrateLoading: {
@@ -1821,24 +2428,96 @@ const styles = StyleSheet.create({
     color: colors.error,
     textAlign: 'center',
   },
-  summaryPane: {
-    flex: 1,
+  historyPane: {
+    maxHeight: '32%',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     backgroundColor: colors.surface,
   },
-  summaryPaneWide: {
-    flex: 1.1,
+  historyPaneWide: {
+    maxHeight: undefined,
+    flex: 0.9,
     borderBottomWidth: 0,
     borderRightWidth: 1,
     borderRightColor: colors.border,
   },
+  historyPaneThreeCol: {
+    flex: 0,
+    width: 300,
+    maxWidth: 320,
+  },
   controlsPane: {
     flex: 1,
     backgroundColor: colors.background,
+    minHeight: 220,
   },
   controlsPaneWide: {
-    flex: 0.9,
+    flex: 1.2,
+  },
+  controlsPaneThreeCol: {
+    flex: 1,
+    minWidth: 320,
+  },
+  receiptPane: {
+    maxHeight: '38%',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: '#F4F4F5',
+  },
+  receiptPaneWide: {
+    maxHeight: undefined,
+    flex: 1,
+    borderTopWidth: 0,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
+  receiptPaneThreeCol: {
+    flex: 0,
+    width: 360,
+    maxWidth: 380,
+  },
+  liveBillPane: {
+    flex: 1,
+  },
+  liveBillHeader: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+    gap: 2,
+  },
+  liveBillSubtitle: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  liveBillScroll: {
+    flex: 1,
+  },
+  liveBillContent: {
+    padding: 12,
+    gap: 12,
+  },
+  partyCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: 12,
+    gap: 8,
+  },
+  partyLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  receiptCard: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
   },
   controlsScroll: {
     flex: 1,
@@ -1848,22 +2527,25 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   controlsTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
+    color: '#4F46E5',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
   },
   billModeRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
   billModeChip: {
     flex: 1,
+    minHeight: 48,
     paddingVertical: 12,
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: colors.border,
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.surface,
   },
   billModeChipSelected: {
@@ -1872,11 +2554,64 @@ const styles = StyleSheet.create({
   },
   billModeChipText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '900',
     color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
   },
   billModeChipTextSelected: {
-    color: colors.primary,
+    color: '#C2410C',
+  },
+  serviceChargeCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: 14,
+  },
+  serviceChargeInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  discountControls: {
+    gap: 8,
+  },
+  discountInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  discountInputWrap: {
+    flex: 1,
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: colors.surface,
+  },
+  discountInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    paddingVertical: 10,
+  },
+  appliedDiscountLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  inputDisabled: {
+    backgroundColor: '#F4F4F5',
+    color: colors.textSecondary,
   },
   methodSection: {
     gap: 12,
@@ -2014,38 +2749,37 @@ const styles = StyleSheet.create({
   discountSection: {
     gap: 8,
   },
-  discountHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
   selectDiscountBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 5,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    backgroundColor: '#FFF7ED',
+    minHeight: 48,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: '#FFEDD5',
+    borderColor: colors.border,
   },
   selectDiscountBtnText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
   },
   appliedDiscount: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: '#F0FDF4',
     borderWidth: 1,
     borderColor: '#BBF7D0',
+    gap: 8,
   },
   appliedDiscountInfo: {
+    flex: 1,
     gap: 2,
   },
   appliedDiscountCode: {
@@ -2059,27 +2793,15 @@ const styles = StyleSheet.create({
     color: '#15803D',
   },
   removeDiscountButton: {
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    borderRadius: 6,
-    backgroundColor: '#FEE2E2',
-    borderWidth: 1,
-    borderColor: '#FECACA',
+    borderRadius: 8,
+    backgroundColor: colors.error,
   },
   removeText: {
     fontSize: 13,
     fontWeight: '700',
-    color: colors.error,
-  },
-  hintText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  serviceChargeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+    color: '#FFFFFF',
   },
   checkbox: {
     width: 24,
@@ -2090,19 +2812,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.surface,
+    marginTop: 1,
   },
   checkboxChecked: {
     borderColor: colors.primary,
-    backgroundColor: colors.cream,
+    backgroundColor: colors.primary,
   },
   checkboxMark: {
     fontSize: 14,
     fontWeight: '900',
-    color: colors.primary,
+    color: '#FFFFFF',
   },
   serviceChargeText: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     color: colors.text,
   },
   statusBanner: {

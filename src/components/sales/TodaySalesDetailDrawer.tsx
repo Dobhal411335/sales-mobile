@@ -12,6 +12,7 @@ import {
 import {
   AlertCircle,
   Printer,
+  Users,
   UtensilsCrossed,
   Wine,
   X,
@@ -29,13 +30,23 @@ import {
   shouldShowTable,
 } from '../../utils/orderDisplay';
 import {
+  buildPaymentSplitReceiptSlips,
+  buildTicketHistorySlips,
+  formatSplitSeatHint,
+  type PaymentSplitReceiptSlip,
+  type TicketHistorySlip,
+} from '../../utils/receiptSlips';
+import {
   getOrderGrandTotal,
   getOrderTypeBadgeColors,
   getPaymentStatusColors,
   getStatusColors,
   parsePaymentDetails,
 } from '../../utils/todayOrderHelpers';
-import {reprintTicket} from '../../services/printJobService';
+import {
+  fetchPrintJobs,
+  reprintTicket,
+} from '../../services/printJobService';
 import {toast} from '../common/Toast';
 import {TabletModal} from '../common/TabletModal';
 import {ReceiptPreview} from '../payment/ReceiptPreview';
@@ -63,6 +74,11 @@ export function TodaySalesDetailDrawer({
   const [printMessage, setPrintMessage] = useState<string | null>(null);
   const [printError, setPrintError] = useState<string | null>(null);
   const [isReprint, setIsReprint] = useState(false);
+  const [ticketHistorySlips, setTicketHistorySlips] = useState<
+    TicketHistorySlip[] | null
+  >(null);
+  const [ticketHistoryLoading, setTicketHistoryLoading] = useState(false);
+  const [activeSlipIndex, setActiveSlipIndex] = useState(0);
 
   const placerName = order ? getPlacerName(order) : null;
   const orderStatusUpper = String(order?.status || '').toUpperCase();
@@ -224,14 +240,166 @@ export function TodaySalesDetailDrawer({
   const hstLabel =
     totalHstRate != null && totalHstRate > 0 ? `HST (${totalHstRate}%)` : 'HST';
 
-  const handleOpenPrintPreview = (mode: ReceiptMode) => {
-    setPreviewMode(mode);
-    setActivePrintJobId(null);
-    setPrintMessage(null);
-    setPrintError(null);
-    setIsReprint(Boolean((order as {isReprint?: boolean})?.isReprint));
-    setPreviewOpen(true);
-  };
+  const customerPrintSlips = useMemo(
+    () =>
+      order
+        ? buildPaymentSplitReceiptSlips({
+            orderId: order._id,
+            orderNumber: order.orderNumber,
+            tableNo: order.tableNo,
+            floorName: order.floorName || order.floor?.name,
+            partyName: order.partyName || order.guestName,
+            guestName: order.guestName,
+            source: order.source,
+            status: order.status,
+            paymentStatus: order.paymentStatus,
+            paymentMethod: order.paymentMethod,
+            paymentSplits: order.paymentSplits,
+            subTotal: order.subTotal || 0,
+            taxTotal: order.taxTotal || 0,
+            discountTotal: order.discountTotal,
+            discountPercent: order.discountPercent,
+            tipAmount: order.tipAmount,
+            tipMethod: order.tipMethod,
+            totalAmount: order.totalAmount,
+            cashAmount: order.cashAmount,
+            cardAmount: order.cardAmount,
+            giftcardUsedAmount: order.giftcardUsedAmount,
+            guestCount: order.guestCount,
+            specialNote: order.specialNote,
+            serviceChargeTotal: order.serviceChargeTotal,
+            serviceChargeName: order.serviceChargeName,
+            createdAt: order.createdAt,
+            items: (order.items || []).map((it) => ({
+              ...it,
+              seatNumber: it.seatNumber,
+              seat: it.seat,
+            })),
+            taxBreakdown: order.taxBreakdown?.map((t) => ({
+              name: t.name || 'HST',
+              amount: Number(t.amount ?? t.taxAmount ?? 0),
+              rate: t.rate,
+            })),
+          })
+        : null,
+    [order],
+  );
+
+  const baseReceiptOrder: ReceiptOrder | null = useMemo(() => {
+    if (!order) return null;
+    return {
+      orderId: order._id,
+      orderNumber: order.orderNumber,
+      tableNo: order.tableNo,
+      floorName: order.floorName || order.floor?.name,
+      partyName: order.partyName || order.guestName,
+      guestName: order.guestName,
+      source: order.source,
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      paymentMethod: order.paymentMethod,
+      paymentSplits: order.paymentSplits,
+      subTotal: order.subTotal || 0,
+      taxTotal: order.taxTotal || 0,
+      discountTotal: order.discountTotal,
+      discountPercent: order.discountPercent,
+      tipAmount: order.tipAmount,
+      tipMethod: order.tipMethod,
+      totalAmount: order.totalAmount,
+      cashAmount: order.cashAmount,
+      cardAmount: order.cardAmount,
+      giftcardUsedAmount: order.giftcardUsedAmount,
+      guestCount: order.guestCount,
+      specialNote: order.specialNote,
+      serviceChargeTotal: order.serviceChargeTotal,
+      serviceChargeName: order.serviceChargeName,
+      createdAt: order.createdAt,
+      items: (order.items || []).map((it) => ({
+        ...it,
+        seatNumber: it.seatNumber,
+        seat: it.seat,
+      })),
+      taxBreakdown: order.taxBreakdown?.map((t) => ({
+        name: t.name || 'HST',
+        amount: Number(t.amount ?? t.taxAmount ?? 0),
+        rate: t.rate,
+      })),
+    };
+  }, [order]);
+
+  const previewSlips = useMemo(() => {
+    if (previewMode === 'customer') {
+      return customerPrintSlips;
+    }
+    if (previewMode === 'kot' || previewMode === 'bar') {
+      return ticketHistorySlips && ticketHistorySlips.length > 0
+        ? ticketHistorySlips
+        : null;
+    }
+    return null;
+  }, [previewMode, customerPrintSlips, ticketHistorySlips]);
+
+  const activeCustomerSlip: PaymentSplitReceiptSlip | null =
+    previewMode === 'customer' &&
+    customerPrintSlips &&
+    customerPrintSlips[activeSlipIndex]
+      ? customerPrintSlips[activeSlipIndex]
+      : null;
+
+  const activeTicketSlip: TicketHistorySlip | null =
+    (previewMode === 'kot' || previewMode === 'bar') &&
+    ticketHistorySlips &&
+    ticketHistorySlips[activeSlipIndex]
+      ? ticketHistorySlips[activeSlipIndex]
+      : null;
+
+  const previewOrderForModal: ReceiptOrder | null =
+    activeCustomerSlip?.order || baseReceiptOrder;
+
+  const previewKotItems = useMemo(() => {
+    if (activeTicketSlip?.kotItems?.length) {
+      return activeTicketSlip.kotItems;
+    }
+    return previewMode === 'bar' ? mappedBarItems : mappedKotItems;
+  }, [activeTicketSlip, previewMode, mappedBarItems, mappedKotItems]);
+
+  const handleOpenPrintPreview = useCallback(
+    async (mode: ReceiptMode) => {
+      if (!order) return;
+      setPreviewMode(mode);
+      setActivePrintJobId(null);
+      setPrintMessage(null);
+      setPrintError(null);
+      setIsReprint(Boolean((order as {isReprint?: boolean})?.isReprint));
+      setActiveSlipIndex(0);
+      setTicketHistorySlips(null);
+
+      if (mode === 'kot' || mode === 'bar') {
+        setTicketHistoryLoading(true);
+        try {
+          const res = await fetchPrintJobs({
+            orderId: order._id,
+            printType: mode === 'bar' ? 'BAR_RECEIPT' : 'KOT',
+            date: 'all',
+            limit: 50,
+          });
+          if (res.success) {
+            const slips = buildTicketHistorySlips(res.data || [], mode);
+            setTicketHistorySlips(slips.length ? slips : null);
+          } else {
+            setTicketHistorySlips(null);
+          }
+        } catch {
+          setTicketHistorySlips(null);
+        } finally {
+          setTicketHistoryLoading(false);
+        }
+      }
+
+      setPreviewOpen(true);
+    },
+    [order],
+  );
 
   const handleExecutePrint = async () => {
     if (!order) return;
@@ -253,15 +421,17 @@ export function TodaySalesDetailDrawer({
             ? 'BAR_RECEIPT'
             : 'RECEIPT';
 
+      const historyJobId = activeTicketSlip?.jobId;
+
       const itemsToReprint =
-        previewMode === 'kot'
-          ? mappedKotItems
-          : previewMode === 'bar'
-            ? mappedBarItems
-            : orderItems;
+        previewMode === 'kot' || previewMode === 'bar'
+          ? previewKotItems
+          : orderItems;
 
       const res = await reprintTicket({
-        orderId: order._id,
+        ...(historyJobId
+          ? {jobId: historyJobId}
+          : {orderId: order._id}),
         printType: printTypeMapped,
         kotItems: itemsToReprint as unknown[],
         guestCount: order.guestCount,
@@ -301,29 +471,18 @@ export function TodaySalesDetailDrawer({
     }
   };
 
-  const receiptOrderForPreview: ReceiptOrder | null = useMemo(() => {
-    if (!order) return null;
-    return {
-      orderId: order._id,
-      orderNumber: order.orderNumber,
-      tableNo: order.tableNo,
-      partyName: order.partyName || order.guestName,
-      source: order.source,
-      status: order.status,
-      paymentStatus: order.paymentStatus,
-      paymentMethod: order.paymentMethod,
-      subTotal: order.subTotal || 0,
-      taxTotal: order.taxTotal || 0,
-      discountTotal: order.discountTotal,
-      tipAmount: order.tipAmount,
-      totalAmount: order.totalAmount,
-      cashAmount: order.cashAmount,
-      cardAmount: order.cardAmount,
-      giftcardUsedAmount: order.giftcardUsedAmount,
-      guestCount: order.guestCount,
-      specialNote: order.specialNote,
-      createdAt: order.createdAt,
-    };
+  const headerLocation = useMemo(() => {
+    if (!order) return '';
+    const location = getOrderLocationLabel(order);
+    const party = getOrderPartyLabel(order);
+    if (
+      !party ||
+      String(party).trim().toLowerCase() ===
+        String(location).trim().toLowerCase()
+    ) {
+      return location;
+    }
+    return `${location} · ${party}`;
   }, [order]);
 
   if (!order) {
@@ -380,12 +539,15 @@ export function TodaySalesDetailDrawer({
                   </View>
                 </View>
 
-                <Text style={styles.headerLocation}>
-                  {getOrderLocationLabel(order)}
-                  {getOrderPartyLabel(order)
-                    ? ` · ${getOrderPartyLabel(order)}`
-                    : ''}
-                </Text>
+                <Text style={styles.headerLocation}>{headerLocation}</Text>
+                {customerPrintSlips && customerPrintSlips.length > 0 ? (
+                  <View style={styles.splitHeaderBadge}>
+                    <Users size={12} color="#6D28D9" strokeWidth={2.4} />
+                    <Text style={styles.splitHeaderBadgeText}>
+                      Split Bill · {customerPrintSlips.length}
+                    </Text>
+                  </View>
+                ) : null}
 
                 {placerName ? (
                   <Text style={styles.headerPlacer}>
@@ -532,18 +694,38 @@ export function TodaySalesDetailDrawer({
                 {Array.isArray(order.paymentSplits) &&
                 order.paymentSplits.length > 0 ? (
                   <View style={styles.splitsCard}>
-                    <Text style={styles.splitsCardTitle}>Payment Splits</Text>
-                    {order.paymentSplits.map((row, index) => (
-                      <Text key={`${row.name}-${index}`} style={styles.splitLine}>
-                        {row.name || `Guest ${index + 1}`}
-                        {' · '}
-                        {row.method === 'Card' && row.cardType
-                          ? `Card - ${row.cardType}`
-                          : row.method}
-                        {' · '}
-                        {formatCurrency(Number(row.amount) || 0)}
+                    <View style={styles.splitsCardTitleRow}>
+                      <Text style={styles.splitsCardTitle}>Split Bill</Text>
+                      <Text style={styles.splitsCountPill}>
+                        {order.paymentSplits.length} payers
                       </Text>
-                    ))}
+                    </View>
+                    {order.paymentSplits.map((row, index) => {
+                      const seatHint = formatSplitSeatHint(row);
+                      return (
+                        <View
+                          key={`${row.name}-${index}`}
+                          style={styles.splitDetailCard}>
+                          <View style={styles.splitDetailTop}>
+                            <Text style={styles.splitDetailName} numberOfLines={1}>
+                              {row.name || `Payer ${index + 1}`}
+                            </Text>
+                            <Text style={styles.splitDetailAmount}>
+                              {formatCurrency(Number(row.amount) || 0)}
+                            </Text>
+                          </View>
+                          <Text style={styles.splitLine}>
+                            {row.method === 'Card' && row.cardType
+                              ? `Card - ${row.cardType}`
+                              : row.method}
+                            {seatHint ? ` · ${seatHint}` : ''}
+                            {Number(row.tipAmount) > 0
+                              ? ` · Tip ${formatCurrency(Number(row.tipAmount))}`
+                              : ''}
+                          </Text>
+                        </View>
+                      );
+                    })}
                   </View>
                 ) : null}
 
@@ -758,10 +940,19 @@ export function TodaySalesDetailDrawer({
                   style={({pressed}) => [
                     styles.receiptBtn,
                     pressed && styles.btnPressed,
+                    ticketHistoryLoading && styles.btnDisabled,
                   ]}
-                  onPress={() => handleOpenPrintPreview('customer')}>
+                  disabled={ticketHistoryLoading}
+                  onPress={() => {
+                    void handleOpenPrintPreview('customer');
+                  }}>
                   <Printer size={15} color="#FFFFFF" strokeWidth={2.4} />
-                  <Text style={styles.receiptBtnText}>Receipt</Text>
+                  <Text style={styles.receiptBtnText}>
+                    Receipt
+                    {customerPrintSlips && customerPrintSlips.length > 1
+                      ? ` (${customerPrintSlips.length})`
+                      : ''}
+                  </Text>
                 </Pressable>
 
                 {hasKitchenItems && (
@@ -769,13 +960,21 @@ export function TodaySalesDetailDrawer({
                     style={({pressed}) => [
                       styles.kotBtn,
                       pressed && styles.btnPressed,
+                      ticketHistoryLoading && styles.btnDisabled,
                     ]}
-                    onPress={() => handleOpenPrintPreview('kot')}>
-                    <UtensilsCrossed
-                      size={15}
-                      color="#3f3f46"
-                      strokeWidth={2.2}
-                    />
+                    disabled={ticketHistoryLoading}
+                    onPress={() => {
+                      void handleOpenPrintPreview('kot');
+                    }}>
+                    {ticketHistoryLoading && previewMode === 'kot' ? (
+                      <ActivityIndicator size="small" color="#3f3f46" />
+                    ) : (
+                      <UtensilsCrossed
+                        size={15}
+                        color="#3f3f46"
+                        strokeWidth={2.2}
+                      />
+                    )}
                     <Text style={styles.kotBtnText}>KOT</Text>
                   </Pressable>
                 )}
@@ -785,9 +984,17 @@ export function TodaySalesDetailDrawer({
                     style={({pressed}) => [
                       styles.barBtn,
                       pressed && styles.btnPressed,
+                      ticketHistoryLoading && styles.btnDisabled,
                     ]}
-                    onPress={() => handleOpenPrintPreview('bar')}>
-                    <Wine size={15} color="#3f3f46" strokeWidth={2.2} />
+                    disabled={ticketHistoryLoading}
+                    onPress={() => {
+                      void handleOpenPrintPreview('bar');
+                    }}>
+                    {ticketHistoryLoading && previewMode === 'bar' ? (
+                      <ActivityIndicator size="small" color="#3f3f46" />
+                    ) : (
+                      <Wine size={15} color="#3f3f46" strokeWidth={2.2} />
+                    )}
                     <Text style={styles.barBtnText}>Bar</Text>
                   </Pressable>
                 )}
@@ -807,40 +1014,83 @@ export function TodaySalesDetailDrawer({
       </Modal>
 
       {/* Ticket Print Preview Modal */}
-      {previewOpen && receiptOrderForPreview && (
+      {previewOpen && previewOrderForModal && (
         <TabletModal
           visible={previewOpen}
           title={
             previewMode === 'bar'
-              ? 'Bar Receipt Preview'
+              ? previewSlips && previewSlips.length > 0
+                ? 'Bar ticket history'
+                : 'Bar Receipt Preview'
               : previewMode === 'kot'
-                ? 'Kitchen Order Ticket (KOT)'
-                : 'Customer Receipt Preview'
+                ? previewSlips && previewSlips.length > 0
+                  ? 'KOT history'
+                  : 'Kitchen Order Ticket (KOT)'
+                : previewSlips && previewSlips.length > 1
+                  ? 'Seat bill preview'
+                  : 'Customer Receipt Preview'
           }
-          onClose={() => setPreviewOpen(false)}
+          onClose={() => {
+            setPreviewOpen(false);
+            setTicketHistorySlips(null);
+            setActiveSlipIndex(0);
+          }}
           maxWidth={920}
           splitContent={{
             left: (
-              <ReceiptPreview
-                mode={previewMode}
-                order={receiptOrderForPreview}
-                kotItems={mappedKotItems}
-                barItems={mappedBarItems}
-                taxBreakdown={
-                  order.taxBreakdown
-                    ? order.taxBreakdown.map((t) => ({
-                        name: t.name || 'HST',
-                        amount: Number(t.amount ?? t.taxAmount ?? 0),
-                        rate: t.rate,
-                      }))
-                    : undefined
-                }
-                serverName={placerName ?? undefined}
-                guestCount={order.guestCount}
-                specialNote={order.specialNote}
-                restaurantName={config.APP_NAME.toUpperCase()}
-                isReprint={isReprint}
-              />
+              <View style={styles.previewLeftWrap}>
+                {previewSlips && previewSlips.length > 0 ? (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.slipTabsRow}>
+                    {previewSlips.map((slip, idx) => {
+                      const active = activeSlipIndex === idx;
+                      return (
+                        <Pressable
+                          key={slip.id}
+                          style={[
+                            styles.slipTab,
+                            active && styles.slipTabActive,
+                          ]}
+                          onPress={() => setActiveSlipIndex(idx)}>
+                          <Text
+                            style={[
+                              styles.slipTabText,
+                              active && styles.slipTabTextActive,
+                            ]}>
+                            {slip.label}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                ) : null}
+                <ReceiptPreview
+                  mode={previewMode}
+                  order={previewOrderForModal}
+                  kotItems={previewKotItems}
+                  barItems={
+                    previewMode === 'bar' ? previewKotItems : mappedBarItems
+                  }
+                  taxBreakdown={
+                    previewOrderForModal.taxBreakdown ||
+                    (order.taxBreakdown
+                      ? order.taxBreakdown.map((t) => ({
+                          name: t.name || 'HST',
+                          amount: Number(t.amount ?? t.taxAmount ?? 0),
+                          rate: t.rate,
+                        }))
+                      : undefined)
+                  }
+                  serverName={placerName ?? undefined}
+                  guestCount={order.guestCount}
+                  specialNote={order.specialNote}
+                  restaurantName={config.APP_NAME.toUpperCase()}
+                  isReprint={isReprint}
+                  jobMetadata={activeCustomerSlip?.jobMetadata ?? null}
+                />
+              </View>
             ),
             right: (
               <ScrollView
@@ -861,6 +1111,12 @@ export function TodaySalesDetailDrawer({
                   <Text style={styles.previewOrderTitle}>
                     Order #{order.orderNumber}
                   </Text>
+                  {previewSlips && previewSlips.length > 0 ? (
+                    <Text style={styles.previewSlipHint}>
+                      {previewSlips[activeSlipIndex]?.label ||
+                        `Slip ${activeSlipIndex + 1}`}
+                    </Text>
+                  ) : null}
                 </View>
 
                 {/* Printing In-Progress Banner (Shows loader + printing message) */}
@@ -989,14 +1245,22 @@ export function TodaySalesDetailDrawer({
             {
               label: isReprint
                 ? previewMode === 'bar'
-                  ? 'Reprint Bar Ticket Again'
+                  ? activeTicketSlip
+                    ? 'Reprint this Bar ticket'
+                    : 'Reprint Bar Ticket Again'
                   : previewMode === 'kot'
-                    ? 'Reprint KOT Again'
+                    ? activeTicketSlip
+                      ? 'Reprint this KOT'
+                      : 'Reprint KOT Again'
                     : 'Reprint Receipt Again'
                 : previewMode === 'bar'
-                  ? 'Print Bar Ticket'
+                  ? activeTicketSlip
+                    ? 'Print this Bar ticket'
+                    : 'Print Bar Ticket'
                   : previewMode === 'kot'
-                    ? 'Print KOT'
+                    ? activeTicketSlip
+                      ? 'Print this KOT'
+                      : 'Print KOT'
                     : 'Print Receipt',
               loadingLabel:
                 previewMode === 'bar'
@@ -1010,7 +1274,11 @@ export function TodaySalesDetailDrawer({
             },
             {
               label: 'Close',
-              onPress: () => setPreviewOpen(false),
+              onPress: () => {
+                setPreviewOpen(false);
+                setTicketHistorySlips(null);
+                setActiveSlipIndex(0);
+              },
               variant: 'secondary',
             },
           ]}
@@ -1370,10 +1638,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 10,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#DDD6FE',
+    borderWidth: 1.5,
+    borderColor: '#C4B5FD',
     backgroundColor: '#F5F3FF',
-    gap: 4,
+    gap: 8,
+  },
+  splitsCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   splitsCardTitle: {
     fontSize: 11,
@@ -1382,6 +1656,43 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
     textTransform: 'uppercase',
   },
+  splitsCountPill: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6D28D9',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  splitDetailCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 2,
+  },
+  splitDetailTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  splitDetailName: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#18181B',
+  },
+  splitDetailAmount: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#18181B',
+    fontVariant: ['tabular-nums'],
+  },
   splitsCardFooter: {
     marginTop: 8,
     gap: 3,
@@ -1389,7 +1700,63 @@ const styles = StyleSheet.create({
   splitLine: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#18181B',
+    color: '#52525B',
+  },
+  splitHeaderBadge: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#C4B5FD',
+    backgroundColor: '#F5F3FF',
+  },
+  splitHeaderBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#6D28D9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  previewLeftWrap: {
+    gap: 10,
+  },
+  slipTabsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    paddingBottom: 2,
+  },
+  slipTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#F4F4F5',
+  },
+  slipTabActive: {
+    backgroundColor: '#F97316',
+  },
+  slipTabText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#52525B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  slipTabTextActive: {
+    color: '#FFFFFF',
+  },
+  previewSlipHint: {
+    marginTop: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#71717A',
+  },
+  btnDisabled: {
+    opacity: 0.55,
   },
   giftCardValue: {
     color: '#7c3aed',

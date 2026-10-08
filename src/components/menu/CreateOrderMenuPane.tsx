@@ -35,6 +35,10 @@ interface CreateOrderMenuPaneProps {
   onProductPress: (product: MenuProduct) => void;
   syncBanner?: string | null;
   showSessionLoader?: boolean;
+  needsProductSync?: boolean;
+  onSyncProducts?: () => void;
+  onRetryMenu?: () => void;
+  searchQueryForEmpty?: string;
 }
 
 function CreateOrderMenuPaneComponent({
@@ -58,6 +62,10 @@ function CreateOrderMenuPaneComponent({
   onProductPress,
   syncBanner,
   showSessionLoader,
+  needsProductSync,
+  onSyncProducts,
+  onRetryMenu,
+  searchQueryForEmpty,
 }: CreateOrderMenuPaneProps) {
   return (
     <>
@@ -113,6 +121,10 @@ function CreateOrderMenuPaneComponent({
             error={error}
             onProductPress={onProductPress}
             gridCols={gridCols}
+            needsProductSync={needsProductSync}
+            onSyncProducts={onSyncProducts}
+            onRetry={onRetryMenu}
+            searchQuery={searchQueryForEmpty ?? searchQuery}
           />
         )}
       </View>

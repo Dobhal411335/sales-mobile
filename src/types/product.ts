@@ -17,6 +17,16 @@ export interface ChoiceOptionGroup {
   subChoices: string[];
 }
 
+export interface CustomDataOption {
+  name: string;
+  choices: string[];
+}
+
+export interface CustomDataGroup {
+  name: string;
+  subChoices: CustomDataOption[];
+}
+
 export interface ProductAddon {
   id?: string;
   name: string;
@@ -44,6 +54,7 @@ export interface MenuProduct {
   price: number;
   variants?: ProductVariant[];
   addons?: ProductAddon[];
+  customData?: CustomDataGroup[];
   choiceOptions?: ChoiceOptionGroup[];
   preparationStyles?: string[];
   taxes?: TaxRate[];
@@ -104,5 +115,14 @@ export function productNeedsOptions(product: MenuProduct): boolean {
       (group) => group.name && group.subChoices?.length,
     ),
   );
-  return hasVariants || hasAddons || hasStyles || hasChoices;
+  const hasCustomData = Boolean(
+    product.customData?.some(
+      (group) =>
+        group.name &&
+        group.subChoices?.some(
+          (option) => option.name && option.choices?.length,
+        ),
+    ),
+  );
+  return hasVariants || hasAddons || hasStyles || hasChoices || hasCustomData;
 }

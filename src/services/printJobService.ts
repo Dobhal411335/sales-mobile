@@ -65,6 +65,9 @@ export async function fetchPrintJobs(
     if (params.search && params.search.trim()) {
       qs.set('search', params.search.trim());
     }
+    if (params.orderId) {
+      qs.set('orderId', String(params.orderId));
+    }
     if (params.date) {
       qs.set('date', params.date);
     }

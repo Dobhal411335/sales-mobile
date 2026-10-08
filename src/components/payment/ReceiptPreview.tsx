@@ -11,13 +11,24 @@ import type {
 } from '../../types/receipt';
 import {formatCurrency} from '../../utils/currency';
 import {isOfferItem} from '../../utils/offerDetails';
-import {formatTableLocation, getDirectSalePartyLabel} from '../../utils/orderDisplay';
+import {
+  formatTableLocation,
+  getDirectSalePartyLabel,
+  getOrderTypeLabel,
+} from '../../utils/orderDisplay';
 import {getItemLineTotal} from '../../utils/productChoices';
 import {
   formatReceiptDate,
   formatTableNumbersWithFloor,
   getReceiptModifierLines,
 } from '../../utils/receiptFormat';
+import type {ReceiptSlipJobMetadata} from '../../utils/receiptSlips';
+import {
+  filterItemsBySeat,
+  filterItemsBySeats,
+  proportionalOrderTotalsForItems,
+  resolveSplitReceiptSeatFilter,
+} from '../../utils/seatHelpers';
 
 export interface ReceiptRestaurantDetails {
   name?: string;
@@ -39,17 +50,27 @@ export interface ReceiptPreviewProps {
   restaurantName?: string;
   restaurantDetails?: ReceiptRestaurantDetails | null;
   isReprint?: boolean;
+  /** Split-receipt metadata (today-sales / thank-you slips). */
+  jobMetadata?: ReceiptSlipJobMetadata | Record<string, unknown> | null;
 }
 
 function isDirectSaleOrder(order?: Partial<ReceiptOrder> | null): boolean {
   const src = String(order?.source || '').toUpperCase();
-  return src === 'WALK_IN' || src === 'STAFF' || src === 'ONLINE';
+  return (
+    src === 'WALK_IN' ||
+    src === 'TAKEAWAY' ||
+    src === 'STAFF' ||
+    src === 'ONLINE'
+  );
 }
 
 function shouldShowTable(order?: Partial<ReceiptOrder> | null): boolean {
   if (!order?.tableNo) return false;
-  const src = String(order?.source || '').toUpperCase();
-  return src !== 'WALK_IN' && src !== 'STAFF' && src !== 'ONLINE';
+  return !isDirectSaleOrder(order);
+}
+
+function resolveOrderTypeLabel(order?: Partial<ReceiptOrder> | null): string {
+  return getOrderTypeLabel((order || {}) as Parameters<typeof getOrderTypeLabel>[0]);
 }
 
 function resolvePartyLabel(order?: Partial<ReceiptOrder> | null): string {
@@ -174,7 +195,8 @@ function KotReceiptBody({
   const {orderNumber, tableNo, createdAt} = order;
   const tableLabel = formatTableLocation(tableNo, order.floorName);
   const note = specialNote || order.specialNote;
-  const partyLabel = resolvePartyLabel(order);
+  const orderTypeLabel = resolveOrderTypeLabel(order);
+  const partyLabel = resolvePartyLabel(order) || (isDirectSaleOrder(order) ? orderTypeLabel : '');
   const directSale = isDirectSaleOrder(order);
   const resolvedGuests =
     guestCount != null
@@ -195,9 +217,10 @@ function KotReceiptBody({
         ) : null}
         <Text style={styles.receiptBold}>
           {directSale
-            ? partyLabel || (String(order?.source || '').toUpperCase() === 'STAFF' ? 'Staff' : 'Takeaway')
-            : tableLabel || 'Takeaway / No Table'}
+            ? partyLabel || orderTypeLabel
+            : tableLabel || orderTypeLabel}
         </Text>
+        <Text style={styles.receiptBold}>{orderTypeLabel.toUpperCase()}</Text>
       </View>
 
       <View style={styles.divider} />
@@ -205,6 +228,9 @@ function KotReceiptBody({
       <View style={styles.metaBlock}>
         <Text style={styles.metaLine}>
           <Text style={styles.metaBold}>Order #:</Text> {orderNumber}
+        </Text>
+        <Text style={styles.metaLine}>
+          <Text style={styles.metaBold}>Order type:</Text> {orderTypeLabel}
         </Text>
         <Text style={styles.metaLine}>
           <Text style={styles.metaBold}>Sent:</Text>{' '}
@@ -340,7 +366,9 @@ function BarReceiptBody({
   const {orderNumber, tableNo, createdAt} = order;
   const tableLabel = formatTableNumbersWithFloor(tableNo, order.floorName);
   const note = specialNote || order.specialNote;
-  const partyLabel = resolvePartyLabel(order);
+  const orderTypeLabel = resolveOrderTypeLabel(order);
+  const partyLabel =
+    resolvePartyLabel(order) || (isDirectSaleOrder(order) ? orderTypeLabel : '');
   const directSale = isDirectSaleOrder(order);
   const covers =
     guestCount != null
@@ -357,6 +385,7 @@ function BarReceiptBody({
         {isReprint ? (
           <Text style={styles.reprintBadge}>*** REPRINT ***</Text>
         ) : null}
+        <Text style={styles.receiptBold}>{orderTypeLabel.toUpperCase()}</Text>
       </View>
 
       {(partyLabel || covers != null || (!directSale && tableLabel)) ? (
@@ -369,7 +398,7 @@ function BarReceiptBody({
           ) : null}
           {!directSale ? (
             <Text style={styles.barTopBold}>
-              TABLE: {tableLabel || 'Takeaway'}
+              TABLE: {tableLabel || orderTypeLabel}
             </Text>
           ) : null}
         </View>
@@ -392,6 +421,9 @@ function BarReceiptBody({
         ) : null}
         <Text style={styles.metaLine}>
           <Text style={styles.metaBold}>Order:</Text> {orderNumber}
+        </Text>
+        <Text style={styles.metaLine}>
+          <Text style={styles.metaBold}>Order type:</Text> {orderTypeLabel}
         </Text>
         {partyLabel ? (
           <Text style={styles.metaLine}>
@@ -482,6 +514,7 @@ function CustomerReceiptBody({
   restaurantName = config.APP_NAME.toUpperCase(),
   restaurantDetails,
   isReprint = false,
+  jobMetadata = null,
 }: {
   order: ReceiptOrder;
   taxBreakdown?: TaxBreakdownLine[];
@@ -490,7 +523,43 @@ function CustomerReceiptBody({
   restaurantName?: string;
   restaurantDetails?: ReceiptRestaurantDetails | null;
   isReprint?: boolean;
+  jobMetadata?: ReceiptSlipJobMetadata | Record<string, unknown> | null;
 }) {
+  const meta =
+    jobMetadata && typeof jobMetadata === 'object' ? jobMetadata : {};
+  const isSplitReceipt = Boolean(
+    (meta as {isSplitReceipt?: boolean}).isSplitReceipt,
+  );
+  const splitName = (meta as {splitName?: string}).splitName
+    ? String((meta as {splitName?: string}).splitName)
+    : '';
+  const splitAmount = Number((meta as {splitAmount?: number}).splitAmount) || 0;
+  const splitMethod = String(
+    (meta as {splitMethod?: string; paymentMethod?: string}).splitMethod ||
+      (meta as {paymentMethod?: string}).paymentMethod ||
+      '',
+  ).trim();
+
+  const seatFilter = resolveSplitReceiptSeatFilter(
+    meta as Record<string, unknown>,
+    order,
+  );
+  const allOrderItems = (order?.items ?? []) as CartLineItem[];
+  const items = (seatFilter.filter
+    ? Array.isArray((meta as {splitSeatNumbers?: unknown[]}).splitSeatNumbers) &&
+      ((meta as {splitSeatNumbers?: unknown[]}).splitSeatNumbers?.length || 0) > 1
+      ? filterItemsBySeats(
+          allOrderItems,
+          (meta as {splitSeatNumbers?: unknown[]}).splitSeatNumbers || [],
+        )
+      : filterItemsBySeat(allOrderItems, seatFilter.seatNumber)
+    : allOrderItems) as CartLineItem[];
+
+  const seatScopedTotals =
+    seatFilter.filter && isSplitReceipt
+      ? proportionalOrderTotalsForItems(order, items)
+      : null;
+
   const restName =
     restaurantDetails?.name || restaurantName || order?.restaurantName || config.APP_NAME.toUpperCase();
   const restAddress =
@@ -503,10 +572,14 @@ function CustomerReceiptBody({
 
   const rawTableLabel = formatTableNumbersWithFloor(order?.tableNo, order?.floorName);
   const tableLabel = rawTableLabel.replace(/^(tables?\s*)+/i, '').trim();
-  const partyLabel = resolvePartyLabel(order);
-  const items = (order?.items ?? []) as CartLineItem[];
+  const partyLabel = isSplitReceipt
+    ? order.partyName || order.guestName || splitName || resolvePartyLabel(order)
+    : resolvePartyLabel(order);
 
   const resolvedTaxBreakdown = (() => {
+    if (seatScopedTotals?.taxBreakdown?.length) {
+      return seatScopedTotals.taxBreakdown as TaxBreakdownLine[];
+    }
     const fromProp = Array.isArray(taxBreakdown) ? taxBreakdown : [];
     const fromOrder = Array.isArray(
       (order as {taxBreakdown?: TaxBreakdownLine[]})?.taxBreakdown,
@@ -523,22 +596,51 @@ function CustomerReceiptBody({
         0,
       );
     }
-    return Number(order?.taxTotal || 0);
+    return Number(
+      seatScopedTotals?.taxTotal ?? order?.taxTotal ?? 0,
+    );
   })();
 
-  const tip = Number(order?.tipAmount || 0);
-  const discount = Number(order?.discountTotal || 0);
-  const serviceCharge = Number(order?.serviceChargeTotal || 0);
-  const giftUsed = Number(
-    order?.giftcardUsedAmount ??
-      (order as {giftCardUsedAmount?: number})?.giftCardUsedAmount ??
-      (order as {giftCardUsed?: number})?.giftCardUsed ??
-      0,
+  const tip = Number(
+    isSplitReceipt
+      ? (meta as {tipAmount?: number}).tipAmount ?? 0
+      : order?.tipAmount || 0,
   );
-  const cash = Number(order?.cashAmount || 0);
-  const card = Number(order?.cardAmount || 0);
-  const orderTotal = Number(order?.totalAmount || 0);
+  const discount = Number(
+    seatScopedTotals?.discountTotal ?? order?.discountTotal ?? 0,
+  );
+  const serviceCharge = Number(
+    seatScopedTotals?.serviceChargeTotal ?? order?.serviceChargeTotal ?? 0,
+  );
+  const giftUsed = Number(
+    isSplitReceipt
+      ? (meta as {giftcardUsedAmount?: number}).giftcardUsedAmount ?? 0
+      : order?.giftcardUsedAmount ??
+          (order as {giftCardUsedAmount?: number})?.giftCardUsedAmount ??
+          (order as {giftCardUsed?: number})?.giftCardUsed ??
+          0,
+  );
+  const cash = Number(
+    isSplitReceipt
+      ? (meta as {cashAmount?: number}).cashAmount ?? 0
+      : order?.cashAmount || 0,
+  );
+  const card = Number(
+    isSplitReceipt
+      ? (meta as {cardAmount?: number}).cardAmount ?? 0
+      : order?.cardAmount || 0,
+  );
+  const orderTotal = Number(
+    isSplitReceipt
+      ? splitAmount ||
+          seatScopedTotals?.totalAmount ||
+          order?.totalAmount ||
+          0
+      : seatScopedTotals?.totalAmount ?? order?.totalAmount ?? 0,
+  );
   const grandTotal = orderTotal + tip;
+  const billTotal =
+    Number(order?.totalAmount || 0) + Number(order?.tipAmount || 0);
 
   const resolvedGuests =
     guestCount != null
@@ -608,7 +710,9 @@ function CustomerReceiptBody({
       : 'HST';
 
   const methodStr = String(
-    order?.paymentMethod || (order as {method?: string})?.method || '',
+    isSplitReceipt
+      ? splitMethod || order?.paymentMethod || ''
+      : order?.paymentMethod || (order as {method?: string})?.method || '',
   ).trim();
   const cardLabelMatch = methodStr.match(/Card\s*-\s*([^+/]+)/i);
   const cardLabel = cardLabelMatch
@@ -634,6 +738,7 @@ function CustomerReceiptBody({
   );
 
   const showSeatHeaders =
+    !seatFilter.filter &&
     !order?.filterReceiptBySeat &&
     items.some((it) => normalizePreviewSeat(it) != null);
   const seatGroups = groupKotItemsBySeat(items, {kotStyle: false});
@@ -711,6 +816,10 @@ function CustomerReceiptBody({
           </Text>
         </View>
         <Text style={styles.metaLine}>
+          <Text style={styles.metaBold}>Order type:</Text>{' '}
+          {resolveOrderTypeLabel(order)}
+        </Text>
+        <Text style={styles.metaLine}>
           <Text style={styles.metaBold}>Server:</Text>{' '}
           {serverName || (order as {serverName?: string}).serverName || 'Server'}
         </Text>
@@ -722,10 +831,7 @@ function CustomerReceiptBody({
         {partyLabel || !shouldShowTable(order) ? (
           <Text style={styles.metaLine}>
             <Text style={styles.metaBold}>Party:</Text>{' '}
-            {partyLabel ||
-              (String(order?.source || '').toUpperCase() === 'STAFF'
-                ? 'Staff'
-                : 'Takeaway')}
+            {partyLabel || resolveOrderTypeLabel(order)}
           </Text>
         ) : null}
         {resolvedGuests != null ? (
@@ -794,7 +900,9 @@ function CustomerReceiptBody({
         <View style={styles.totalRow}>
           <Text style={styles.totalLabel}>Subtotal</Text>
           <Text style={styles.totalValue}>
-            {formatCurrency(order?.subTotal ?? 0)}
+            {formatCurrency(
+              Number(seatScopedTotals?.subTotal ?? order?.subTotal ?? 0),
+            )}
           </Text>
         </View>
 
@@ -810,7 +918,11 @@ function CustomerReceiptBody({
               <Text style={styles.totalLabel}>Net Amount</Text>
               <Text style={styles.totalValue}>
                 {formatCurrency(
-                  Math.max(0, (order?.subTotal ?? 0) - discount),
+                  Math.max(
+                    0,
+                    Number(seatScopedTotals?.subTotal ?? order?.subTotal ?? 0) -
+                      discount,
+                  ),
                 )}
               </Text>
             </View>
@@ -855,8 +967,41 @@ function CustomerReceiptBody({
         </View>
       </View>
 
-      {/* Payment Method Split */}
-      {hasPaymentSplit ? (
+      {/* Split slip / payment method */}
+      {isSplitReceipt ? (
+        <>
+          <View style={styles.dividerDashed} />
+          <View style={styles.totalsBlock}>
+            <Text style={styles.paymentSectionTitle}>THIS SLIP</Text>
+            {splitName ? (
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Payer</Text>
+                <Text style={styles.totalValue}>{splitName}</Text>
+              </View>
+            ) : null}
+            <View style={styles.totalRow}>
+              <Text style={styles.totalBold}>
+                {/cash/i.test(splitMethod)
+                  ? 'Cash'
+                  : cardLabelMatch
+                    ? cardLabel
+                    : /card/i.test(splitMethod)
+                      ? 'Card'
+                      : splitMethod || 'Paid'}
+              </Text>
+              <Text style={styles.totalBold}>
+                {formatCurrency(splitAmount || cash || card || orderTotal)}
+              </Text>
+            </View>
+            <View style={styles.totalRow}>
+              <Text style={styles.totalLabel}>
+                Bill total (#{order?.orderNumber})
+              </Text>
+              <Text style={styles.totalValue}>{formatCurrency(billTotal)}</Text>
+            </View>
+          </View>
+        </>
+      ) : hasPaymentSplit ? (
         <>
           <View style={styles.dividerDashed} />
           <View style={styles.totalsBlock}>
@@ -919,6 +1064,7 @@ export function ReceiptPreview({
   restaurantName = config.APP_NAME.toUpperCase(),
   restaurantDetails,
   isReprint = false,
+  jobMetadata = null,
 }: ReceiptPreviewProps) {
   const resolvedReprint = isReprint || Boolean(order?.isReprint);
   const resolvedRestName =
@@ -938,6 +1084,7 @@ export function ReceiptPreview({
           restaurantName={resolvedRestName}
           restaurantDetails={restaurantDetails}
           isReprint={resolvedReprint}
+          jobMetadata={jobMetadata}
         />
       ) : mode === 'bar' ? (
         <BarReceiptBody

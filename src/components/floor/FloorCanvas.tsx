@@ -6,7 +6,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import {SalesPageSkeleton} from '../common/SalesPageSkeleton';
 import {colors} from '../../constants/colors';
 import type {Floor, FloorTable, GridMode, TableSession} from '../../types/table';
 import {computeContentBounds, computeFitScale} from '../../utils/floorLayout';
@@ -15,6 +14,7 @@ import {
   getTableCardSize,
   getTableDisplayState,
 } from '../../utils/tableStatus';
+import {FloorCanvasSkeleton} from './FloorCanvasSkeleton';
 import {TableCard} from './TableCard';
 
 interface FloorCanvasProps {
@@ -131,9 +131,7 @@ export function FloorCanvas({
   return (
     <View style={styles.viewport} onLayout={handleLayout}>
       {loading && tables.length === 0 ? (
-        <View style={styles.loadingWrap}>
-          <SalesPageSkeleton variant="floorGrid" rows={12} />
-        </View>
+        <FloorCanvasSkeleton />
       ) : !hasFloors ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>No areas available.</Text>
@@ -265,17 +263,6 @@ const styles = StyleSheet.create({
   },
   tablePosition: {
     position: 'absolute',
-  },
-  loadingWrap: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
   },
   emptyWrap: {
     flex: 1,

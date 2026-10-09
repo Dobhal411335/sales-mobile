@@ -66,8 +66,10 @@ export function getReceiptModifierLines(
 ): Array<{kind: string; text: string; price?: number}> {
   const lines: Array<{kind: string; text: string; price?: number}> = [];
 
+  // Extra addon lines: title is the addon name — never reprint prep style under it.
+  const isExtra = isStandaloneExtraLine(item);
   const style = String(item.preparationStyle || '').trim();
-  if (style) {
+  if (style && !isExtra) {
     lines.push({kind: 'style', text: `+ ${style}`});
   }
 
@@ -82,11 +84,8 @@ export function getReceiptModifierLines(
     (item as CartLineItem).customDataSelections,
   )) {
     lines.push({kind: 'custom-data', text: `${group.name}:`});
-    for (const option of group.subChoices) {
-      lines.push({kind: 'custom-data-option', text: `${option.name}:`});
-      for (const choice of option.choices) {
-        lines.push({kind: 'custom-data-item', text: `• ${choice}`});
-      }
+    for (const choice of group.subChoices) {
+      lines.push({kind: 'custom-data-item', text: `• ${choice}`});
     }
   }
 
@@ -114,16 +113,19 @@ export function getReceiptModifierLines(
   for (const extra of normalizeCustomExtras(
     (item as CartLineItem).customExtras,
   )) {
+    const linePrice =
+      Math.round(Number(extra.price) * Number(extra.qty) * 100) / 100;
+    const qtySuffix = extra.qty > 1 ? ` ×${extra.qty}` : '';
     lines.push({
       kind: 'custom-extra',
-      text: `+ ${extra.name}`,
-      price: extra.price,
+      text: `+ ${extra.name}${qtySuffix}`,
+      price: linePrice,
     });
   }
 
   // Legacy fallback when structured selections are missing
   if (
-    lines.length === (style ? 1 : 0) &&
+    lines.length === (style && !isExtra ? 1 : 0) &&
     !item.choiceSelections?.length &&
     !(item as CartLineItem).customDataSelections?.length &&
     !item.addonChoiceSelections?.length

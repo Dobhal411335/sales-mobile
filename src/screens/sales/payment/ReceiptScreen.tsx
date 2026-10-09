@@ -386,6 +386,7 @@ export function ReceiptScreen({navigation, route}: Props) {
           guestCount: orderSnapshot.guestCount,
           restaurantName: config.APP_NAME.toUpperCase(),
           isReprint: true,
+          jobMetadata: slipMeta,
         },
         slipJobId ?? undefined,
       );
@@ -409,6 +410,7 @@ export function ReceiptScreen({navigation, route}: Props) {
           guestCount: orderSnapshot.guestCount,
           restaurantName: config.APP_NAME.toUpperCase(),
           isReprint: true,
+          jobMetadata: slipMeta,
         },
         slipJobId ?? undefined,
       );

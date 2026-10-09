@@ -17,6 +17,7 @@ import {buildModifiedRequestRemark} from '../utils/modifiedRequestRemark';
 import {
   customExtrasUnitTotal,
   isValidCustomExtraPrice,
+  isValidCustomExtraQty,
   normalizeCustomExtras,
 } from '../utils/productChoices';
 
@@ -57,7 +58,7 @@ interface CartState extends PartyFields {
   ) => void;
   addCustomExtra: (
     cartId: string,
-    extra: {name: string; price: number},
+    extra: {name: string; price: number; qty?: number},
   ) => void;
   removeCustomExtra: (cartId: string, extraIndex: number) => void;
   removeItem: (cartId: string) => void;
@@ -207,13 +208,17 @@ export const useCartStore = create<CartState>((set, get) => ({
       if (!isValidCustomExtraPrice(extra?.price)) {
         return state;
       }
+      const qty = extra?.qty == null ? 1 : Number(extra.qty);
+      if (!isValidCustomExtraQty(qty)) {
+        return state;
+      }
       const items = state.items.map((item) => {
         if (item.cartId !== cartId || item.isOffer) {
           return item;
         }
         const nextExtras = normalizeCustomExtras([
           ...(item.customExtras || []),
-          extra,
+          {...extra, qty},
         ]);
         // Keep `price` as the product base; getItemLineTotal adds custom extras.
         const basePrice = Number(item.price) || 0;

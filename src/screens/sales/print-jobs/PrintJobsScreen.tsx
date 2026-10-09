@@ -232,6 +232,9 @@ export function PrintJobsScreen({navigation, route}: Props) {
       specialNote: detail.job.metadata?.specialNote,
       restaurantName:
         detail.restaurant?.name ?? detail.job.metadata?.restaurantName,
+      restaurantDetails: detail.restaurant ?? null,
+      // Needed so split Party line uses metadata.splitName, not table/seat default
+      jobMetadata: detail.job.metadata ?? null,
       isReprint,
     };
   }, [detail]);
@@ -540,6 +543,8 @@ export function PrintJobsScreen({navigation, route}: Props) {
                     guestCount={previewContent.guestCount}
                     specialNote={previewContent.specialNote}
                     restaurantName={previewContent.restaurantName}
+                    restaurantDetails={previewContent.restaurantDetails}
+                    jobMetadata={previewContent.jobMetadata}
                     isReprint={previewContent.isReprint}
                   />
                 ),

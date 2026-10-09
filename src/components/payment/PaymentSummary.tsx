@@ -438,22 +438,36 @@ export function PaymentSummary({
                                 )}
                               </Text>
                             </View>
-                            {modifierLines.map((line, lineIdx) => (
-                              <Text
-                                key={`${line.kind}-${lineIdx}`}
-                                style={[
-                                  styles.itemDetail,
-                                  (line.kind === 'choice-item' ||
-                                    line.kind === 'addon-choice-item') &&
-                                    styles.itemDetailIndent,
-                                ]}>
-                                {line.text}
-                                {line.kind === 'custom-extra' &&
-                                line.price != null
-                                  ? ` (+${formatCurrency(Number(line.price))})`
-                                  : ''}
-                              </Text>
-                            ))}
+                            {modifierLines.map((line, lineIdx) =>
+                              line.kind === 'custom-extra' ? (
+                                <View
+                                  key={`${line.kind}-${lineIdx}`}
+                                  style={styles.customExtraRow}>
+                                  <Text
+                                    style={styles.customExtraName}
+                                    numberOfLines={2}>
+                                    {line.text}
+                                  </Text>
+                                  {line.price != null ? (
+                                    <Text style={styles.customExtraPrice}>
+                                      +{formatCurrency(Number(line.price))}
+                                    </Text>
+                                  ) : null}
+                                </View>
+                              ) : (
+                                <Text
+                                  key={`${line.kind}-${lineIdx}`}
+                                  style={[
+                                    styles.itemDetail,
+                                    (line.kind === 'choice-item' ||
+                                      line.kind === 'addon-choice-item' ||
+                                      line.kind === 'custom-data-item') &&
+                                      styles.itemDetailIndent,
+                                  ]}>
+                                  {line.text}
+                                </Text>
+                              ),
+                            )}
                             {customExtras.length === 0 &&
                             item.modifier &&
                             modifierLines.length === 0 ? (
@@ -846,6 +860,24 @@ const styles = StyleSheet.create({
   itemDetailIndent: {
     paddingLeft: 12,
     color: '#0369A1',
+  },
+  customExtraRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingLeft: 2,
+  },
+  customExtraName: {
+    flex: 1,
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#3F3F46',
+  },
+  customExtraPrice: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#18181B',
   },
   itemRemark: {
     fontSize: 11,

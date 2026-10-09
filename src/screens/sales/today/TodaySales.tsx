@@ -142,6 +142,7 @@ function todayOrderToReceipt(order: TodayOrder): ReceiptOrder {
       cartId: `online-${order._id}-${index}`,
       id: `online-${order._id}-${index}`,
       name: item.name,
+      productCode: item.productCode,
       category: item.category || 'General',
       price: item.price,
       tax: 0,
@@ -151,6 +152,13 @@ function todayOrderToReceipt(order: TodayOrder): ReceiptOrder {
       options: item.options,
       productType: (item.productType as 'KITCHEN' | 'BAR' | undefined) || 'KITCHEN',
       notes: item.notes,
+      isOffer: item.isOffer,
+      customExtras: item.customExtras,
+      choiceSelections: item.choiceSelections,
+      customDataSelections: item.customDataSelections,
+      addonChoiceSelections: item.addonChoiceSelections,
+      seatNumber: item.seatNumber,
+      seat: item.seat,
     })),
     subTotal: order.subTotal,
     taxTotal: order.taxTotal,
@@ -167,11 +175,21 @@ function todayOrderToKotItems(order: TodayOrder): KotLineItem[] {
   return (order.items || []).map((item) => ({
     name: item.name,
     qty: item.qty,
+    productCode: item.productCode,
     category: item.category,
     size: item.size,
     options: item.options,
     preparationStyle: item.preparationStyle,
     notes: item.notes,
+    isOffer: item.isOffer,
+    customExtras: item.customExtras as KotLineItem['customExtras'],
+    choiceSelections: item.choiceSelections as KotLineItem['choiceSelections'],
+    customDataSelections:
+      item.customDataSelections as KotLineItem['customDataSelections'],
+    addonChoiceSelections:
+      item.addonChoiceSelections as KotLineItem['addonChoiceSelections'],
+    seatNumber: item.seatNumber,
+    seat: item.seat,
   }));
 }
 

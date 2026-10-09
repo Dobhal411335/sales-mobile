@@ -34,6 +34,16 @@ export interface TodayOrderItem {
   notes?: string;
   seatNumber?: number | null;
   seat?: string | number;
+  /** Free-text POS extras: unit price × qty */
+  customExtras?: Array<{name?: string; price?: number; qty?: number}>;
+  choiceSelections?: Array<{name?: string; subChoices?: string[]}>;
+  customDataSelections?: Array<{
+    name?: string;
+    subChoices?: string[];
+  }>;
+  addonChoiceSelections?: Array<{name?: string; subChoices?: string[]}>;
+  productCode?: string;
+  isOffer?: boolean;
 }
 
 export interface TodayOrderProcessedBy {

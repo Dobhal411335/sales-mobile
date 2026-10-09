@@ -225,9 +225,18 @@ export function PrintJobDetailPanel({
               label="Split Slip"
               value={`${job.metadata.splitIndex || '?'}/${job.metadata.splitTotal || '?'}`}
             />
-            {job.metadata.splitName ? (
-              <DetailRow label="Payer" value={String(job.metadata.splitName)} />
-            ) : null}
+            {(job.metadata.splitName ||
+              job.metadata.partyName ||
+              job.metadata.guestName) && (
+              <DetailRow
+                label="Party"
+                value={String(
+                  job.metadata.splitName ||
+                    job.metadata.partyName ||
+                    job.metadata.guestName,
+                )}
+              />
+            )}
             {job.metadata.splitAmount != null ? (
               <DetailRow
                 label="Split Amount"

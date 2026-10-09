@@ -12,7 +12,7 @@ import {
   UIManager,
   View,
 } from 'react-native';
-import {ChevronDown, Minus, Plus} from 'lucide-react-native';
+import {ChevronDown, Leaf, Minus, Plus} from 'lucide-react-native';
 import {colors} from '../../constants/colors';
 import {useKeyboardBottomInset} from '../../hooks/useKeyboardBottomInset';
 import type {
@@ -27,7 +27,7 @@ import {
   buildAddonChoiceSelectionsFromQtyMaps,
   normalizeAddonChoiceQtyMap,
   normalizeChoiceOptions,
-  normalizeCustomDataSelections,
+  normalizeCustomData,
   sumAddonChoiceQtyMap,
   validateAddonNestedChoiceQtys,
 } from '../../utils/productChoices';
@@ -92,6 +92,58 @@ type AddonState = {
 
 function getAddonKey(addon: ProductAddon): string {
   return String(addon.id || addon.name || '');
+}
+
+function normalizeIngredientList(ingredients?: string[] | null): string[] {
+  if (!Array.isArray(ingredients)) return [];
+  return [
+    ...new Set(
+      ingredients
+        .map((item) => String(item || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+}
+
+/** Mirrors web IngredientChips — variant / addon includes callout. */
+function IngredientChips({
+  ingredients,
+  label = 'Includes',
+}: {
+  ingredients?: string[] | null;
+  label?: string;
+}) {
+  const list = normalizeIngredientList(ingredients);
+  if (!list.length) return null;
+
+  return (
+    <View
+      style={styles.includesBox}
+      accessibilityRole="summary"
+      accessibilityLabel={`${label}: ${list.join(', ')}`}>
+      <View style={styles.includesHeader}>
+        <View style={styles.includesIconWrap}>
+          <Leaf size={14} color="#047857" strokeWidth={2.25} />
+        </View>
+        <View style={styles.includesHeaderText}>
+          <Text style={styles.includesTitle}>{label}</Text>
+          <Text style={styles.includesCount}>
+            {list.length} item{list.length === 1 ? '' : 's'} in this option
+          </Text>
+        </View>
+      </View>
+      <View style={styles.includesChips}>
+        {list.map((name) => (
+          <View key={name} style={styles.includesChip}>
+            <View style={styles.includesDot} />
+            <Text style={styles.includesChipText} numberOfLines={2}>
+              {name}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
 }
 
 function clampChoicesToAddonQty(
@@ -252,9 +304,9 @@ export function ModifierModal({
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
   >({});
-  /** { [groupName]: { [optionName]: string[] } } */
+  /** { [groupName]: selected option string } — radio single-select */
   const [selectedCustomData, setSelectedCustomData] = useState<
-    Record<string, Record<string, string[]>>
+    Record<string, string>
   >({});
   const [noteWithout, setNoteWithout] = useState('');
   const [noteAdd, setNoteAdd] = useState('');
@@ -263,7 +315,7 @@ export function ModifierModal({
   const [openSections, setOpenSections] = useState<string[]>([]);
 
   const customDataGroups = useMemo(
-    () => normalizeCustomDataSelections(product?.customData),
+    () => normalizeCustomData(product?.customData),
     [product],
   );
   const choiceGroups = useMemo(
@@ -325,23 +377,12 @@ export function ModifierModal({
     });
   };
 
-  const toggleCustomDataChoice = (
-    groupName: string,
-    optionName: string,
-    choice: string,
-  ) => {
+  const toggleCustomDataChoice = (groupName: string, choice: string) => {
     setSelectedCustomData((prev) => {
-      const group = prev[groupName] || {};
-      const current = group[optionName] || [];
-      const exists = current.includes(choice);
+      const current = prev[groupName] || '';
       return {
         ...prev,
-        [groupName]: {
-          ...group,
-          [optionName]: exists
-            ? current.filter((value) => value !== choice)
-            : [...current, choice],
-        },
+        [groupName]: current === choice ? '' : choice,
       };
     });
   };
@@ -426,15 +467,13 @@ export function ModifierModal({
       .map(([name, subChoices]) => ({name, subChoices}))
       .filter((group) => group.subChoices.length > 0);
     const customDataSelections: CustomDataSelection[] = customDataGroups
-      .map((group) => ({
-        name: group.name,
-        subChoices: group.subChoices
-          .map((option) => ({
-            name: option.name,
-            choices: selectedCustomData[group.name]?.[option.name] || [],
-          }))
-          .filter((option) => option.choices.length > 0),
-      }))
+      .map((group) => {
+        const picked = String(selectedCustomData[group.name] || '').trim();
+        return {
+          name: group.name,
+          subChoices: picked ? [picked] : [],
+        };
+      })
       .filter((group) => group.subChoices.length > 0);
     const nextWithout = String(noteWithout || '').trim();
     const nextAdd = String(noteAdd || '').trim();
@@ -453,10 +492,8 @@ export function ModifierModal({
         const modifierParts = [
           size ? `Size: ${size}` : undefined,
           selectedStyle || undefined,
-          ...customDataSelections.flatMap((group) =>
-            group.subChoices.map(
-              (option) => `${group.name} · ${option.name}: ${option.choices.join(', ')}`,
-            ),
+          ...customDataSelections.map(
+            (group) => `${group.name}: ${group.subChoices.join(', ')}`,
           ),
           ...choiceSelections.flatMap((group) =>
             group.subChoices.map((value) => `${group.name}: ${value}`),
@@ -498,13 +535,15 @@ export function ModifierModal({
         addon,
         entry.choicesByGroup,
       );
+      // Match web POS: standalone Extra line uses the addon name only
+      // (no parent dish name, no prep style, no "Addons:" prefix).
       const choiceSummary = addonChoiceSelections
         .map((group) => `${group.name}: ${group.subChoices.join(', ')}`)
         .join(' · ');
       lines.push({
         cartId: nextCartId(),
         id: product.id,
-        name: product.name,
+        name: addon.name || product.name,
         productCode: product.productCode,
         category: product.category?.name || 'ITEMS',
         price,
@@ -513,12 +552,11 @@ export function ModifierModal({
         size: 'Extra',
         productType: product.productType,
         taxes: product.taxes,
-        preparationStyle: selectedStyle || null,
+        preparationStyle: null,
+        // Kept for server-side addon pricing; cart UI hides the duplicate name.
         options: [addon.name],
         addonChoiceSelections,
-        modifier: choiceSummary
-          ? `Addons: ${addon.name} · ${choiceSummary}`
-          : `Addons: ${addon.name}`,
+        modifier: choiceSummary || undefined,
         noteWithout: nextWithout,
         noteAdd: nextAdd,
         notes,
@@ -531,11 +569,8 @@ export function ModifierModal({
       const modifierParts = [
         'Size: Standard',
         selectedStyle || undefined,
-        ...customDataSelections.flatMap((group) =>
-          group.subChoices.map(
-            (option) =>
-              `${group.name} · ${option.name}: ${option.choices.join(', ')}`,
-          ),
+        ...customDataSelections.map(
+          (group) => `${group.name}: ${group.subChoices.join(', ')}`,
         ),
         ...choiceSelections.flatMap((group) =>
           group.subChoices.map((value) => `${group.name}: ${value}`),
@@ -658,20 +693,39 @@ export function ModifierModal({
                   open={isSectionOpen('variants')}
                   onToggle={() => toggleSection('variants')}>
                   <View style={styles.variantList}>
-                    {product.variants.map((variant) => (
-                      <Stepper
-                        key={variant.size}
-                        label={variant.size}
-                        price={variant.price}
-                        value={variantQtyBySize[variant.size] || 0}
-                        onChange={(qty) =>
-                          setVariantQtyBySize((prev) => ({
-                            ...prev,
-                            [variant.size]: qty,
-                          }))
-                        }
-                      />
-                    ))}
+                    {product.variants.map((variant) => {
+                      const qty = variantQtyBySize[variant.size] || 0;
+                      const hasIncludes = normalizeIngredientList(
+                        variant.ingredients,
+                      ).length;
+                      return (
+                        <View
+                          key={variant.size}
+                          style={[
+                            styles.variantCard,
+                            qty > 0 && styles.variantCardActive,
+                          ]}>
+                          <Stepper
+                            label={variant.size}
+                            price={variant.price}
+                            value={qty}
+                            flat
+                            onChange={(nextQty) =>
+                              setVariantQtyBySize((prev) => ({
+                                ...prev,
+                                [variant.size]: nextQty,
+                              }))
+                            }
+                          />
+                          {hasIncludes ? (
+                            <IngredientChips
+                              ingredients={variant.ingredients}
+                              label="Includes"
+                            />
+                          ) : null}
+                        </View>
+                      );
+                    })}
                   </View>
                 </AccordionSection>
               ) : null}
@@ -705,38 +759,21 @@ export function ModifierModal({
                     title={group.name}
                     open={isSectionOpen(sectionId)}
                     onToggle={() => toggleSection(sectionId)}>
-                    <View style={styles.customDataBlock}>
-                      {group.subChoices.map((option) => (
-                        <View
-                          key={`${group.name}-${option.name}`}
-                          style={styles.customDataOption}>
-                          <Text style={styles.customDataOptionLabel}>
-                            {option.name}
-                          </Text>
-                          <View style={styles.choiceGrid}>
-                            {option.choices.map((choice) => {
-                              const active = (
-                                selectedCustomData[group.name]?.[option.name] ||
-                                []
-                              ).includes(choice);
-                              return (
-                                <ChoiceChip
-                                  key={`${group.name}-${option.name}-${choice}`}
-                                  label={choice}
-                                  active={active}
-                                  onPress={() =>
-                                    toggleCustomDataChoice(
-                                      group.name,
-                                      option.name,
-                                      choice,
-                                    )
-                                  }
-                                />
-                              );
-                            })}
-                          </View>
-                        </View>
-                      ))}
+                    <View style={styles.choiceGrid}>
+                      {group.subChoices.map((choice) => {
+                        const active =
+                          selectedCustomData[group.name] === choice;
+                        return (
+                          <ChoiceChip
+                            key={`${group.name}-${choice}`}
+                            label={choice}
+                            active={active}
+                            onPress={() =>
+                              toggleCustomDataChoice(group.name, choice)
+                            }
+                          />
+                        );
+                      })}
                     </View>
                   </AccordionSection>
                 );
@@ -796,6 +833,11 @@ export function ModifierModal({
                           value={qty}
                           flat
                           onChange={(nextQty) => setAddonQty(addon, nextQty)}
+                        />
+
+                        <IngredientChips
+                          ingredients={addon.ingredients}
+                          label="Addon includes"
                         />
 
                         {addonChoiceGroups.length > 0 ? (
@@ -889,60 +931,6 @@ export function ModifierModal({
                     );
                   })}
                 </AccordionSection>
-              ) : null}
-            </View>
-
-            <View style={styles.modifiedRequestBlock}>
-              <Pressable
-                style={styles.modifiedRequestHeadingRow}
-                onPress={() => setModifiedRequestOpen((prev) => !prev)}
-                accessibilityRole="button"
-                accessibilityState={{expanded: modifiedRequestOpen}}
-                accessibilityLabel="Modified request">
-                <Text style={styles.modifiedRequestHeading}>
-                  Modified request
-                </Text>
-                <View
-                  style={[
-                    styles.modifiedRequestToggle,
-                    modifiedRequestOpen && styles.modifiedRequestToggleOpen,
-                  ]}>
-                  {modifiedRequestOpen ? (
-                    <Minus size={12} color={colors.primary} />
-                  ) : (
-                    <Plus size={12} color={colors.textSecondary} />
-                  )}
-                </View>
-              </Pressable>
-              {modifiedRequestOpen ? (
-                <View style={styles.modifiedRequestFields}>
-                  <View style={styles.modifiedRequestRow}>
-                    <Text style={styles.modifiedRequestLabel}>Without</Text>
-                    <TextInput
-                      style={styles.modifiedRequestInput}
-                      value={noteWithout}
-                      onChangeText={setNoteWithout}
-                      onBlur={() => setNoteWithout((value) => value.trim())}
-                      placeholder="Type Here"
-                      placeholderTextColor={colors.textSecondary}
-                      maxLength={80}
-                      accessibilityLabel={`Without for ${product.name}`}
-                    />
-                  </View>
-                  <View style={styles.modifiedRequestRow}>
-                    <Text style={styles.modifiedRequestLabel}>Add</Text>
-                    <TextInput
-                      style={styles.modifiedRequestInput}
-                      value={noteAdd}
-                      onChangeText={setNoteAdd}
-                      onBlur={() => setNoteAdd((value) => value.trim())}
-                      placeholder="Type Here"
-                      placeholderTextColor={colors.textSecondary}
-                      maxLength={80}
-                      accessibilityLabel={`Add for ${product.name}`}
-                    />
-                  </View>
-                </View>
               ) : null}
             </View>
 
@@ -1062,6 +1050,86 @@ const styles = StyleSheet.create({
   },
   variantList: {
     gap: 8,
+  },
+  variantCard: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.cream,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 10,
+    gap: 4,
+  },
+  variantCardActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#FFF7ED',
+  },
+  includesBox: {
+    marginTop: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  includesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  includesIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(4, 120, 87, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  includesHeaderText: {
+    flex: 1,
+    gap: 1,
+  },
+  includesTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#064E3B',
+  },
+  includesCount: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(6, 78, 59, 0.7)',
+  },
+  includesChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  includesChip: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  includesDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10B981',
+  },
+  includesChipText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#064E3B',
   },
   stepperRow: {
     minHeight: 48,

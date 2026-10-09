@@ -30,6 +30,11 @@ import {
   shouldShowTable,
 } from '../../utils/orderDisplay';
 import {
+  getItemLineTotal,
+  isStandaloneExtraLine,
+} from '../../utils/productChoices';
+import {getReceiptModifierLines} from '../../utils/receiptFormat';
+import {
   buildPaymentSplitReceiptSlips,
   buildTicketHistorySlips,
   formatSplitSeatHint,
@@ -746,42 +751,55 @@ export function TodaySalesDetailDrawer({
                 </Text>
 
                 <View style={styles.itemsList}>
-                  {(order.items || []).map((item, idx) => (
-                    <View key={idx} style={styles.itemRow}>
-                      <View style={styles.itemLeft}>
-                        <Text style={styles.itemQty}>{item.qty}x</Text>
-                        <View style={styles.itemDetails}>
-                          <Text style={styles.itemName}>{item.name}</Text>
-                          {item.size && item.size !== 'Standard' && (
-                            <Text style={styles.itemMeta}>
-                              Variant: {item.size}
+                  {(order.items || []).map((item, idx) => {
+                    const modifierLines = getReceiptModifierLines(item);
+                    return (
+                      <View key={idx} style={styles.itemRow}>
+                        <View style={styles.itemLeft}>
+                          <Text style={styles.itemQty}>{item.qty}x</Text>
+                          <View style={styles.itemDetails}>
+                            <Text style={styles.itemName}>
+                              {item.productCode
+                                ? `${item.productCode} `
+                                : ''}
+                              {item.name}
                             </Text>
-                          )}
-                          {item.preparationStyle && (
-                            <Text style={styles.itemMetaItalic}>
-                              {item.preparationStyle}
-                            </Text>
-                          )}
-                          {(item.options || []).map((opt, oIdx) => (
-                            <Text key={oIdx} style={styles.itemOption}>
-                              + {opt}
-                            </Text>
-                          ))}
-                          {item.notes ? (
-                            <Text style={styles.itemRemark}>
-                              Remark: {item.notes}
-                            </Text>
-                          ) : null}
+                            {item.size &&
+                            item.size !== 'Standard' &&
+                            !isStandaloneExtraLine(item) ? (
+                              <Text style={styles.itemMeta}>
+                                Variant: {item.size}
+                              </Text>
+                            ) : null}
+                            {modifierLines.map((line, lineIdx) => (
+                              <Text
+                                key={`${line.kind}-${lineIdx}`}
+                                style={
+                                  line.kind === 'custom-extra'
+                                    ? styles.itemOption
+                                    : styles.itemMetaItalic
+                                }>
+                                {line.text}
+                                {line.kind === 'custom-extra' &&
+                                line.price != null
+                                  ? ` (+${formatCurrency(Number(line.price))})`
+                                  : ''}
+                              </Text>
+                            ))}
+                            {item.notes ? (
+                              <Text style={styles.itemRemark}>
+                                Remark: {item.notes}
+                              </Text>
+                            ) : null}
+                          </View>
                         </View>
-                      </View>
 
-                      <Text style={styles.itemPrice}>
-                        {formatCurrency(
-                          Number(item.price || 0) * Number(item.qty || 1),
-                        )}
-                      </Text>
-                    </View>
-                  ))}
+                        <Text style={styles.itemPrice}>
+                          {formatCurrency(getItemLineTotal(item))}
+                        </Text>
+                      </View>
+                    );
+                  })}
                 </View>
               </View>
 

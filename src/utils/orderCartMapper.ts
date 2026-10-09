@@ -9,6 +9,8 @@ import {
   isOfferItem,
 } from './offerDetails';
 import {
+  isRedundantStandaloneExtraOption,
+  isStandaloneExtraLine,
   normalizeChoiceSelections,
   normalizeCustomDataSelections,
   normalizeCustomExtras,
@@ -16,17 +18,22 @@ import {
 
 export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineItem[] {
   return items.map((item, idx) => {
-    const style = item.preparationStyle || null;
-    const extras = (item.options || []).filter(
-      (option) => !String(option).toLowerCase().startsWith('style:'),
-    );
+    const isExtra = isStandaloneExtraLine(item);
+    const style = isExtra ? null : item.preparationStyle || null;
+    const extras = (item.options || []).filter((option) => {
+      if (String(option).toLowerCase().startsWith('style:')) return false;
+      // Extra lines keep addon name in options for pricing — don't show again.
+      if (isRedundantStandaloneExtraOption(item, option)) return false;
+      return true;
+    });
     const offer = isOfferItem(item);
     const inclusions = cleanOfferList(item.inclusions);
     const choices = cleanOfferList(item.choices);
     const drinks = cleanOfferList(item.drinks);
     const parts: string[] = [];
 
-    if (item.size) {
+    // Match web POS: Extra addon lines show name only (no Size/Extras/prep under it).
+    if (item.size && item.size !== 'Standard' && !isExtra) {
       parts.push(`Size: ${item.size}`);
     }
     if (style) {
@@ -41,7 +48,7 @@ export function buildCartFromOrderItems(items: ApiOrderItem[] = []): CartLineIte
       if (offerModifier) {
         parts.push(offerModifier);
       }
-    } else if (extras.length > 0) {
+    } else if (extras.length > 0 && !isExtra) {
       parts.push(`Extras: ${extras.join(', ')}`);
     }
 

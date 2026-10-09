@@ -313,16 +313,29 @@ export async function printJobById(
       mode,
     };
   }
+  const meta = (job?.metadata || {}) as Record<string, unknown>;
+  const isSplitReceipt = Boolean(meta.isSplitReceipt);
+  const splitParty = String(
+    meta.splitName || meta.partyName || meta.guestName || '',
+  ).trim();
+
   const rawMerged = order
-    ? {...job?.metadata, ...fallbackOrder, ...order}
+    ? {...meta, ...fallbackOrder, ...order}
     : fallbackOrder || job?.metadata
-      ? {...job?.metadata, ...fallbackOrder}
+      ? {...meta, ...fallbackOrder}
       : null;
   const mergedOrder: Partial<ReceiptOrder> | null = rawMerged
     ? ({
         ...rawMerged,
         orderNumber:
-          rawMerged.orderNumber != null ? String(rawMerged.orderNumber) : undefined,
+          rawMerged.orderNumber != null
+            ? String(rawMerged.orderNumber)
+            : undefined,
+        // Keep this slip's payer name — order-level party can be table/seat
+        // default or a later payer after multi-split checkout.
+        ...(isSplitReceipt && splitParty
+          ? {partyName: splitParty, guestName: splitParty}
+          : {}),
       } as Partial<ReceiptOrder>)
     : null;
 
@@ -465,6 +478,8 @@ export interface LocalTicketPrintParams {
   kotItems?: KotLineItem[];
   order?: Partial<ReceiptOrder> | null;
   printJobId?: string | null;
+  /** Split / slip metadata so ESC/POS can print the correct Party name */
+  jobMetadata?: Record<string, unknown> | null;
   printerTarget?: PrinterTarget | null;
   restaurantName?: string | null;
   serverName?: string | null;
@@ -492,6 +507,7 @@ export async function printTicketLocally(
     kotItems = [],
     order = null,
     printJobId,
+    jobMetadata = null,
     printerTarget,
     restaurantName,
     serverName,
@@ -499,6 +515,15 @@ export async function printTicketLocally(
     isReprint = false,
     auditAsync = true,
   } = params;
+
+  const syntheticJob =
+    jobMetadata && typeof jobMetadata === 'object'
+      ? ({
+          metadata: jobMetadata,
+          printType,
+          attemptCount: isReprint ? 2 : 1,
+        } as PrintJob)
+      : null;
 
   if (printJobId && wasPrintJobHandledLocally(printJobId)) {
     return {
@@ -571,6 +596,7 @@ export async function printTicketLocally(
   let base64Data: string;
   if (printType === 'RECEIPT') {
     base64Data = buildReceiptTicket({
+      job: syntheticJob,
       order,
       restaurantName: brand,
       serverName: serverName || order?.serverName,
@@ -580,6 +606,7 @@ export async function printTicketLocally(
     });
   } else if (printType === 'BAR_RECEIPT') {
     base64Data = buildBarTicket({
+      job: syntheticJob,
       order,
       kotItems,
       restaurantName: brand,
@@ -590,6 +617,7 @@ export async function printTicketLocally(
     });
   } else {
     base64Data = buildKotTicket({
+      job: syntheticJob,
       order,
       kotItems,
       restaurantName: brand,
@@ -734,12 +762,25 @@ export const printerService = {
       };
     }
 
-    // Local-first from paid order snapshot
+    // Prefer queued job details so split Party / seat metadata is correct.
+    if (printJobId) {
+      try {
+        return await printJobById(printJobId, payload.order);
+      } catch (err: unknown) {
+        // Fall through to local snapshot if job fetch fails
+        console.warn(
+          '[printBill] printJobById failed, falling back to local order',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     if (payload?.order) {
       return printTicketLocally({
         printType: 'RECEIPT',
         order: payload.order,
         printJobId,
+        jobMetadata: payload.jobMetadata ?? null,
         printerTarget: 'RECEIPT',
         restaurantName: payload.restaurantName,
         serverName: payload.serverName,
@@ -748,25 +789,12 @@ export const printerService = {
       });
     }
 
-    if (!printJobId) {
-      return {
-        success: false,
-        message:
-          'No print job ID. Use Reprint from Print Jobs or wait for the receipt job to queue.',
-        mode,
-      };
-    }
-
-    try {
-      return await printJobById(printJobId, payload.order);
-    } catch (err: unknown) {
-      const errMsg = err instanceof Error ? err.message : 'Receipt print error';
-      return {
-        success: false,
-        message: errMsg,
-        mode,
-      };
-    }
+    return {
+      success: false,
+      message:
+        'No print job ID. Use Reprint from Print Jobs or wait for the receipt job to queue.',
+      mode,
+    };
   },
 
   testPrinterDirect: async (

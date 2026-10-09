@@ -40,7 +40,7 @@ interface CartProps {
   ) => void;
   onAddCustomExtra: (
     cartId: string,
-    extra: {name: string; price: number},
+    extra: {name: string; price: number; qty?: number},
   ) => void;
   onRemoveCustomExtra: (cartId: string, extraIndex: number) => void;
   onIncrease: (cartId: string) => void;

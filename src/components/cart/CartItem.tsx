@@ -17,7 +17,9 @@ import {formatCurrency} from '../../utils/currency';
 import {
   getItemLineTotal,
   isValidCustomExtraPrice,
+  isValidCustomExtraQty,
   MAX_CUSTOM_EXTRA_PRICE,
+  MAX_CUSTOM_EXTRA_QTY,
   normalizeChoiceSelections,
   normalizeCustomDataSelections,
   normalizeCustomExtras,
@@ -32,7 +34,11 @@ interface CartItemProps {
     noteWithout: string;
     noteAdd: string;
   }) => void;
-  onAddCustomExtra: (extra: {name: string; price: number}) => void;
+  onAddCustomExtra: (extra: {
+    name: string;
+    price: number;
+    qty: number;
+  }) => void;
   onRemoveCustomExtra: (extraIndex: number) => void;
 }
 
@@ -81,7 +87,7 @@ function CustomDataChips({
 }: {
   groups: Array<{
     name: string;
-    subChoices: Array<{name: string; choices: string[]}>;
+    subChoices: string[];
   }>;
 }) {
   if (groups.length === 0) {
@@ -93,22 +99,17 @@ function CustomDataChips({
       {groups.map((group) => (
         <View key={`custom-${group.name}`} style={styles.customDataGroup}>
           <Text style={styles.choiceGroupLabel}>{group.name}</Text>
-          {group.subChoices.map((option) => (
-            <View key={`${group.name}-${option.name}`}>
-              <Text style={styles.customDataOptionLabel}>{option.name}</Text>
-              <View style={styles.chipRow}>
-                {option.choices.map((choice) => (
-                  <View
-                    key={`${group.name}-${option.name}-${choice}`}
-                    style={[styles.chip, styles.customDataChip]}>
-                    <Text style={[styles.chipText, styles.customDataChipText]}>
-                      {choice}
-                    </Text>
-                  </View>
-                ))}
+          <View style={styles.chipRow}>
+            {group.subChoices.map((choice) => (
+              <View
+                key={`${group.name}-${choice}`}
+                style={[styles.chip, styles.customDataChip]}>
+                <Text style={[styles.chipText, styles.customDataChipText]}>
+                  {choice}
+                </Text>
               </View>
-            </View>
-          ))}
+            ))}
+          </View>
         </View>
       ))}
     </View>
@@ -128,10 +129,12 @@ function CartItemComponent({
   const [customModalOpen, setCustomModalOpen] = useState(false);
   const [customName, setCustomName] = useState('');
   const [customPrice, setCustomPrice] = useState('');
+  const [customQty, setCustomQty] = useState('1');
   const [customError, setCustomError] = useState<string | null>(null);
   const [modifiedRequestOpen, setModifiedRequestOpen] = useState(false);
 
   const lineTotal = getItemLineTotal(item);
+  const isExtraLine = /^extra$/i.test(String(item.size || ''));
   const customDataGroups = item.isOffer
     ? []
     : normalizeCustomDataSelections(item.customDataSelections);
@@ -145,12 +148,37 @@ function CartItemComponent({
   const customExtras = item.isOffer
     ? []
     : normalizeCustomExtras(item.customExtras);
+  // Web POS shows "(Extra)" for addon lines; hide other non-Standard sizes the same way.
   const showSizeInName = Boolean(item.size && item.size !== 'Standard');
+  const itemNameLower = String(item.name || '')
+    .trim()
+    .toLowerCase();
+  // Extra lines store addon name in options for pricing — don't repeat it in the cart.
+  const visibleExtraOptions = isExtraLine
+    ? (item.options || []).filter((opt) => {
+        const label = String(opt || '')
+          .trim()
+          .toLowerCase();
+        return Boolean(label && label !== itemNameLower);
+      })
+    : [];
+  const visibleModifier = (() => {
+    const raw = String(item.modifier || '').trim();
+    if (!raw) return '';
+    if (!isExtraLine || !itemNameLower) return raw;
+    const escaped = String(item.name || '')
+      .trim()
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const exact = new RegExp(`^(?:addons|extras)\\s*:\\s*${escaped}$`, 'i');
+    if (raw.toLowerCase() === itemNameLower || exact.test(raw)) return '';
+    return raw;
+  })();
   const allowCustomExtras = !item.isOffer;
 
   const openCustomModal = () => {
     setCustomName('');
     setCustomPrice('');
+    setCustomQty('1');
     setCustomError(null);
     setCustomModalOpen(true);
   };
@@ -159,6 +187,7 @@ function CartItemComponent({
     setCustomModalOpen(false);
     setCustomName('');
     setCustomPrice('');
+    setCustomQty('1');
     setCustomError(null);
   };
 
@@ -186,7 +215,14 @@ function CartItemComponent({
       );
       return;
     }
-    onAddCustomExtra({name: rawName, price: priceNum});
+    const qtyNum = Math.floor(Number(customQty));
+    if (!isValidCustomExtraQty(qtyNum)) {
+      setCustomError(
+        `Enter a quantity between 1 and ${MAX_CUSTOM_EXTRA_QTY}`,
+      );
+      return;
+    }
+    onAddCustomExtra({name: rawName, price: priceNum, qty: qtyNum});
     closeCustomModal();
   };
 
@@ -207,21 +243,22 @@ function CartItemComponent({
               ) : null}
             </Text>
           </View>
-          {item.modifier &&
+          {visibleModifier &&
           customDataGroups.length === 0 &&
           choiceGroups.length === 0 &&
           addonGroups.length === 0 &&
           customExtras.length === 0 ? (
             <Text style={styles.modifier} numberOfLines={4}>
-              {item.modifier}
+              {visibleModifier}
             </Text>
           ) : null}
-          {item.options?.length && item.size === 'Extra' ? (
+          {visibleExtraOptions.length > 0 ? (
             <Text style={styles.modifier} numberOfLines={2}>
-              {item.options.join(', ')}
+              {visibleExtraOptions.join(', ')}
             </Text>
           ) : null}
-          {item.preparationStyle ? (
+          {/* Prep style belongs on the main dish only — never on Extra addon lines. */}
+          {!isExtraLine && item.preparationStyle ? (
             <Text style={styles.modifier} numberOfLines={1}>
               {item.preparationStyle}
             </Text>
@@ -229,22 +266,28 @@ function CartItemComponent({
           <CustomDataChips groups={customDataGroups} />
           <ChoiceChips groups={choiceGroups} tone="choice" />
           <ChoiceChips groups={addonGroups} tone="addon" />
-          {customExtras.map((extra, extraIdx) => (
-            <View
-              key={`${extra.name}-${extraIdx}`}
-              style={styles.customExtraRow}>
-              <Text style={styles.modifier} numberOfLines={2}>
-                + {extra.name} (+{formatCurrency(extra.price)})
-              </Text>
-              <Pressable
-                onPress={() => onRemoveCustomExtra(extraIdx)}
-                hitSlop={8}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${extra.name}`}>
-                <Text style={styles.removeExtraText}>Remove</Text>
-              </Pressable>
-            </View>
-          ))}
+          {customExtras.map((extra, extraIdx) => {
+            const linePrice =
+              Math.round(Number(extra.price) * Number(extra.qty) * 100) / 100;
+            return (
+              <View
+                key={`${extra.name}-${extraIdx}`}
+                style={styles.customExtraRow}>
+                <Text style={styles.modifier} numberOfLines={2}>
+                  + {extra.name}
+                  {extra.qty > 1 ? ` ×${extra.qty}` : ''} (+
+                  {formatCurrency(linePrice)})
+                </Text>
+                <Pressable
+                  onPress={() => onRemoveCustomExtra(extraIdx)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${extra.name}`}>
+                  <Text style={styles.removeExtraText}>Remove</Text>
+                </Pressable>
+              </View>
+            );
+          })}
         </View>
         <Text style={styles.price}>{formatCurrency(lineTotal)}</Text>
       </View>
@@ -412,22 +455,68 @@ function CartItemComponent({
                     autoFocus
                   />
                 </View>
-                <View style={styles.modalField}>
-                  <Text style={styles.modalFieldLabel}>
-                    Price <Text style={styles.required}>*</Text>
-                  </Text>
-                  <TextInput
-                    style={styles.modalInput}
-                    value={customPrice}
-                    onChangeText={(value) => {
-                      setCustomPrice(value);
-                      setCustomError(null);
-                    }}
-                    placeholder="0.00"
-                    placeholderTextColor={colors.textSecondary}
-                    keyboardType="decimal-pad"
-                  />
+                <View style={styles.modalPriceQtyRow}>
+                  <View style={[styles.modalField, styles.modalFieldHalf]}>
+                    <Text style={styles.modalFieldLabel}>
+                      Price <Text style={styles.required}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.modalInput}
+                      value={customPrice}
+                      onChangeText={(value) => {
+                        setCustomPrice(value);
+                        setCustomError(null);
+                      }}
+                      placeholder="0.00"
+                      placeholderTextColor={colors.textSecondary}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
+                  <View style={[styles.modalField, styles.modalFieldHalf]}>
+                    <Text style={styles.modalFieldLabel}>
+                      Qty <Text style={styles.required}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={styles.modalInput}
+                      value={customQty}
+                      onChangeText={(value) => {
+                        setCustomQty(value);
+                        setCustomError(null);
+                      }}
+                      placeholder="1"
+                      placeholderTextColor={colors.textSecondary}
+                      keyboardType="number-pad"
+                    />
+                  </View>
                 </View>
+                {(() => {
+                  const unit = Number(customPrice);
+                  const qty = Math.floor(Number(customQty));
+                  const hasUnit =
+                    Number.isFinite(unit) &&
+                    unit > 0 &&
+                    customPrice !== '';
+                  const hasQty = isValidCustomExtraQty(qty);
+                  if (!hasUnit || !hasQty) {
+                    return null;
+                  }
+                  const total = Math.round(unit * qty * 100) / 100;
+                  const nameLabel =
+                    String(customName || '').trim() || 'Custom item';
+                  return (
+                    <View style={styles.modalTotalBox}>
+                      <Text style={styles.modalTotalName} numberOfLines={1}>
+                        {nameLabel}
+                      </Text>
+                      <Text style={styles.modalTotalFormula}>
+                        {formatCurrency(unit)} × {qty} ={' '}
+                        <Text style={styles.modalTotalValue}>
+                          {formatCurrency(total)}
+                        </Text>
+                      </Text>
+                    </View>
+                  );
+                })()}
                 {customError ? (
                   <Text style={styles.modalError}>{customError}</Text>
                 ) : null}
@@ -794,6 +883,13 @@ const styles = StyleSheet.create({
   modalField: {
     gap: 6,
   },
+  modalPriceQtyRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalFieldHalf: {
+    flex: 1,
+  },
   modalFieldLabel: {
     fontSize: 12,
     fontWeight: '800',
@@ -812,6 +908,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.text,
     backgroundColor: colors.surface,
+  },
+  modalTotalBox: {
+    borderWidth: 1,
+    borderColor: '#FFEDD5',
+    backgroundColor: '#FFF7ED',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 2,
+  },
+  modalTotalName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  modalTotalFormula: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  modalTotalValue: {
+    fontWeight: '800',
+    color: colors.text,
   },
   modalError: {
     fontSize: 12,

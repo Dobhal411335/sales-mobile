@@ -33,7 +33,7 @@ import {
 } from '../../../components/payment/SplitBillEditor';
 import {NetworkErrorState} from '../../../components/common/NetworkErrorState';
 import {toast} from '../../../components/common/Toast';
-import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
+import {PaymentPageSkeleton} from '../../../components/payment/PaymentPageSkeleton';
 import {colors} from '../../../constants/colors';
 import {config} from '../../../constants/config';
 import {
@@ -2237,10 +2237,7 @@ export function PaymentScreen({navigation, route}: Props) {
           isTabletThreeCol && styles.bodyThreeCol,
         ]}>
         {hydrating ? (
-          <View style={styles.hydrateLoading}>
-            <SalesPageSkeleton variant="metricCards" rows={3} />
-            <Text style={styles.hydrateText}>Loading order...</Text>
-          </View>
+          <PaymentPageSkeleton />
         ) : hydrateError ? (
           <NetworkErrorState
             title="Unable to load order"
@@ -2409,24 +2406,6 @@ const styles = StyleSheet.create({
   },
   bodyThreeCol: {
     flexDirection: 'row',
-  },
-  hydrateLoading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    padding: 24,
-  },
-  hydrateText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  hydrateError: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.error,
-    textAlign: 'center',
   },
   historyPane: {
     maxHeight: '32%',

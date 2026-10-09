@@ -17,10 +17,10 @@ export interface KotLineItem {
   choiceSelections?: Array<{name: string; subChoices: string[]}>;
   customDataSelections?: Array<{
     name: string;
-    subChoices: Array<{name: string; choices: string[]}>;
+    subChoices: string[];
   }>;
   addonChoiceSelections?: Array<{name: string; subChoices: string[]}>;
-  customExtras?: Array<{name: string; price: number}>;
+  customExtras?: Array<{name: string; price: number; qty?: number}>;
   modifier?: string;
   preparationStyle?: string;
   notes?: string;
@@ -111,4 +111,6 @@ export interface BillPrintPayload {
   guestCount?: number;
   restaurantName?: string;
   isReprint?: boolean;
+  /** Split slip metadata (Party / tender) when printing without fetching the job */
+  jobMetadata?: Record<string, unknown> | null;
 }

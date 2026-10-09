@@ -7,6 +7,7 @@ import {
 import type {
   OnlineOrderActionResponse,
   TodayOrder,
+  TodayOrderItem,
   TodayOrdersResponse,
   WaiveOrderResponse,
 } from '../types/todayOrder';
@@ -142,6 +143,34 @@ function normalizeTodayOrder(raw: Record<string, unknown>): TodayOrder {
             productType: row.productType ? String(row.productType) : undefined,
             category: row.category ? String(row.category) : undefined,
             notes: row.notes ? String(row.notes).trim() || undefined : undefined,
+            productCode: row.productCode ? String(row.productCode) : undefined,
+            isOffer: Boolean(row.isOffer),
+            seatNumber:
+              row.seatNumber === null
+                ? null
+                : row.seatNumber != null && row.seatNumber !== ''
+                  ? Number(row.seatNumber)
+                  : undefined,
+            seat:
+              row.seat != null && row.seat !== ''
+                ? (row.seat as string | number)
+                : undefined,
+            customExtras: Array.isArray(row.customExtras)
+              ? (row.customExtras as Array<{
+                  name?: string;
+                  price?: number;
+                  qty?: number;
+                }>)
+              : undefined,
+            choiceSelections: Array.isArray(row.choiceSelections)
+              ? (row.choiceSelections as TodayOrderItem['choiceSelections'])
+              : undefined,
+            customDataSelections: Array.isArray(row.customDataSelections)
+              ? (row.customDataSelections as TodayOrderItem['customDataSelections'])
+              : undefined,
+            addonChoiceSelections: Array.isArray(row.addonChoiceSelections)
+              ? (row.addonChoiceSelections as TodayOrderItem['addonChoiceSelections'])
+              : undefined,
           };
         })
       : undefined,

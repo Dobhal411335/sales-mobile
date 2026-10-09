@@ -298,7 +298,8 @@ function KotReceiptBody({
                         style={[
                           styles.modifierLine,
                           (line.kind === 'choice-item' ||
-                            line.kind === 'addon-choice-item') &&
+                            line.kind === 'addon-choice-item' ||
+                            line.kind === 'custom-data-item') &&
                             styles.modifierLineIndent,
                         ]}>
                         {line.text}
@@ -483,7 +484,8 @@ function BarReceiptBody({
                   style={[
                     styles.modifierLine,
                     (line.kind === 'choice-item' ||
-                      line.kind === 'addon-choice-item') &&
+                      line.kind === 'addon-choice-item' ||
+                      line.kind === 'custom-data-item') &&
                       styles.modifierLineIndent,
                   ]}>
                   {line.text}
@@ -572,9 +574,24 @@ function CustomerReceiptBody({
 
   const rawTableLabel = formatTableNumbersWithFloor(order?.tableNo, order?.floorName);
   const tableLabel = rawTableLabel.replace(/^(tables?\s*)+/i, '').trim();
+  // Split slips: prefer payer name from job metadata (set at payment), not
+  // order-level party (table/seat default or a later payer's name).
   const partyLabel = isSplitReceipt
-    ? order.partyName || order.guestName || splitName || resolvePartyLabel(order)
-    : resolvePartyLabel(order);
+    ? splitName ||
+      String(
+        (meta as {partyName?: string}).partyName ||
+          (meta as {guestName?: string}).guestName ||
+          '',
+      ).trim() ||
+      order.partyName ||
+      order.guestName ||
+      resolvePartyLabel(order)
+    : resolvePartyLabel(order) ||
+      String(
+        (meta as {partyName?: string}).partyName ||
+          (meta as {guestName?: string}).guestName ||
+          '',
+      ).trim();
 
   const resolvedTaxBreakdown = (() => {
     if (seatScopedTotals?.taxBreakdown?.length) {
@@ -761,21 +778,34 @@ function CustomerReceiptBody({
             {formatCurrency(lineTotal)}
           </Text>
         </View>
-        {modifierLines.map((line, lineIdx) => (
-          <Text
-            key={`${line.kind}-${lineIdx}`}
-            style={[
-              styles.modifierLine,
-              (line.kind === 'choice-item' ||
-                line.kind === 'addon-choice-item') &&
-                styles.modifierLineIndent,
-            ]}>
-            {line.text}
-            {line.kind === 'custom-extra' && line.price != null
-              ? ` (+${formatCurrency(Number(line.price))})`
-              : ''}
-          </Text>
-        ))}
+        {modifierLines.map((line, lineIdx) =>
+          line.kind === 'custom-extra' ? (
+            <View
+              key={`${line.kind}-${lineIdx}`}
+              style={styles.customExtraRow}>
+              <Text style={styles.customExtraName} numberOfLines={2}>
+                {line.text}
+              </Text>
+              {line.price != null ? (
+                <Text style={styles.customExtraPrice}>
+                  +{formatCurrency(Number(line.price))}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <Text
+              key={`${line.kind}-${lineIdx}`}
+              style={[
+                styles.modifierLine,
+                (line.kind === 'choice-item' ||
+                  line.kind === 'addon-choice-item' ||
+                  line.kind === 'custom-data-item') &&
+                  styles.modifierLineIndent,
+              ]}>
+              {line.text}
+            </Text>
+          ),
+        )}
         {notes ? (
           <Text style={[styles.modifierLine, {fontStyle: 'italic'}]}>
             Note: {notes}
@@ -1349,6 +1379,27 @@ const styles = StyleSheet.create({
   modifierLineIndent: {
     paddingLeft: 24,
     fontStyle: 'normal',
+  },
+  customExtraRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 8,
+    paddingLeft: 16,
+    marginTop: 1,
+  },
+  customExtraName: {
+    flex: 1,
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: '600',
+    fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
+  },
+  customExtraPrice: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.text,
+    fontFamily: Platform.select({ios: 'Menlo', default: 'monospace'}),
   },
   notesBox: {
     padding: 7,

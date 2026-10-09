@@ -115,7 +115,7 @@ export function buildSeatSplitRows(order: {
   items?: Array<{
     price?: number;
     qty?: number;
-    customExtras?: Array<{price?: number}>;
+    customExtras?: Array<{price?: number; qty?: number}>;
     seatNumber?: number | null;
     seat?: unknown;
   }>;
@@ -291,7 +291,7 @@ export function proportionalOrderTotalsForItems(
     items?: Array<{
       price?: number;
       qty?: number;
-      customExtras?: Array<{price?: number}>;
+      customExtras?: Array<{price?: number; qty?: number}>;
     }>;
     discountTotal?: number;
     taxTotal?: number;
@@ -307,7 +307,7 @@ export function proportionalOrderTotalsForItems(
   filteredItems: Array<{
     price?: number;
     qty?: number;
-    customExtras?: Array<{price?: number}>;
+    customExtras?: Array<{price?: number; qty?: number}>;
   }> = [],
 ): {
   subTotal: number;

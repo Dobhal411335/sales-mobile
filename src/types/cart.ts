@@ -5,19 +5,15 @@ export interface ChoiceSelection {
   subChoices: string[];
 }
 
-export interface CustomDataOptionSelection {
-  name: string;
-  choices: string[];
-}
-
 export interface CustomDataSelection {
   name: string;
-  subChoices: CustomDataOptionSelection[];
+  subChoices: string[];
 }
 
 export interface CustomExtra {
   name: string;
   price: number;
+  qty?: number;
 }
 
 export interface CartLineItem {
@@ -42,7 +38,7 @@ export interface CartLineItem {
   choiceSelections?: ChoiceSelection[];
   customDataSelections?: CustomDataSelection[];
   addonChoiceSelections?: ChoiceSelection[];
-  /** Free-text extras from POS (name + price). */
+  /** Free-text extras from POS (name + unit price × qty). */
   customExtras?: CustomExtra[];
   modifier?: string;
   /** Cart "Without" field — combined into `notes` for kitchen. */

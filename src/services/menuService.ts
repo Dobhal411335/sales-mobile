@@ -72,6 +72,27 @@ function normalizeCategory(raw: Record<string, unknown>): MenuCategory {
   };
 }
 
+function normalizeIngredients(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return [
+    ...new Set(
+      raw
+        .map((item) => {
+          if (item == null) return '';
+          if (typeof item === 'string' || typeof item === 'number') {
+            return String(item).trim();
+          }
+          if (typeof item === 'object') {
+            const obj = item as {name?: unknown; label?: unknown; title?: unknown};
+            return String(obj.name || obj.label || obj.title || '').trim();
+          }
+          return String(item).trim();
+        })
+        .filter(Boolean),
+    ),
+  ];
+}
+
 function normalizeAddon(raw: Record<string, unknown>): ProductAddon {
   return {
     id: toId(raw._id ?? raw.id),
@@ -82,6 +103,7 @@ function normalizeAddon(raw: Record<string, unknown>): ProductAddon {
     choiceOptions: normalizeChoiceOptions(
       raw.choiceOptions as ProductAddon['choiceOptions'],
     ),
+    ingredients: normalizeIngredients(raw.ingredients),
   };
 }
 
@@ -90,6 +112,7 @@ function normalizeVariant(raw: Record<string, unknown>): ProductVariant {
     size: String(raw.size ?? 'Standard'),
     price: Number(raw.price) || 0,
     status: raw.status ? String(raw.status) : undefined,
+    ingredients: normalizeIngredients(raw.ingredients),
   };
 }
 

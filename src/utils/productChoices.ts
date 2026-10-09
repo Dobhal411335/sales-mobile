@@ -61,23 +61,31 @@ export function normalizeChoiceSelections(
     .filter((group) => group.name && group.subChoices.length > 0);
 }
 
-export function normalizeCustomDataSelections(
-  list?:
-    | Array<{name?: string; subChoices?: Array<{name?: string; choices?: string[]}>}>
-    | null,
-): Array<{name: string; subChoices: Array<{name: string; choices: string[]}>}> {
+export function normalizeCustomData(
+  list?: Array<{name?: string; subChoices?: string[]}> | null,
+): ChoiceSelection[] {
   if (!Array.isArray(list)) {
     return [];
   }
   return list
     .map((group) => ({
       name: String(group?.name || '').trim(),
-      subChoices: (Array.isArray(group?.subChoices) ? group.subChoices : [])
-        .map((option) => ({
-          name: String(option?.name || '').trim(),
-          choices: cleanChoiceList(option?.choices),
-        }))
-        .filter((option) => option.name && option.choices.length > 0),
+      subChoices: cleanChoiceList(group?.subChoices),
+    }))
+    .filter((group) => group.name && group.subChoices.length > 0);
+}
+
+/** Cart / order selections: same shape; at most one option per group */
+export function normalizeCustomDataSelections(
+  list?: Array<{name?: string; subChoices?: string[]}> | null,
+): ChoiceSelection[] {
+  if (!Array.isArray(list)) {
+    return [];
+  }
+  return list
+    .map((group) => ({
+      name: String(group?.name || '').trim(),
+      subChoices: cleanChoiceList(group?.subChoices).slice(0, 1),
     }))
     .filter((group) => group.name && group.subChoices.length > 0);
 }
@@ -96,18 +104,12 @@ export function cartChoiceSelectionsKey(selections?: ChoiceSelection[]): string 
 }
 
 export function cartCustomDataSelectionsKey(
-  selections?: Array<{
-    name?: string;
-    subChoices?: Array<{name?: string; choices?: string[]}>;
-  }>,
+  selections?: Array<{name?: string; subChoices?: string[]}>,
 ): string {
   return JSON.stringify(
     normalizeCustomDataSelections(selections).map((group) => ({
       name: group.name,
-      subChoices: group.subChoices.map((option) => ({
-        name: option.name,
-        choices: [...option.choices].sort(),
-      })),
+      subChoices: [...group.subChoices].sort(),
     })),
   );
 }
@@ -248,9 +250,13 @@ export function isRedundantStandaloneExtraOption(
   opt: unknown,
 ): boolean {
   if (!isStandaloneExtraLine(item)) return false;
-  const itemName = String(item?.name || '').trim().toLowerCase();
-  const label = String(opt || '').trim().toLowerCase();
-  return Boolean(itemName && label && itemName === label);
+  const itemName = String(item?.name || '').trim();
+  if (!itemName) return false;
+  const label = String(opt || '').trim();
+  if (!label) return false;
+  if (label.toLowerCase() === itemName.toLowerCase()) return true;
+  const escaped = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^(?:addons|extras)\\s*:\\s*${escaped}$`, 'i').test(label);
 }
 
 /** Addon / extra labels stored on `item.options`, excluding preparation style. */
@@ -270,10 +276,14 @@ export function getItemExtraOptions(item?: {
 export interface NormalizedCustomExtra {
   name: string;
   price: number;
+  qty: number;
 }
 
 /** Max unit price allowed for a POS custom extra. */
 export const MAX_CUSTOM_EXTRA_PRICE = 9999.99;
+
+/** Max qty allowed for a single POS custom extra row. */
+export const MAX_CUSTOM_EXTRA_QTY = 99;
 
 /** Validate a custom-extra price for add flows (paid extras only). */
 export function isValidCustomExtraPrice(price: unknown): boolean {
@@ -285,17 +295,32 @@ export function isValidCustomExtraPrice(price: unknown): boolean {
   );
 }
 
-/** Normalize free-text POS custom extras: [{ name, price }]. */
+/** Validate a custom-extra qty for add flows. */
+export function isValidCustomExtraQty(qty: unknown): boolean {
+  const value = Number(qty);
+  return (
+    Number.isFinite(value) &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= MAX_CUSTOM_EXTRA_QTY
+  );
+}
+
+/** Normalize free-text POS custom extras: [{ name, price, qty }]. */
 export function normalizeCustomExtras(list: unknown): NormalizedCustomExtra[] {
   if (!Array.isArray(list)) {
     return [];
   }
   return list
     .map((entry) => {
-      const raw = entry as {name?: unknown; price?: unknown};
+      const raw = entry as {name?: unknown; price?: unknown; qty?: unknown};
       const name = String(raw?.name || '').trim();
       const price = Math.round((Number(raw?.price) || 0) * 100) / 100;
-      return {name, price};
+      const rawQty = Number(raw?.qty);
+      const qty = Number.isFinite(rawQty)
+        ? Math.min(MAX_CUSTOM_EXTRA_QTY, Math.max(1, Math.floor(rawQty)))
+        : 1;
+      return {name, price, qty};
     })
     .filter(
       (entry) =>
@@ -307,8 +332,12 @@ export function normalizeCustomExtras(list: unknown): NormalizedCustomExtra[] {
     );
 }
 
+/** Unit add-on total for one parent item: sum(price × qty). */
 export function customExtrasUnitTotal(list: unknown): number {
-  return normalizeCustomExtras(list).reduce((sum, entry) => sum + entry.price, 0);
+  return normalizeCustomExtras(list).reduce(
+    (sum, entry) => sum + entry.price * entry.qty,
+    0,
+  );
 }
 
 export function cartCustomExtrasKey(list: unknown): string {

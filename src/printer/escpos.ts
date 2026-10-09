@@ -389,7 +389,7 @@ export type AnyTicketItem = {
   choiceSelections?: Array<{name: string; subChoices: string[]}>;
   customDataSelections?: Array<{
     name: string;
-    subChoices: Array<{name: string; choices: string[]}>;
+    subChoices: string[];
   }>;
   addonChoiceSelections?: Array<{name: string; subChoices: string[]}>;
   modifier?: string;
@@ -434,16 +434,22 @@ function isRedundantStandaloneExtraOption(
   opt: unknown,
 ): boolean {
   if (!isStandaloneExtraLine(item)) return false;
-  const itemName = String(item?.name || '').trim().toLowerCase();
-  const label = String(opt || '').trim().toLowerCase();
-  return Boolean(itemName && label && itemName === label);
+  const itemName = String(item?.name || '').trim();
+  if (!itemName) return false;
+  const label = String(opt || '').trim();
+  if (!label) return false;
+  if (label.toLowerCase() === itemName.toLowerCase()) return true;
+  const escaped = itemName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^(?:addons|extras)\\s*:\\s*${escaped}$`, 'i').test(label);
 }
 
 export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
   const lines: string[] = [];
   const isOffer = isOfferItem(item);
+  // Extra addon lines: title is the addon name — skip prep style under the line.
+  const isExtra = isStandaloneExtraLine(item);
   const style = String(item?.preparationStyle || '').trim();
-  if (style) lines.push(`+ ${style}`);
+  if (style && !isExtra) lines.push(`+ ${style}`);
 
   if (isOffer) {
     const inclusions = cleanList(item?.inclusions);
@@ -452,7 +458,7 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
     if (inclusions.length) lines.push(`Includes: ${inclusions.join(', ')}`);
     if (choices.length) lines.push(`Choices: ${choices.join(', ')}`);
     if (drinks.length) lines.push(`Drinks: ${drinks.join(', ')}`);
-    if (lines.length > (style ? 1 : 0)) return lines;
+    if (lines.length > (style && !isExtra ? 1 : 0)) return lines;
 
     for (const opt of item?.options || []) {
       const text = String(opt || '').trim();
@@ -464,17 +470,11 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
   if (Array.isArray(item?.customDataSelections)) {
     for (const group of item.customDataSelections) {
       const name = String(group?.name || '').trim();
-      const options = Array.isArray(group?.subChoices) ? group.subChoices : [];
-      if (!name || !options.length) continue;
+      const subs = cleanList(group?.subChoices);
+      if (!name || !subs.length) continue;
       lines.push(`${name}:`);
-      for (const option of options) {
-        const optionName = String((option as {name?: string})?.name || '').trim();
-        const choices = cleanList((option as {choices?: unknown})?.choices);
-        if (!optionName || !choices.length) continue;
-        lines.push(`  ${optionName}:`);
-        for (const choice of choices) {
-          lines.push(`    - ${choice}`);
-        }
+      for (const sub of subs) {
+        lines.push(`  - ${sub}`);
       }
     }
   }
@@ -510,7 +510,7 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
 
   // Legacy fallback when structured selections are missing
   if (
-    lines.length === (style ? 1 : 0) &&
+    lines.length === (style && !isExtra ? 1 : 0) &&
     !item?.choiceSelections?.length &&
     !item?.addonChoiceSelections?.length
   ) {
@@ -518,7 +518,7 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
     if (legacy) {
       const itemName = String(item?.name || '').trim();
       const isRedundantExtraModifier =
-        isStandaloneExtraLine(item) &&
+        isExtra &&
         Boolean(itemName) &&
         (legacy.toLowerCase() === itemName.toLowerCase() ||
           new RegExp(
@@ -534,33 +534,61 @@ export function getReceiptModifierLines(item?: AnyTicketItem | null): string[] {
 
 function customExtrasUnitTotal(list: unknown): number {
   if (!Array.isArray(list)) return 0;
-  return list.reduce((sum: number, entry: {name?: string; price?: number}) => {
-    const price = Number(entry?.price);
-    if (!String(entry?.name || '').trim() || !Number.isFinite(price) || price < 0) {
-      return sum;
-    }
-    return sum + price;
-  }, 0);
+  return list.reduce(
+    (
+      sum: number,
+      entry: {name?: string; price?: number; qty?: number},
+    ) => {
+      const price = Number(entry?.price);
+      if (
+        !String(entry?.name || '').trim() ||
+        !Number.isFinite(price) ||
+        price < 0
+      ) {
+        return sum;
+      }
+      const rawQty = Number(entry?.qty);
+      const qty = Number.isFinite(rawQty)
+        ? Math.min(99, Math.max(1, Math.floor(rawQty)))
+        : 1;
+      return sum + price * qty;
+    },
+    0,
+  );
 }
 
-/** KOT: name only. Bill: name + price when includePrices. */
-function getCustomExtraLines(
+/** Custom extras as left/right rows so bill printers can right-align amount. */
+function getCustomExtraPrintRows(
   item?: AnyTicketItem | null,
-  {includePrices = false} = {},
-): string[] {
+): Array<{left: string; right: string | null}> {
   if (!Array.isArray(item?.customExtras)) return [];
-  const lines: string[] = [];
-  for (const extra of item.customExtras as Array<{name?: string; price?: number}>) {
+  const rows: Array<{left: string; right: string | null}> = [];
+  for (const extra of item.customExtras as Array<{
+    name?: string;
+    price?: number;
+    qty?: number;
+  }>) {
     const label = String(extra?.name || '').trim();
     if (!label) continue;
-    const price = Number(extra?.price);
-    if (includePrices && Number.isFinite(price) && price >= 0) {
-      lines.push(`+ ${label} (+$${price.toFixed(2)})`);
-    } else {
-      lines.push(`+ ${label}`);
-    }
+    const unitPrice = Number(extra?.price);
+    const rawQty = Number(extra?.qty);
+    const qty = Number.isFinite(rawQty)
+      ? Math.min(99, Math.max(1, Math.floor(rawQty)))
+      : 1;
+    const linePrice =
+      Number.isFinite(unitPrice) && unitPrice >= 0
+        ? Math.round(unitPrice * qty * 100) / 100
+        : NaN;
+    const qtySuffix = qty > 1 ? ` ×${qty}` : '';
+    rows.push({
+      left: `+ ${label}${qtySuffix}`,
+      right:
+        Number.isFinite(linePrice) && linePrice >= 0
+          ? `+$${linePrice.toFixed(2)}`
+          : null,
+    });
   }
-  return lines;
+  return rows;
 }
 
 function buildTicketItemName(
@@ -612,8 +640,9 @@ function writeTicketItem(
   for (const line of getReceiptModifierLines(item)) {
     writeWrapped(e, `       ${line}`);
   }
-  for (const line of getCustomExtraLines(item, {includePrices: false})) {
-    writeWrapped(e, `       ${line}`);
+  // KOT/bar: name + qty only (no amount column)
+  for (const row of getCustomExtraPrintRows(item)) {
+    writeWrapped(e, `       ${row.left}`);
   }
   if (item.notes || item.specialInstructions) {
     writeWrapped(
@@ -663,8 +692,13 @@ function writeReceiptItem(
   for (const line of getReceiptModifierLines(item)) {
     writeWrapped(e, `   ${line}`);
   }
-  for (const line of getCustomExtraLines(item, {includePrices: true})) {
-    writeWrapped(e, `   ${line}`);
+  // Right-align custom-extra amount under AMOUNT column (not inline after name)
+  for (const row of getCustomExtraPrintRows(item)) {
+    if (row.right) {
+      e.line(formatTwoColumnLine(`   ${row.left}`, row.right));
+    } else {
+      writeWrapped(e, `   ${row.left}`);
+    }
   }
   if (item.notes || item.specialInstructions) {
     writeWrapped(

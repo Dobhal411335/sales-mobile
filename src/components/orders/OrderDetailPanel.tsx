@@ -8,7 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import {colors} from '../../constants/colors';
-import type {TodayOrder, TodayOrderItem} from '../../types/todayOrder';
+import type {TodayOrder} from '../../types/todayOrder';
 import {formatCurrency} from '../../utils/currency';
 import {
   getOrderLocationLabel,
@@ -18,6 +18,11 @@ import {
   getPlacerName,
   shouldShowTable,
 } from '../../utils/orderDisplay';
+import {
+  getItemLineTotal,
+  isStandaloneExtraLine,
+} from '../../utils/productChoices';
+import {getReceiptModifierLines} from '../../utils/receiptFormat';
 import {
   canApproveOnline,
   canMarkOnlineReady,
@@ -45,22 +50,6 @@ interface OrderDetailPanelProps {
   onMarkOnlineReady?: () => void;
   onReprintOnlineKot?: () => void;
   onClose: () => void;
-}
-
-function filterItemOptions(item: TodayOrderItem) {
-  return (item.options ?? []).filter((opt) => {
-    const value = String(opt || '');
-    if (value.toLowerCase().startsWith('style:')) {
-      return false;
-    }
-    if (
-      item.preparationStyle &&
-      value.toLowerCase() === String(item.preparationStyle).toLowerCase()
-    ) {
-      return false;
-    }
-    return true;
-  });
 }
 
 export function OrderDetailPanel({
@@ -233,33 +222,50 @@ export function OrderDetailPanel({
         <View style={styles.divider} />
 
         <Text style={styles.sectionTitle}>Order Items</Text>
-        {(order.items ?? []).map((item, index) => (
-          <View key={`${item.name}-${index}`} style={styles.itemRow}>
-            <View style={styles.itemMain}>
-              <Text style={styles.itemQty}>{item.qty}x</Text>
-              <View style={styles.itemDetails}>
-                <Text style={styles.itemName}>{item.name}</Text>
-                {item.size && item.size !== 'Standard' ? (
-                  <Text style={styles.itemMeta}>Variant: {item.size}</Text>
-                ) : null}
-                {item.preparationStyle ? (
-                  <Text style={styles.itemMetaItalic}>{item.preparationStyle}</Text>
-                ) : null}
-                {filterItemOptions(item).map((opt, optIndex) => (
-                  <Text key={optIndex} style={styles.itemMetaItalic}>
-                    + {opt}
-                  </Text>
-                ))}
-                {item.notes ? (
-                  <Text style={styles.itemRemark}>Remark: {item.notes}</Text>
-                ) : null}
+        {(order.items ?? []).map((item, index) => {
+          const isExtra = isStandaloneExtraLine(item);
+          const modifierLines = getReceiptModifierLines(item);
+          return (
+            <View key={`${item.name}-${index}`} style={styles.itemRow}>
+              <View style={styles.itemMain}>
+                <Text style={styles.itemQty}>{item.qty}x</Text>
+                <View style={styles.itemDetails}>
+                  <Text style={styles.itemName}>{item.name}</Text>
+                  {/* Extra addon lines already use the addon name — skip Variant: Extra */}
+                  {item.size &&
+                  item.size !== 'Standard' &&
+                  !isExtra ? (
+                    <Text style={styles.itemMeta}>Variant: {item.size}</Text>
+                  ) : null}
+                  {modifierLines.map((line, lineIdx) => (
+                    <Text
+                      key={`${line.kind}-${lineIdx}`}
+                      style={[
+                        line.kind === 'custom-extra'
+                          ? styles.itemMeta
+                          : styles.itemMetaItalic,
+                        (line.kind === 'addon-choice-item' ||
+                          line.kind === 'choice-item' ||
+                          line.kind === 'custom-data-item') &&
+                          styles.itemMetaNested,
+                      ]}>
+                      {line.text}
+                      {line.kind === 'custom-extra' && line.price != null
+                        ? ` (+${formatCurrency(Number(line.price))})`
+                        : ''}
+                    </Text>
+                  ))}
+                  {item.notes ? (
+                    <Text style={styles.itemRemark}>Remark: {item.notes}</Text>
+                  ) : null}
+                </View>
               </View>
+              <Text style={styles.itemPrice}>
+                {formatCurrency(getItemLineTotal(item))}
+              </Text>
             </View>
-            <Text style={styles.itemPrice}>
-              {formatCurrency(item.price * item.qty)}
-            </Text>
-          </View>
-        ))}
+          );
+        })}
 
         {guestNote ? (
           <>
@@ -665,6 +671,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontStyle: 'italic',
     color: colors.text,
+  },
+  itemMetaNested: {
+    paddingLeft: 10,
+    fontStyle: 'normal',
+    color: '#075985',
   },
   itemRemark: {
     marginTop: 2,

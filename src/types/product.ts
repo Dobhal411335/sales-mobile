@@ -10,6 +10,8 @@ export interface ProductVariant {
   size: string;
   price: number;
   status?: string;
+  /** Included items shown under the variant (POS “Includes”). */
+  ingredients?: string[];
 }
 
 export interface ChoiceOptionGroup {
@@ -17,14 +19,9 @@ export interface ChoiceOptionGroup {
   subChoices: string[];
 }
 
-export interface CustomDataOption {
-  name: string;
-  choices: string[];
-}
-
 export interface CustomDataGroup {
   name: string;
-  subChoices: CustomDataOption[];
+  subChoices: string[];
 }
 
 export interface ProductAddon {
@@ -34,6 +31,8 @@ export interface ProductAddon {
   size?: string;
   status?: string;
   choiceOptions?: ChoiceOptionGroup[];
+  /** Included items shown under the addon (POS “Addon includes”). */
+  ingredients?: string[];
 }
 
 export interface TaxRate {
@@ -117,11 +116,7 @@ export function productNeedsOptions(product: MenuProduct): boolean {
   );
   const hasCustomData = Boolean(
     product.customData?.some(
-      (group) =>
-        group.name &&
-        group.subChoices?.some(
-          (option) => option.name && option.choices?.length,
-        ),
+      (group) => group.name && group.subChoices?.length,
     ),
   );
   return hasVariants || hasAddons || hasStyles || hasChoices || hasCustomData;

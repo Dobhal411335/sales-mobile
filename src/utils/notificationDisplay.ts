@@ -27,6 +27,9 @@ export function notificationMetaLine(n: Notification): string {
     const table = String(n.metadata.tableNo).trim();
     parts.push(/^tables?\b/i.test(table) ? table : `Table ${table}`);
   }
+  if (n.type === 'PAYMENT_COMPLETED' && n.metadata?.method) {
+    parts.push(String(n.metadata.method));
+  }
   if (n.type === 'NEW_RESERVATION') {
     if (n.metadata?.guests) {
       parts.push(

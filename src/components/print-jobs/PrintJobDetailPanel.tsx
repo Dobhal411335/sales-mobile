@@ -190,7 +190,10 @@ export function PrintJobDetailPanel({
       <View style={styles.card}>
         <Text style={styles.cardHeader}>JOB INFORMATION</Text>
 
-        <DetailRow label="Order Number" value={`#${orderLabel(job)}`} />
+        <DetailRow
+          label="Order Number"
+          value={`#${order?.orderNumber || orderLabel(job)}`}
+        />
         <DetailRow label="Print Type" value={printTypeLabelForJob(job)} />
         <DetailRow
           label="Target Station"

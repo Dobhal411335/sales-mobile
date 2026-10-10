@@ -33,13 +33,14 @@ export function getPrintJobStatusLabel(status: PrintJobStatus): string {
 }
 
 export function orderLabel(job: PrintJob): string {
-  const fromMeta = job.metadata?.orderNumber;
-  if (fromMeta != null && fromMeta !== '') {
-    return String(fromMeta);
-  }
+  // Prefer live Order number — metadata goes stale after business-day renumber.
   const orderRef = job.orderId;
   if (orderRef && typeof orderRef === 'object' && orderRef.orderNumber != null) {
     return String(orderRef.orderNumber);
+  }
+  const fromMeta = job.metadata?.orderNumber;
+  if (fromMeta != null && fromMeta !== '') {
+    return String(fromMeta);
   }
   return '—';
 }

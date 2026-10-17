@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {useTodayOrdersStore} from '../store/todayOrdersStore';
+import {fetchUpcomingOffersCount} from '../services/upcomingOffersService';
 import {socketClient} from '../socket/socket';
 import type {TodayOrder, TodayOrderSource} from '../types/todayOrder';
 import {
@@ -144,14 +145,25 @@ export function useFloorAttentionCounts(): import('../store/todayOrdersStore').F
 } {
   const attention = useTodayOrdersStore((s) => s.attention);
   const fetch = useTodayOrdersStore((s) => s.fetch);
+  const setUpcomingOffersCount = useTodayOrdersStore(
+    (s) => s.setUpcomingOffersCount,
+  );
+
+  const refreshUpcoming = useCallback(async () => {
+    const result = await fetchUpcomingOffersCount();
+    if (result.success && result.data) {
+      setUpcomingOffersCount(Number(result.data.pendingCount) || 0);
+    }
+  }, [setUpcomingOffersCount]);
 
   const refresh = useCallback(async () => {
-    await fetch({silent: true});
-  }, [fetch]);
+    await Promise.all([fetch({silent: true}), refreshUpcoming()]);
+  }, [fetch, refreshUpcoming]);
 
   useEffect(() => {
     void fetch({silent: true});
-  }, [fetch]);
+    void refreshUpcoming();
+  }, [fetch, refreshUpcoming]);
 
   useEffect(() => {
     const socket = socketClient.getInstance();
@@ -160,6 +172,7 @@ export function useFloorAttentionCounts(): import('../store/todayOrdersStore').F
     }
     const debounced = createDebouncedCallback(() => {
       void fetch({silent: true});
+      void refreshUpcoming();
     }, SOCKET_DEBOUNCE_MS);
     const onChange = () => debounced.run();
     socket.on('order:created', onChange);
@@ -171,7 +184,7 @@ export function useFloorAttentionCounts(): import('../store/todayOrdersStore').F
       socket.off('order:updated', onChange);
       socket.off('payment:completed', onChange);
     };
-  }, [fetch]);
+  }, [fetch, refreshUpcoming]);
 
   return {...attention, refresh};
 }

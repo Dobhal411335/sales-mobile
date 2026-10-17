@@ -18,11 +18,13 @@ import {useAuth} from '../../hooks/useAuth';
 import type {SalesStackParamList} from '../../navigation/types';
 import {fetchPendingReservationCount} from '../../services/reservationService';
 import {fetchUnpaidOrderCount} from '../../services/todayOrdersService';
+import {fetchUpcomingOffersCount} from '../../services/upcomingOffersService';
 import {socketClient} from '../../socket/socket';
 import {formatHeaderDateTime} from '../../utils/date';
 import {
   CalendarDays,
   ChevronDown,
+  Gift,
   Grid2X2,
   ShoppingBag,
 } from 'lucide-react-native';
@@ -42,6 +44,7 @@ const PRIMARY_TABS: {
   {label: 'Floor', route: 'Floor', Icon: Grid2X2},
   {label: 'Orders', route: 'Orders', Icon: ShoppingBag},
   {label: 'Booking', route: 'Booking', Icon: CalendarDays},
+  {label: 'Offers', route: 'UpcomingOffers', Icon: Gift},
 ];
 
 export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
@@ -50,11 +53,13 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [pendingBookings, setPendingBookings] = useState(0);
   const [unpaidOrders, setUnpaidOrders] = useState(0);
+  const [upcomingOffers, setUpcomingOffers] = useState(0);
 
   useEffect(() => {
     // Warm tab destinations as soon as header mounts.
     prefetchSalesScreen('Orders');
     prefetchSalesScreen('Booking');
+    prefetchSalesScreen('UpcomingOffers');
   }, []);
 
   const refreshPendingCount = useCallback(async () => {
@@ -71,6 +76,13 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
     }
   }, []);
 
+  const refreshUpcomingOffersCount = useCallback(async () => {
+    const result = await fetchUpcomingOffersCount();
+    if (result.success && result.data) {
+      setUpcomingOffers(Number(result.data.pendingCount) || 0);
+    }
+  }, []);
+
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(timer);
@@ -79,7 +91,8 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
   useEffect(() => {
     void refreshPendingCount();
     void refreshUnpaidCount();
-  }, [refreshPendingCount, refreshUnpaidCount]);
+    void refreshUpcomingOffersCount();
+  }, [refreshPendingCount, refreshUnpaidCount, refreshUpcomingOffersCount]);
 
   useEffect(() => {
     const socket = socketClient.getInstance();
@@ -91,6 +104,7 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
     };
     const onOrderChange = () => {
       void refreshUnpaidCount();
+      void refreshUpcomingOffersCount();
     };
     socket.on('reservation:created', onReservationChange);
     socket.on('reservation:updated', onReservationChange);
@@ -104,7 +118,7 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
       socket.off('order:updated', onOrderChange);
       socket.off('payment:completed', onOrderChange);
     };
-  }, [refreshPendingCount, refreshUnpaidCount]);
+  }, [refreshPendingCount, refreshUnpaidCount, refreshUpcomingOffersCount]);
 
   const activeRoute = route.name as SalesRouteName;
 
@@ -132,8 +146,14 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
                 tab.route === 'Booking' && pendingBookings > 0;
               const ordersBadge =
                 tab.route === 'Orders' && unpaidOrders > 0;
-              const showBadge = bookingBadge || ordersBadge;
-              const badgeValue = bookingBadge ? pendingBookings : unpaidOrders;
+              const offersBadge =
+                tab.route === 'UpcomingOffers' && upcomingOffers > 0;
+              const showBadge = bookingBadge || ordersBadge || offersBadge;
+              const badgeValue = bookingBadge
+                ? pendingBookings
+                : offersBadge
+                  ? upcomingOffers
+                  : unpaidOrders;
               const badgeLabel =
                 badgeValue > 99 ? '99+' : String(badgeValue);
               return (
@@ -155,7 +175,9 @@ export function SalesHeader({navigation, route}: NativeStackHeaderProps) {
                     showBadge
                       ? tab.route === 'Booking'
                         ? `${tab.label}, ${pendingBookings} pending`
-                        : `${tab.label}, ${unpaidOrders} unpaid`
+                        : tab.route === 'UpcomingOffers'
+                          ? `${tab.label}, ${upcomingOffers} upcoming`
+                          : `${tab.label}, ${unpaidOrders} unpaid`
                       : tab.label
                   }>
                   <TabIcon size={14} color={iconColor} />
@@ -267,13 +289,13 @@ const styles = StyleSheet.create({
   },
   tab: {
     minHeight: 40,
-    minWidth: 96,
+    minWidth: 84,
     borderRadius: 12,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
+    gap: 5,
+    paddingHorizontal: 10,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,

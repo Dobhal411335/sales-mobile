@@ -79,6 +79,7 @@ export type SalesStackParamList = {
   };
   Orders: {filter?: 'ONLINE' | 'ALL'} | undefined;
   Booking: undefined;
+  UpcomingOffers: undefined;
   TodaySales: undefined;
   Reports: undefined;
   Notifications: undefined;

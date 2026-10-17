@@ -91,7 +91,61 @@ export function normalizeCustomDataSelections(
 }
 
 export function productHasChoiceOptions(product?: MenuProduct | null): boolean {
-  return normalizeChoiceOptions(product?.choiceOptions).length > 0;
+  if (normalizeChoiceOptions(product?.choiceOptions).length > 0) {
+    return true;
+  }
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  return variants.some(
+    (variant) => normalizeChoiceOptions(variant?.choiceOptions).length > 0,
+  );
+}
+
+/**
+ * Product-level choiceOptions ∪ matching variant choiceOptions (by size).
+ * On group-name clash, variant groups win.
+ */
+export function resolveProductChoiceCatalog(
+  product?: MenuProduct | null,
+  size?: string,
+): ChoiceOptionGroup[] {
+  const productGroups = normalizeChoiceOptions(product?.choiceOptions);
+  const sizeKey = String(size || '').trim().toLowerCase();
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  const matched = sizeKey
+    ? variants.find(
+        (variant) =>
+          String(variant?.size || '').trim().toLowerCase() === sizeKey,
+      )
+    : null;
+  const variantGroups = normalizeChoiceOptions(matched?.choiceOptions);
+  if (!variantGroups.length) {
+    return productGroups;
+  }
+  if (!productGroups.length) {
+    return variantGroups;
+  }
+
+  const byName = new Map<string, ChoiceOptionGroup>();
+  for (const group of productGroups) {
+    byName.set(group.name.toLowerCase(), group);
+  }
+  for (const group of variantGroups) {
+    byName.set(group.name.toLowerCase(), group);
+  }
+  return [...byName.values()];
+}
+
+/** Merge choice selection arrays; later entries win on group-name clash. */
+export function mergeChoiceSelections(
+  ...lists: Array<ChoiceSelection[] | undefined>
+): ChoiceSelection[] {
+  const byName = new Map<string, ChoiceSelection>();
+  for (const list of lists) {
+    for (const group of normalizeChoiceSelections(list)) {
+      byName.set(group.name.toLowerCase(), group);
+    }
+  }
+  return [...byName.values()];
 }
 
 export function cartChoiceSelectionsKey(selections?: ChoiceSelection[]): string {

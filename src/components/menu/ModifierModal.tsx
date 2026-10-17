@@ -25,6 +25,7 @@ import {calculateItemTax, nextCartId} from '../../utils/cartPricing';
 import {buildModifiedRequestRemark} from '../../utils/modifiedRequestRemark';
 import {
   buildAddonChoiceSelectionsFromQtyMaps,
+  mergeChoiceSelections,
   normalizeAddonChoiceQtyMap,
   normalizeChoiceOptions,
   normalizeCustomData,
@@ -304,6 +305,10 @@ export function ModifierModal({
   const [selectedChoices, setSelectedChoices] = useState<
     Record<string, string[]>
   >({});
+  /** { [variantSize]: { [groupName]: string[] } } */
+  const [selectedVariantChoices, setSelectedVariantChoices] = useState<
+    Record<string, Record<string, string[]>>
+  >({});
   /** { [groupName]: selected option string } — radio single-select */
   const [selectedCustomData, setSelectedCustomData] = useState<
     Record<string, string>
@@ -347,6 +352,7 @@ export function ModifierModal({
     setVariantQtyBySize({});
     setAddonStateByKey({});
     setSelectedChoices({});
+    setSelectedVariantChoices({});
     setSelectedCustomData({});
     setSelectedStyle(stylesList.length === 1 ? stylesList[0] : '');
     setNoteWithout('');
@@ -375,6 +381,41 @@ export function ModifierModal({
           : [...current, subChoice],
       };
     });
+  };
+
+  /** Per-variant choice groups are single-select (radio). */
+  const selectVariantChoice = (
+    variantSize: string,
+    groupName: string,
+    subChoice: string,
+  ) => {
+    setSelectedVariantChoices((prev) => {
+      const groupMap = prev[variantSize] || {};
+      const current = groupMap[groupName] || [];
+      const alreadySelected = current[0] === subChoice;
+      return {
+        ...prev,
+        [variantSize]: {
+          ...groupMap,
+          // Re-tap clears so users can undo a pick on chip UI
+          [groupName]: alreadySelected ? [] : [subChoice],
+        },
+      };
+    });
+  };
+
+  const buildVariantChoiceSelections = (
+    variantSize: string,
+    choiceOptions?: Parameters<typeof normalizeChoiceOptions>[0],
+  ): ChoiceSelection[] => {
+    const groups = normalizeChoiceOptions(choiceOptions);
+    const selected = selectedVariantChoices[variantSize] || {};
+    return groups
+      .map((group) => ({
+        name: group.name,
+        subChoices: (selected[group.name] || []).slice(0, 1),
+      }))
+      .filter((group) => group.subChoices.length > 0);
   };
 
   const toggleCustomDataChoice = (groupName: string, choice: string) => {
@@ -463,7 +504,9 @@ export function ModifierModal({
     }
 
     const lines: CartLineItem[] = [];
-    const choiceSelections: ChoiceSelection[] = Object.entries(selectedChoices)
+    const productChoiceSelections: ChoiceSelection[] = Object.entries(
+      selectedChoices,
+    )
       .map(([name, subChoices]) => ({name, subChoices}))
       .filter((group) => group.subChoices.length > 0);
     const customDataSelections: CustomDataSelection[] = customDataGroups
@@ -489,6 +532,10 @@ export function ModifierModal({
         const variant = product.variants?.find((item) => item.size === size);
         const price = variant?.price ?? product.price;
         const tax = calculateItemTax(product, price, globalTaxes);
+        const choiceSelections = mergeChoiceSelections(
+          productChoiceSelections,
+          buildVariantChoiceSelections(size, variant?.choiceOptions),
+        );
         const modifierParts = [
           size ? `Size: ${size}` : undefined,
           selectedStyle || undefined,
@@ -572,7 +619,7 @@ export function ModifierModal({
         ...customDataSelections.map(
           (group) => `${group.name}: ${group.subChoices.join(', ')}`,
         ),
-        ...choiceSelections.flatMap((group) =>
+        ...productChoiceSelections.flatMap((group) =>
           group.subChoices.map((value) => `${group.name}: ${value}`),
         ),
       ].filter(Boolean);
@@ -590,7 +637,7 @@ export function ModifierModal({
         productType: product.productType,
         taxes: product.taxes,
         preparationStyle: selectedStyle || null,
-        choiceSelections,
+        choiceSelections: productChoiceSelections,
         customDataSelections,
         modifier: modifierParts.join(' | ') || undefined,
         noteWithout: nextWithout,
@@ -698,6 +745,9 @@ export function ModifierModal({
                       const hasIncludes = normalizeIngredientList(
                         variant.ingredients,
                       ).length;
+                      const variantChoiceGroups = normalizeChoiceOptions(
+                        variant.choiceOptions,
+                      );
                       return (
                         <View
                           key={variant.size}
@@ -722,6 +772,46 @@ export function ModifierModal({
                               ingredients={variant.ingredients}
                               label="Includes"
                             />
+                          ) : null}
+                          {variantChoiceGroups.length > 0 ? (
+                            <View style={styles.variantChoices}>
+                              <Text style={styles.variantChoicesLabel}>
+                                Choice Options
+                              </Text>
+                              {variantChoiceGroups.map((group) => (
+                                <View
+                                  key={`${variant.size}-${group.name}`}
+                                  style={styles.variantChoiceGroup}>
+                                  <Text style={styles.variantChoiceTitle}>
+                                    {group.name}
+                                  </Text>
+                                  <View style={styles.choiceGrid}>
+                                    {group.subChoices.map((subChoice) => {
+                                      const active =
+                                        (
+                                          selectedVariantChoices[variant.size]?.[
+                                            group.name
+                                          ] || []
+                                        )[0] === subChoice;
+                                      return (
+                                        <ChoiceChip
+                                          key={`${variant.size}-${group.name}-${subChoice}`}
+                                          label={subChoice}
+                                          active={active}
+                                          onPress={() =>
+                                            selectVariantChoice(
+                                              variant.size,
+                                              group.name,
+                                              subChoice,
+                                            )
+                                          }
+                                        />
+                                      );
+                                    })}
+                                  </View>
+                                </View>
+                              ))}
+                            </View>
                           ) : null}
                         </View>
                       );
@@ -1064,6 +1154,28 @@ const styles = StyleSheet.create({
   variantCardActive: {
     borderColor: colors.primary,
     backgroundColor: '#FFF7ED',
+  },
+  variantChoices: {
+    marginTop: 8,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: 10,
+  },
+  variantChoicesLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    color: colors.textSecondary,
+  },
+  variantChoiceGroup: {
+    gap: 6,
+  },
+  variantChoiceTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
   },
   includesBox: {
     marginTop: 6,

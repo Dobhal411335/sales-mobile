@@ -113,6 +113,9 @@ function normalizeVariant(raw: Record<string, unknown>): ProductVariant {
     price: Number(raw.price) || 0,
     status: raw.status ? String(raw.status) : undefined,
     ingredients: normalizeIngredients(raw.ingredients),
+    choiceOptions: normalizeChoiceOptions(
+      raw.choiceOptions as ProductVariant['choiceOptions'],
+    ),
   };
 }
 

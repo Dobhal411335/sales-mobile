@@ -77,7 +77,8 @@ export function FloorScreen({navigation}: Props) {
   }, [isFocused, reload]);
 
   const {connectionStatus} = useFloorRealtime(selectedFloorId, focusedReload);
-  const {takeAwayUnpaid, staffUnpaid, onlineOpen} = useFloorAttentionCounts();
+  const {takeAwayUnpaid, staffUnpaid, onlineOpen, upcomingOffers} =
+    useFloorAttentionCounts();
 
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   const [startSessionTable, setStartSessionTable] = useState<FloorTable | null>(
@@ -94,7 +95,7 @@ export function FloorScreen({navigation}: Props) {
 
   const currentUserId = user?.id ?? null;
   const canAdminOverride = canOverrideFloorSession(user?.role);
-  const attention = {takeAwayUnpaid, staffUnpaid, onlineOpen};
+  const attention = {takeAwayUnpaid, staffUnpaid, onlineOpen, upcomingOffers};
 
   const handleTablePress = useCallback(
     (table: FloorTable, session: TableSession | null) => {
@@ -164,6 +165,10 @@ export function FloorScreen({navigation}: Props) {
 
   const handleSelectOrderType = useCallback(
     (orderType: FloorOrderShortcut) => {
+      if (orderType === 'upcomingOffers') {
+        navigateFast(navigation, 'UpcomingOffers');
+        return;
+      }
       if (orderType === 'online') {
         navigateFast(navigation, 'Orders', {filter: 'ONLINE'});
         return;

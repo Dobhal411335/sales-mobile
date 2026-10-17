@@ -14,12 +14,17 @@ import {UsersIcon} from '../common/Icons';
 import {Popover} from '../common/Popover';
 import {FloorSelector} from './FloorSelector';
 
-export type FloorOrderShortcut = 'takeaway' | 'staff' | 'online';
+export type FloorOrderShortcut =
+  | 'takeaway'
+  | 'staff'
+  | 'online'
+  | 'upcomingOffers';
 
 interface FloorAttention {
   takeAwayUnpaid: number;
   staffUnpaid: number;
   onlineOpen: number;
+  upcomingOffers?: number;
 }
 
 interface FloorHeaderProps {
@@ -72,7 +77,12 @@ export function FloorHeader({
   onlineStaffCount,
   onlineStaff = [],
   connectionStatus = 'disconnected',
-  attention = {takeAwayUnpaid: 0, staffUnpaid: 0, onlineOpen: 0},
+  attention = {
+    takeAwayUnpaid: 0,
+    staffUnpaid: 0,
+    onlineOpen: 0,
+    upcomingOffers: 0,
+  },
   refreshing = false,
   onSelectFloor,
   onToggleGrid,

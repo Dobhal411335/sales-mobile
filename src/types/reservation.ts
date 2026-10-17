@@ -25,10 +25,13 @@ export interface TableReservation {
   _id: string;
   guestName: string;
   phone: string;
+  countryCode?: string;
   email?: string;
   date: string;
   time: string;
   guests: number;
+  reasonForVisit?: string;
+  specialRequest?: string;
   status: ReservationStatus;
   notes?: string;
   staffNote?: string;

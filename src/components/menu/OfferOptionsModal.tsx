@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {
+  Alert,
   Modal,
   Pressable,
   StyleSheet,
@@ -28,7 +29,7 @@ function toggleValue(list: string[], value: string): string[] {
     : [...list, value];
 }
 
-function OptionRow({
+function CheckboxRow({
   label,
   active,
   onPress,
@@ -51,6 +52,29 @@ function OptionRow({
   );
 }
 
+function RadioRow({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={[styles.optionRow, active && styles.optionRowActive]}
+      onPress={onPress}
+      accessibilityRole="radio"
+      accessibilityState={{selected: active}}>
+      <View style={[styles.radio, active && styles.radioActive]}>
+        {active ? <View style={styles.radioDot} /> : null}
+      </View>
+      <Text style={styles.optionText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function OfferOptionsModal({
   visible,
   offer,
@@ -59,8 +83,9 @@ export function OfferOptionsModal({
   onAdd,
 }: OfferOptionsModalProps) {
   const [selectedInclusions, setSelectedInclusions] = useState<string[]>([]);
-  const [selectedChoices, setSelectedChoices] = useState<string[]>([]);
-  const [selectedDrinks, setSelectedDrinks] = useState<string[]>([]);
+  // Single-select for choices / drinks (radio)
+  const [selectedChoice, setSelectedChoice] = useState('');
+  const [selectedDrink, setSelectedDrink] = useState('');
 
   useEffect(() => {
     if (!offer || !visible) {
@@ -70,8 +95,8 @@ export function OfferOptionsModal({
     const choices = cleanOfferList(offer.choices);
     const drinks = cleanOfferList(offer.drinks);
     setSelectedInclusions(inclusions);
-    setSelectedChoices(choices.length === 1 ? choices : []);
-    setSelectedDrinks(drinks.length === 1 ? drinks : []);
+    setSelectedChoice(choices.length === 1 ? choices[0] : '');
+    setSelectedDrink(drinks.length === 1 ? drinks[0] : '');
   }, [offer, visible]);
 
   if (!offer) {
@@ -83,13 +108,16 @@ export function OfferOptionsModal({
   const drinks = cleanOfferList(offer.drinks);
 
   const handleAdd = () => {
+    const ch = selectedChoice ? [selectedChoice] : [];
+    const dr = selectedDrink ? [selectedDrink] : [];
+
     onAdd([
       buildOfferCartLine(
         offer,
         {
           inclusions: selectedInclusions,
-          choices: selectedChoices,
-          drinks: selectedDrinks,
+          choices: ch,
+          drinks: dr,
           notes: '',
         },
         globalTaxes,
@@ -114,7 +142,7 @@ export function OfferOptionsModal({
               </Text>
             </View>
             <Text style={styles.subtitle}>
-              Select inclusions, choices and drinks
+              Select inclusions, one choice and one drink
             </Text>
             <Text style={styles.price}>{formatCurrency(offer.price || 0)}</Text>
           </View>
@@ -126,7 +154,7 @@ export function OfferOptionsModal({
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Inclusions</Text>
                 {inclusions.map((item) => (
-                  <OptionRow
+                  <CheckboxRow
                     key={item}
                     label={item}
                     active={selectedInclusions.includes(item)}
@@ -139,32 +167,28 @@ export function OfferOptionsModal({
             ) : null}
 
             {choices.length > 0 ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Choices</Text>
+              <View style={styles.section} accessibilityRole="radiogroup">
+                <Text style={styles.sectionTitle}>Choices (pick one)</Text>
                 {choices.map((item) => (
-                  <OptionRow
+                  <RadioRow
                     key={item}
                     label={item}
-                    active={selectedChoices.includes(item)}
-                    onPress={() =>
-                      setSelectedChoices((prev) => toggleValue(prev, item))
-                    }
+                    active={selectedChoice === item}
+                    onPress={() => setSelectedChoice(item)}
                   />
                 ))}
               </View>
             ) : null}
 
             {drinks.length > 0 ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Drinks</Text>
+              <View style={styles.section} accessibilityRole="radiogroup">
+                <Text style={styles.sectionTitle}>Drinks (pick one)</Text>
                 {drinks.map((item) => (
-                  <OptionRow
+                  <RadioRow
                     key={item}
                     label={item}
-                    active={selectedDrinks.includes(item)}
-                    onPress={() =>
-                      setSelectedDrinks((prev) => toggleValue(prev, item))
-                    }
+                    active={selectedDrink === item}
+                    onPress={() => setSelectedDrink(item)}
                   />
                 ))}
               </View>
@@ -299,6 +323,25 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '800',
+  },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  radioActive: {
+    borderColor: colors.primary,
+  },
+  radioDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
   },
   optionText: {
     flex: 1,

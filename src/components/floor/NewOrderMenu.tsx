@@ -1,7 +1,11 @@
 import React from 'react';
 import {ActionSheet} from '../common/ActionSheet';
 
-export type FloorOrderShortcut = 'takeaway' | 'staff' | 'online';
+export type FloorOrderShortcut =
+  | 'takeaway'
+  | 'staff'
+  | 'online'
+  | 'upcomingOffers';
 
 const ORDER_TYPE_OPTIONS: {
   label: string;
@@ -20,6 +24,7 @@ interface NewOrderMenuProps {
     takeAwayUnpaid?: number;
     staffUnpaid?: number;
     onlineOpen?: number;
+    upcomingOffers?: number;
   };
 }
 

@@ -62,8 +62,9 @@ export function buildOfferCartLine(
   const inclusions = cleanOfferList(
     selection.inclusions ?? offer.inclusions,
   );
-  const choices = cleanOfferList(selection.choices);
-  const drinks = cleanOfferList(selection.drinks);
+  // Choices & drinks: at most one each (radio selection)
+  const choices = cleanOfferList(selection.choices).slice(0, 1);
+  const drinks = cleanOfferList(selection.drinks).slice(0, 1);
   const options = buildOfferOptions({inclusions, choices, drinks});
   const modifier = buildOfferCartModifier({inclusions, choices, drinks});
 

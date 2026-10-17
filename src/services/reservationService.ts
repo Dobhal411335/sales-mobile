@@ -47,15 +47,25 @@ function toId(value: unknown): string {
 
 function normalizeReservation(raw: Record<string, unknown>): TableReservation {
   const id = toId(raw._id ?? raw.id);
+  const specialRequest = raw.specialRequest
+    ? String(raw.specialRequest)
+    : raw.notes
+      ? String(raw.notes)
+      : undefined;
   return {
     id,
     _id: id,
     guestName: String(raw.guestName ?? ''),
     phone: String(raw.phone ?? ''),
+    countryCode: raw.countryCode ? String(raw.countryCode) : undefined,
     email: raw.email ? String(raw.email) : undefined,
     date: String(raw.date ?? ''),
     time: String(raw.time ?? ''),
     guests: Number(raw.guests) || 1,
+    reasonForVisit: raw.reasonForVisit
+      ? String(raw.reasonForVisit)
+      : undefined,
+    specialRequest,
     status: String(raw.status ?? 'PENDING') as TableReservation['status'],
     notes: raw.notes ? String(raw.notes) : undefined,
     staffNote: raw.staffNote ? String(raw.staffNote) : undefined,
@@ -76,7 +86,7 @@ export async function fetchTodayReservations(): Promise<ReservationsResponse> {
 
   try {
     const response = await api.get<ApiEnvelope<Record<string, unknown>[]>>(
-      '/api/sales/reservations?today=true',
+      '/api/sales/reservations',
     );
     if (!response.data?.success) {
       return {

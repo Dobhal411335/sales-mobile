@@ -12,6 +12,9 @@ const LOADERS: Partial<Record<PrefetchKey, () => void>> = {
   Booking: () => {
     require('../screens/sales/booking/BookingScreen');
   },
+  UpcomingOffers: () => {
+    require('../screens/sales/upcoming-offers/UpcomingOffersScreen');
+  },
   TakeAwayHub: () => {
     require('../screens/sales/take-away/TakeAwayHubScreen');
   },
@@ -68,6 +71,7 @@ export function prefetchFloorDestinations(): () => void {
       const hot: PrefetchKey[] = [
         'Orders',
         'Booking',
+        'UpcomingOffers',
         'TakeAwayHub',
         'StaffHub',
         'CreateOrder',

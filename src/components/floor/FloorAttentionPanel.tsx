@@ -3,6 +3,7 @@ import {Pressable, StyleSheet, Text, View} from 'react-native';
 import {
   ArrowRight,
   CheckCircle2,
+  Gift,
   Globe,
   ShoppingBag,
   UserRound,
@@ -14,6 +15,7 @@ interface FloorAttention {
   takeAwayUnpaid: number;
   staffUnpaid: number;
   onlineOpen: number;
+  upcomingOffers: number;
 }
 
 interface FloorAttentionPanelProps {
@@ -62,6 +64,16 @@ const ATTENTION_ITEMS: {
     text: '#0C4A6E',
     badgeBg: '#0284C7',
   },
+  {
+    id: 'upcomingOffers',
+    label: 'Upcoming Offers',
+    countKey: 'upcomingOffers',
+    Icon: Gift,
+    border: '#DDD6FE',
+    background: '#F5F3FF',
+    text: '#4C1D95',
+    badgeBg: '#7C3AED',
+  },
 ];
 
 const TABLE_STATUS_LEGEND = [
@@ -79,7 +91,10 @@ export function FloorAttentionPanel({
   layout = 'rail',
 }: FloorAttentionPanelProps) {
   const total =
-    attention.takeAwayUnpaid + attention.staffUnpaid + attention.onlineOpen;
+    attention.takeAwayUnpaid +
+    attention.staffUnpaid +
+    attention.onlineOpen +
+    (attention.upcomingOffers || 0);
   const isSheet = layout === 'sheet';
 
   return (
@@ -129,7 +144,8 @@ export function FloorAttentionPanel({
           <View style={styles.clearCard}>
             <CheckCircle2 size={16} color="#059669" strokeWidth={2.2} />
             <Text style={styles.clearText}>
-              All clear — no unpaid takeaway, staff, or open online orders.
+              All clear — no unpaid takeaway, staff, open online, or upcoming
+              offer orders.
             </Text>
           </View>
         ) : null}

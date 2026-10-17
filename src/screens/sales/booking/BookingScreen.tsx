@@ -54,6 +54,30 @@ function formatTimeLabel(time?: string): string {
   return `${h12}:${min} ${period}`;
 }
 
+function formatDateLabel(iso?: string): string {
+  if (!iso) {
+    return '—';
+  }
+  try {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString('en-CA', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+}
+
+function formatPhone(phone?: string, countryCode?: string): string {
+  const digits = String(phone || '').trim();
+  if (!digits) {
+    return '—';
+  }
+  const code = String(countryCode || '').trim();
+  return code ? `${code} ${digits}` : digits;
+}
+
 function statusColors(status?: string) {
   const s = String(status || '').toUpperCase();
   if (s === 'PENDING') {
@@ -157,7 +181,7 @@ export function BookingScreen({navigation}: Props) {
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((r) =>
-        `${r.guestName} ${r.phone} ${r.email || ''} ${r.time} ${r.status} ${r.assignedTableNo || ''}`
+        `${r.guestName} ${r.phone} ${r.email || ''} ${r.date || ''} ${r.time} ${r.status} ${r.assignedTableNo || ''} ${r.reasonForVisit || ''} ${r.specialRequest || r.notes || ''}`
           .toLowerCase()
           .includes(q),
       );
@@ -169,6 +193,10 @@ export function BookingScreen({navigation}: Props) {
       }
       if (b.status === 'PENDING' && a.status !== 'PENDING') {
         return 1;
+      }
+      const dateCmp = String(a.date || '').localeCompare(String(b.date || ''));
+      if (dateCmp !== 0) {
+        return dateCmp;
       }
       return String(a.time).localeCompare(String(b.time));
     });
@@ -201,12 +229,14 @@ export function BookingScreen({navigation}: Props) {
     [loadRows, upsertRow],
   );
 
-  const callGuest = useCallback((phone?: string) => {
+  const callGuest = useCallback((phone?: string, countryCode?: string) => {
     const digits = String(phone || '').replace(/\D/g, '');
     if (!digits) {
       return;
     }
-    Linking.openURL(`tel:${digits}`).catch(() => {
+    const codeDigits = String(countryCode || '').replace(/\D/g, '');
+    const dial = codeDigits ? `${codeDigits}${digits}` : digits;
+    Linking.openURL(`tel:${dial}`).catch(() => {
       toast.error('Unable to open phone dialer');
     });
   }, []);
@@ -224,7 +254,7 @@ export function BookingScreen({navigation}: Props) {
       <View style={styles.row}>
         <View style={[styles.rowMain, isWide && styles.rowMainWide]}>
           <View style={styles.timeCol}>
-            <Text style={styles.arrivalLabel}>Arrival</Text>
+            <Text style={styles.arrivalLabel}>{formatDateLabel(item.date)}</Text>
             <Text style={styles.arrivalTime}>{formatTimeLabel(item.time)}</Text>
             <View
               style={[
@@ -250,12 +280,12 @@ export function BookingScreen({navigation}: Props) {
               </View>
               <Pressable
                 style={styles.metaItem}
-                onPress={() => callGuest(item.phone)}
+                onPress={() => callGuest(item.phone, item.countryCode)}
                 accessibilityRole="button"
-                accessibilityLabel={`Call ${item.phone}`}>
+                accessibilityLabel={`Call ${formatPhone(item.phone, item.countryCode)}`}>
                 <Phone size={14} color={colors.primary} />
                 <Text style={[styles.metaText, styles.phoneLink]}>
-                  {item.phone}
+                  {formatPhone(item.phone, item.countryCode)}
                 </Text>
               </Pressable>
               {item.email ? (
@@ -274,9 +304,14 @@ export function BookingScreen({navigation}: Props) {
                 </View>
               ) : null}
             </View>
-            {item.notes ? (
+            {item.reasonForVisit ? (
               <Text style={styles.notePreview} numberOfLines={1}>
-                Note: {item.notes}
+                Reason: {item.reasonForVisit}
+              </Text>
+            ) : null}
+            {item.specialRequest || item.notes ? (
+              <Text style={styles.notePreview} numberOfLines={2}>
+                Special request: {item.specialRequest || item.notes}
               </Text>
             ) : null}
           </View>
@@ -409,7 +444,7 @@ export function BookingScreen({navigation}: Props) {
             <View style={styles.titleBlock}>
               <Text style={styles.title}>Table Bookings</Text>
               <Text style={styles.subtitle}>
-                Today · {counts.PENDING} waiting for a decision
+                Upcoming · {counts.PENDING} waiting for a decision
               </Text>
             </View>
           </View>
@@ -456,7 +491,7 @@ export function BookingScreen({navigation}: Props) {
               tone: {bg: '#FAFAFA', text: '#52525B', border: '#E4E4E7'},
             },
             {
-              label: 'Today',
+              label: 'Upcoming',
               value: counts.ALL,
               tone: {bg: '#FFF7ED', text: '#C2410C', border: '#FED7AA'},
             },

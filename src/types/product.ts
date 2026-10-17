@@ -6,17 +6,19 @@ export interface MenuCategory {
   status?: string;
 }
 
+export interface ChoiceOptionGroup {
+  name: string;
+  subChoices: string[];
+}
+
 export interface ProductVariant {
   size: string;
   price: number;
   status?: string;
   /** Included items shown under the variant (POS “Includes”). */
   ingredients?: string[];
-}
-
-export interface ChoiceOptionGroup {
-  name: string;
-  subChoices: string[];
+  /** Per-size choice groups (merged into choiceSelections at order time). */
+  choiceOptions?: ChoiceOptionGroup[];
 }
 
 export interface CustomDataGroup {
@@ -114,10 +116,24 @@ export function productNeedsOptions(product: MenuProduct): boolean {
       (group) => group.name && group.subChoices?.length,
     ),
   );
+  const hasVariantChoices = Boolean(
+    product.variants?.some((variant) =>
+      variant.choiceOptions?.some(
+        (group) => group.name && group.subChoices?.length,
+      ),
+    ),
+  );
   const hasCustomData = Boolean(
     product.customData?.some(
       (group) => group.name && group.subChoices?.length,
     ),
   );
-  return hasVariants || hasAddons || hasStyles || hasChoices || hasCustomData;
+  return (
+    hasVariants ||
+    hasAddons ||
+    hasStyles ||
+    hasChoices ||
+    hasVariantChoices ||
+    hasCustomData
+  );
 }

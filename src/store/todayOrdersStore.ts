@@ -8,6 +8,7 @@ export interface FloorAttentionCounts {
   takeAwayUnpaid: number;
   staffUnpaid: number;
   onlineOpen: number;
+  upcomingOffers: number;
 }
 
 interface TodayOrdersState {
@@ -20,9 +21,13 @@ interface TodayOrdersState {
   fetch: (options?: {silent?: boolean; force?: boolean}) => Promise<void>;
   mergeOrder: (orderId: string, next: TodayOrder) => void;
   setOrders: (orders: TodayOrder[]) => void;
+  setUpcomingOffersCount: (count: number) => void;
 }
 
-function computeAttention(orders: TodayOrder[]): FloorAttentionCounts {
+function computeAttention(
+  orders: TodayOrder[],
+  upcomingOffers = 0,
+): FloorAttentionCounts {
   let takeAwayUnpaid = 0;
   let staffUnpaid = 0;
   let onlineOpen = 0;
@@ -39,7 +44,7 @@ function computeAttention(orders: TodayOrder[]): FloorAttentionCounts {
       onlineOpen += 1;
     }
   }
-  return {takeAwayUnpaid, staffUnpaid, onlineOpen};
+  return {takeAwayUnpaid, staffUnpaid, onlineOpen, upcomingOffers};
 }
 
 let inflight: Promise<void> | null = null;
@@ -50,12 +55,18 @@ export const useTodayOrdersStore = create<TodayOrdersState>((set, get) => ({
   refreshing: false,
   error: null,
   lastFetchedAt: null,
-  attention: {takeAwayUnpaid: 0, staffUnpaid: 0, onlineOpen: 0},
+  attention: {
+    takeAwayUnpaid: 0,
+    staffUnpaid: 0,
+    onlineOpen: 0,
+    upcomingOffers: 0,
+  },
 
   setOrders: (orders) => {
+    const upcomingOffers = get().attention.upcomingOffers;
     set({
       orders,
-      attention: computeAttention(orders),
+      attention: computeAttention(orders, upcomingOffers),
       lastFetchedAt: Date.now(),
       loading: false,
       error: null,
@@ -66,7 +77,21 @@ export const useTodayOrdersStore = create<TodayOrdersState>((set, get) => ({
     const orders = get().orders.map((order) =>
       order._id === orderId ? {...order, ...next} : order,
     );
-    set({orders, attention: computeAttention(orders)});
+    set({
+      orders,
+      attention: computeAttention(orders, get().attention.upcomingOffers),
+    });
+  },
+
+  setUpcomingOffersCount: (count) => {
+    const next = Number(count) || 0;
+    const {orders, attention} = get();
+    if (attention.upcomingOffers === next) {
+      return;
+    }
+    set({
+      attention: computeAttention(orders, next),
+    });
   },
 
   fetch: async (options) => {
@@ -91,7 +116,10 @@ export const useTodayOrdersStore = create<TodayOrdersState>((set, get) => ({
         if (response.success && response.data) {
           set({
             orders: response.data,
-            attention: computeAttention(response.data),
+            attention: computeAttention(
+              response.data,
+              get().attention.upcomingOffers,
+            ),
             lastFetchedAt: Date.now(),
             error: null,
           });

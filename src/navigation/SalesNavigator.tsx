@@ -10,6 +10,7 @@ import {FloorScreen} from '../screens/sales/floor/FloorScreen';
 // Hot destinations: static import so Floor → Orders/Booking/hubs/CreateOrder open instantly.
 import {CreateOrderScreen} from '../screens/sales/create-order/CreateOrderScreen';
 import {BookingScreen} from '../screens/sales/booking/BookingScreen';
+import {UpcomingOffersScreen} from '../screens/sales/upcoming-offers/UpcomingOffersScreen';
 import {TodaySalesScreen as OrdersScreen} from '../screens/sales/today/TodaySales';
 import {TakeAwayHubScreen} from '../screens/sales/take-away/TakeAwayHubScreen';
 import {StaffHubScreen} from '../screens/sales/staff/StaffHubScreen';
@@ -87,6 +88,7 @@ export function SalesNavigator() {
         <Stack.Screen name="CreateOrder" component={CreateOrderScreen} />
         <Stack.Screen name="Orders" component={OrdersScreen} />
         <Stack.Screen name="Booking" component={BookingScreen} />
+        <Stack.Screen name="UpcomingOffers" component={UpcomingOffersScreen} />
         <Stack.Screen
           name="Payment"
           getComponent={() =>

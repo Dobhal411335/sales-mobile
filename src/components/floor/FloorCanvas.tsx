@@ -167,10 +167,15 @@ export function FloorCanvas({
                   currentUserId,
                 );
                 const cardSize = getTableCardSize(table);
+                // Match Web sales floor positioning (page.js).
                 const left =
-                  (table.x || 0) - contentBounds.offsetX + cardSize.width * 0.06;
+                  (table.x || 0) -
+                  contentBounds.offsetX -
+                  (table.width || 80) * 0.1;
                 const top =
-                  (table.y || 0) - contentBounds.offsetY + cardSize.height * 0.06;
+                  (table.y || 0) -
+                  contentBounds.offsetY -
+                  (table.height || 80) * 0.1;
 
                 return (
                   <View
@@ -182,6 +187,7 @@ export function FloorCanvas({
                         top,
                         width: cardSize.width,
                         height: cardSize.height,
+                        transform: [{rotate: `${table.rotation || 0}deg`}],
                       },
                     ]}>
                     <TableCard
@@ -222,7 +228,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   canvas: {
-    position: 'relative',
+    position: 'absolute',
+    top: 0,
+    left: 0,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.text,
@@ -230,12 +238,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     transformOrigin: 'top left',
   },
-  linesGrid: {
-    ...StyleSheet.absoluteFill,
-    opacity: 0.35,
-  },
   gridOverlay: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
   },
   gridLineVertical: {
     position: 'absolute',
@@ -243,7 +247,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 1,
     backgroundColor: '#9CA3AF',
-    opacity: 0.35,
+    opacity: 0.55,
   },
   gridLineHorizontal: {
     position: 'absolute',
@@ -251,7 +255,7 @@ const styles = StyleSheet.create({
     right: 0,
     height: 1,
     backgroundColor: '#9CA3AF',
-    opacity: 0.35,
+    opacity: 0.55,
   },
   gridDot: {
     position: 'absolute',
@@ -259,7 +263,7 @@ const styles = StyleSheet.create({
     height: 3,
     borderRadius: 2,
     backgroundColor: '#64748B',
-    opacity: 0.55,
+    opacity: 0.8,
   },
   tablePosition: {
     position: 'absolute',
@@ -277,7 +281,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFill,
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255,255,255,0.6)',
     alignItems: 'center',
     justifyContent: 'center',

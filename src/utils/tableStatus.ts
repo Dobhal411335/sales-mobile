@@ -121,9 +121,9 @@ export function getTableCardSize(table: FloorTable): {
   width: number;
   height: number;
 } {
-  // Slightly under stored floor coords so cards don't touch neighbors.
+  // Match Web sales floor card sizing (page.js).
   return {
-    width: (table.width || 80) * 1,
+    width: (table.width || 80) * 1.2,
     height: (table.height || 80) * 1.1,
   };
 }

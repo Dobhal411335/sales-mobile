@@ -2,10 +2,13 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  LayoutAnimation,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
+  UIManager,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -82,6 +85,11 @@ function ListSeparator() {
   return <View style={styles.separator} />;
 }
 
+// Enable LayoutAnimation on Android
+if (Platform.OS === 'android') {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
 export function UpcomingOffersScreen({navigation}: Props) {
   const {width} = useWindowDimensions();
   const isWide = width >= 900;
@@ -135,6 +143,13 @@ export function UpcomingOffersScreen({navigation}: Props) {
     };
   }, [loadRows]);
 
+  const [openItems, setOpenItems] = useState<Record<string, boolean>>({});
+
+  const toggleItem = useCallback((key: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setOpenItems(prev => ({...prev, [key]: !prev[key]}));
+  }, []);
+
   const renderItem = ({item: order}: {item: UpcomingOfferOrder}) => {
     const id = order._id || order.id || order.orderNumber;
     const offerItems = (order.items || []).filter(
@@ -144,6 +159,7 @@ export function UpcomingOffersScreen({navigation}: Props) {
     const tone = statusColors(order.status);
     const dateParts = splitDateParts(order.offerFulfillmentDate);
     const status = String(order.status || 'PENDING').toUpperCase();
+    const isSingleLine = lines.length === 1;
 
     return (
       <View style={[styles.card, isWide && styles.cardWide]}>
@@ -208,52 +224,113 @@ export function UpcomingOffersScreen({navigation}: Props) {
               </View>
             </View>
 
+            {/* Accordion offer items */}
             <View style={styles.itemsBlock}>
               {lines.map((lineItem, idx) => {
+                const itemKey = `${id}-item-${idx}`;
+                const isOpen = Boolean(openItems[itemKey]);
                 const details = getOfferDetailLines(lineItem);
+                const rawPrice =
+                  lineItem.price != null ? Number(lineItem.price) : null;
+                const qty = Math.max(1, Number(lineItem.qty) || 1);
+                const lineTotal =
+                  rawPrice != null && !Number.isNaN(rawPrice)
+                    ? rawPrice * qty
+                    : isSingleLine && order.totalAmount != null
+                      ? Number(order.totalAmount)
+                      : null;
+                const unitPrice =
+                  lineTotal != null && qty > 1 ? lineTotal / qty : null;
+
                 return (
-                  <View key={`${id}-item-${idx}`} style={styles.itemCard}>
-                    <View style={styles.itemTitleRow}>
-                      <Gift size={15} color="#F97316" strokeWidth={2.2} />
-                      <Text style={styles.itemTitle}>
-                        {lineItem.qty}× {lineItem.name}
-                      </Text>
-                    </View>
-                    {details.length ? (
-                      <View style={styles.detailBlock}>
-                        {details.map((detail) => {
-                          const values = String(detail.value || '')
-                            .split(/\s*,\s*/)
-                            .map((part) => part.trim())
-                            .filter(Boolean);
-                          const bullets = values.length
-                            ? values
-                            : [detail.value];
-                          return (
-                            <View
-                              key={`${idx}-${detail.label}`}
-                              style={styles.detailGroup}>
-                              <Text style={styles.detailLabel}>
-                                {detail.label}
-                              </Text>
-                              {bullets.map((value) => (
-                                <View
-                                  key={`${idx}-${detail.label}-${value}`}
-                                  style={styles.bulletRow}>
-                                  <View style={styles.bulletDot} />
-                                  <Text style={styles.detailValue}>{value}</Text>
-                                </View>
-                              ))}
-                            </View>
-                          );
-                        })}
+                  <View key={itemKey} style={styles.accordionCard}>
+                    <Pressable
+                      style={({pressed}) => [
+                        styles.accordionHeader,
+                        pressed && styles.accordionHeaderPressed,
+                      ]}
+                      onPress={() => toggleItem(itemKey)}
+                      accessibilityRole="button"
+                      accessibilityState={{expanded: isOpen}}>
+                      <View style={styles.accordionHeaderLeft}>
+                        <Gift size={14} color="#F97316" strokeWidth={2.2} />
+                        <Text style={styles.accordionTitle} numberOfLines={2}>
+                          {lineItem.qty}× {lineItem.name}
+                        </Text>
                       </View>
-                    ) : null}
-                    {lineItem.notes ? (
-                      <Text style={styles.itemRemark}>
-                        Remark: {lineItem.notes}
-                      </Text>
-                    ) : null}
+                      <View style={styles.accordionHeaderRight}>
+                        {lineTotal != null ? (
+                          <View style={styles.priceBlock}>
+                            {unitPrice != null ? (
+                              <Text style={styles.unitPrice}>
+                                (${unitPrice.toFixed(2)} each)
+                              </Text>
+                            ) : null}
+                            <Text style={styles.linePrice}>
+                              ${lineTotal.toFixed(2)}
+                            </Text>
+                          </View>
+                        ) : null}
+                        <Text
+                          style={[
+                            styles.chevron,
+                            isOpen && styles.chevronOpen,
+                          ]}>
+                          ›
+                        </Text>
+                      </View>
+                    </Pressable>
+
+                    {isOpen && (
+                      <View style={styles.accordionBody}>
+                        {details.length > 0 ? (
+                          <View style={styles.detailBlock}>
+                            {details.map((detail, dIdx) => {
+                              const values =
+                                detail.values && detail.values.length
+                                  ? detail.values
+                                  : String(detail.value || '')
+                                      .split(/\s*,\s*/)
+                                      .map(p => p.trim())
+                                      .filter(Boolean);
+                              return (
+                                <View
+                                  key={`${itemKey}-d-${dIdx}`}
+                                  style={styles.detailGroup}>
+                                  <Text style={styles.detailLabel}>
+                                    {detail.label}
+                                  </Text>
+                                  {values.map((v, vi) => (
+                                    <View
+                                      key={`${itemKey}-d-${dIdx}-${vi}`}
+                                      style={styles.bulletRow}>
+                                      <View style={styles.bulletDot} />
+                                      <Text style={styles.detailValue}>
+                                        {v}
+                                      </Text>
+                                    </View>
+                                  ))}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        ) : !lineItem.notes ? (
+                          <Text style={styles.emptyDetail}>
+                            No additional choices or inclusions specified.
+                          </Text>
+                        ) : null}
+                        {lineItem.notes ? (
+                          <Text
+                            style={[
+                              styles.itemRemark,
+                              details.length > 0 &&
+                                styles.itemRemarkBordered,
+                            ]}>
+                            Remark: {lineItem.notes}
+                          </Text>
+                        ) : null}
+                      </View>
+                    )}
                   </View>
                 );
               })}
@@ -704,6 +781,88 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontStyle: 'italic',
     color: '#92400E',
+  },
+  itemRemarkBordered: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F5F5F4',
+    marginLeft: 0,
+  },
+  accordionCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E7E5E4',
+    overflow: 'hidden',
+    backgroundColor: '#FAFAF9',
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+  },
+  accordionHeaderPressed: {
+    backgroundColor: '#F5F5F4',
+  },
+  accordionHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  accordionTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  accordionHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
+  },
+  priceBlock: {
+    alignItems: 'flex-end',
+    gap: 1,
+  },
+  unitPrice: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#A8A29E',
+  },
+  linePrice: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: colors.text,
+    fontVariant: ['tabular-nums'],
+  },
+  chevron: {
+    fontSize: 22,
+    fontWeight: '300',
+    color: '#A8A29E',
+    lineHeight: 26,
+    transform: [{rotate: '0deg'}],
+  },
+  chevronOpen: {
+    transform: [{rotate: '90deg'}],
+    color: '#F97316',
+  },
+  accordionBody: {
+    borderTopWidth: 1,
+    borderTopColor: '#F0EFED',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  emptyDetail: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    color: '#A8A29E',
   },
   specialNoteBox: {
     flexDirection: 'row',

@@ -69,8 +69,14 @@ function normalizeReservation(raw: Record<string, unknown>): TableReservation {
     status: String(raw.status ?? 'PENDING') as TableReservation['status'],
     notes: raw.notes ? String(raw.notes) : undefined,
     staffNote: raw.staffNote ? String(raw.staffNote) : undefined,
+    assignedTableId: raw.assignedTableId
+      ? String(raw.assignedTableId)
+      : undefined,
     assignedTableNo: raw.assignedTableNo
       ? String(raw.assignedTableNo)
+      : undefined,
+    tableSessionId: raw.tableSessionId
+      ? String(raw.tableSessionId)
       : undefined,
     source: raw.source ? String(raw.source) : undefined,
     createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
@@ -138,7 +144,7 @@ export async function fetchPendingReservationCount(): Promise<PendingCountRespon
 export async function patchReservation(
   reservationId: string,
   action: ReservationPatchAction,
-  extra?: {assignedTableNo?: string},
+  extra?: {assignedTableNo?: string; tableId?: string},
 ): Promise<PatchReservationResponse> {
   if (!useLiveApi) {
     await new Promise<void>((resolve) => setTimeout(resolve, 300));
@@ -157,6 +163,7 @@ export async function patchReservation(
         ...(extra?.assignedTableNo
           ? {assignedTableNo: extra.assignedTableNo}
           : {}),
+        ...(extra?.tableId ? {tableId: extra.tableId} : {}),
       },
     );
 
@@ -177,5 +184,32 @@ export async function patchReservation(
       success: false,
       message: mapReservationApiError(error, 'Failed to update booking'),
     };
+  }
+}
+
+export interface FloorTableOption {
+  id: string;
+  tableNumber: string;
+  seats: number;
+  section?: string;
+  floorName?: string;
+  isOccupied: boolean;
+  sessionId?: string | null;
+}
+
+export async function fetchFloorTables(): Promise<FloorTableOption[]> {
+  if (!useLiveApi) {
+    return [];
+  }
+  try {
+    const response = await api.get<ApiEnvelope<FloorTableOption[]>>(
+      '/api/sales/reservations?tables=true',
+    );
+    if (response.data?.success && Array.isArray(response.data.data)) {
+      return response.data.data;
+    }
+    return [];
+  } catch {
+    return [];
   }
 }

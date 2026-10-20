@@ -35,7 +35,9 @@ export interface TableReservation {
   status: ReservationStatus;
   notes?: string;
   staffNote?: string;
+  assignedTableId?: string;
   assignedTableNo?: string;
+  tableSessionId?: string;
   source?: string;
   createdAt?: string;
   updatedAt?: string;

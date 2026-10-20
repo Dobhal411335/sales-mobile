@@ -17,6 +17,7 @@ import {
   getStatusColors,
 } from '../../utils/todayOrderHelpers';
 import {getOrderTypeBadgeColors} from '../../utils/todayOrderHelpers';
+import {isOfferItem} from '../../utils/offerDetails';
 
 interface TodayOrderCardProps {
   order: TodayOrder;
@@ -42,6 +43,7 @@ export function TodayOrderCard({order, selected, onPress}: TodayOrderCardProps) 
   const locationLabel = getOrderLocationLabel(order);
   const partyLabel = getOrderPartyLabel(order);
   const guestCount = order.guestCount;
+  const hasOffer = (order.items || []).some(isOfferItem);
 
   return (
     <Pressable
@@ -69,6 +71,11 @@ export function TodayOrderCard({order, selected, onPress}: TodayOrderCardProps) 
               {getOrderTypeLabel(order).toUpperCase()}
             </Text>
           </View>
+          {hasOffer && (
+            <View style={styles.offerBadge}>
+              <Text style={styles.offerBadgeText}>🎁 OFFER</Text>
+            </View>
+          )}
         </View>
 
         <Text style={styles.location}>{locationLabel}</Text>
@@ -164,6 +171,20 @@ const styles = StyleSheet.create({
   typeBadgeText: {
     fontSize: 9,
     fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  offerBadge: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+    backgroundColor: '#FFF7ED',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  offerBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: '#C2410C',
     letterSpacing: 0.5,
   },
   location: {

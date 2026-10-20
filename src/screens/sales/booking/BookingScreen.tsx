@@ -24,12 +24,19 @@ import {
   Search,
   Users,
   X,
+  Armchair,
+  ShoppingBag,
 } from 'lucide-react-native';
 import {toast} from '../../../components/common/Toast';
 import {SalesPageSkeleton} from '../../../components/common/SalesPageSkeleton';
+import {TabletModal} from '../../../components/common/TabletModal';
 import {colors} from '../../../constants/colors';
 import type {SalesStackParamList} from '../../../navigation/types';
-import {patchReservation} from '../../../services/reservationService';
+import {
+  fetchFloorTables,
+  patchReservation,
+  type FloorTableOption,
+} from '../../../services/reservationService';
 import {socketClient} from '../../../socket/socket';
 import type {
   ReservationFilter,
@@ -99,6 +106,13 @@ function ListSeparator() {
 export function BookingScreen({navigation}: Props) {
   const {width} = useWindowDimensions();
   const isWide = width >= 900;
+  const todayISO = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }, []);
   const [tab, setTab] = useState<ReservationFilter>('PENDING');
   const rows = useReservationsStore((s) => s.rows);
   const loading = useReservationsStore((s) => s.loading);
@@ -109,6 +123,11 @@ export function BookingScreen({navigation}: Props) {
   const [search, setSearch] = useState('');
   const [actingId, setActingId] = useState<string | null>(null);
   const [tableDrafts, setTableDrafts] = useState<Record<string, string>>({});
+  const [floorTables, setFloorTables] = useState<FloorTableOption[]>([]);
+  const [seatModalReservation, setSeatModalReservation] =
+    useState<TableReservation | null>(null);
+  const [selectedTableId, setSelectedTableId] = useState<string>('');
+  const [seatingBusy, setSeatingBusy] = useState(false);
 
   const loadRows = useCallback(
     async (silent = false) => {
@@ -117,11 +136,25 @@ export function BookingScreen({navigation}: Props) {
     [fetchRows],
   );
 
+  const loadFloorTables = useCallback(async () => {
+    try {
+      const list = await fetchFloorTables();
+      setFloorTables(list);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       void loadRows(true);
-    }, [loadRows]),
+      void loadFloorTables();
+    }, [loadRows, loadFloorTables]),
   );
+
+  useEffect(() => {
+    void loadFloorTables();
+  }, [loadFloorTables]);
 
   useEffect(() => {
     const socket = socketClient.getInstance();
@@ -132,14 +165,23 @@ export function BookingScreen({navigation}: Props) {
       void loadRows(true);
     }, 800);
     const onChange = () => debounced.run();
+    const onTableChange = () => {
+      void loadFloorTables();
+    };
     socket.on('reservation:created', onChange);
     socket.on('reservation:updated', onChange);
+    socket.on('table:assigned', onTableChange);
+    socket.on('table:updated', onTableChange);
+    socket.on('table:released', onTableChange);
     return () => {
       debounced.cancel();
       socket.off('reservation:created', onChange);
       socket.off('reservation:updated', onChange);
+      socket.off('table:assigned', onTableChange);
+      socket.off('table:updated', onTableChange);
+      socket.off('table:released', onTableChange);
     };
-  }, [loadRows]);
+  }, [loadRows, loadFloorTables]);
 
   const counts = useMemo(() => {
     const c = {
@@ -206,7 +248,7 @@ export function BookingScreen({navigation}: Props) {
     async (
       id: string,
       action: ReservationPatchAction,
-      extra?: {assignedTableNo?: string},
+      extra?: {assignedTableNo?: string; tableId?: string},
     ) => {
       setActingId(id);
       try {
@@ -222,11 +264,83 @@ export function BookingScreen({navigation}: Props) {
             : result.message || 'Updated',
         );
         await loadRows(true);
+        await loadFloorTables();
       } finally {
         setActingId(null);
       }
     },
-    [loadRows, upsertRow],
+    [loadRows, loadFloorTables, upsertRow],
+  );
+
+  const openSeatModal = useCallback(
+    (item: TableReservation) => {
+      setSeatModalReservation(item);
+      const available = floorTables.filter((t) => !t.isOccupied);
+      const match = available.find(
+        (t) =>
+          (item.assignedTableId && t.id === item.assignedTableId) ||
+          (item.assignedTableNo && t.tableNumber === item.assignedTableNo),
+      );
+      if (match) {
+        setSelectedTableId(match.id);
+      } else {
+        const bestFit =
+          available.find((t) => Number(t.seats) >= Number(item.guests || 1)) ||
+          available[0];
+        setSelectedTableId(bestFit?.id || '');
+      }
+    },
+    [floorTables],
+  );
+
+  const handleConfirmSeat = useCallback(async () => {
+    if (!seatModalReservation || !selectedTableId) {
+      return;
+    }
+    const chosenTable = floorTables.find((t) => t.id === selectedTableId);
+    const resId = seatModalReservation._id || seatModalReservation.id;
+    setSeatingBusy(true);
+    try {
+      const result = await patchReservation(resId, 'seat', {
+        tableId: selectedTableId,
+        assignedTableNo: chosenTable?.tableNumber,
+      });
+      if (!result.success || !result.data) {
+        toast.error(result.message || 'Failed to seat guest');
+        return;
+      }
+      upsertRow({...result.data});
+      toast.success(
+        `Seated at Table ${chosenTable?.tableNumber || ''} (${seatModalReservation.guests} seats)`,
+      );
+      setSeatModalReservation(null);
+      await loadRows(true);
+      await loadFloorTables();
+    } catch {
+      toast.error('Failed to seat guest');
+    } finally {
+      setSeatingBusy(false);
+    }
+  }, [
+    seatModalReservation,
+    selectedTableId,
+    floorTables,
+    upsertRow,
+    loadRows,
+    loadFloorTables,
+  ]);
+
+  const handleMakeOrder = useCallback(
+    (item: TableReservation) => {
+      navigation.navigate('CreateOrder', {
+        orderType: 'table',
+        sessionId: item.tableSessionId,
+        tableId: item.assignedTableId,
+        seedTableNumber: item.assignedTableNo,
+        seedGuestCount: item.guests,
+      });
+    },
+    [navigation],
   );
 
   const callGuest = useCallback((phone?: string, countryCode?: string) => {
@@ -249,6 +363,8 @@ export function BookingScreen({navigation}: Props) {
       tableDrafts[id] !== undefined
         ? tableDrafts[id]
         : item.assignedTableNo || '';
+
+    const isFuture = String(item.date || '') > todayISO;
 
     return (
       <View style={styles.row}>
@@ -317,23 +433,29 @@ export function BookingScreen({navigation}: Props) {
           </View>
         </View>
 
-        {(item.status === 'PENDING' || item.status === 'ACCEPTED') && (
+        {item.status === 'PENDING' && (
           <View style={styles.actionsRow}>
-            <View style={styles.tableInputWrap}>
-              <TextInput
-                style={styles.tableInput}
-                placeholder="Table note"
-                placeholderTextColor={colors.textSecondary}
-                value={tableValue}
-                onChangeText={(value) =>
-                  setTableDrafts((prev) => ({...prev, [id]: value}))
-                }
-                editable={!busy}
-              />
-            </View>
+            {!isFuture ? (
+              <View style={styles.tableInputWrap}>
+                <TextInput
+                  style={styles.tableInput}
+                  placeholder="Table note"
+                  placeholderTextColor={colors.textSecondary}
+                  value={tableValue}
+                  onChangeText={(value) =>
+                    setTableDrafts((prev) => ({...prev, [id]: value}))
+                  }
+                  editable={!busy}
+                />
+              </View>
+            ) : null}
 
-            {item.status === 'PENDING' ? (
-              <View style={styles.actionButtons}>
+            <View
+              style={[
+                styles.actionButtons,
+                isFuture && styles.actionButtonsFuture,
+              ]}>
+              {!isFuture ? (
                 <Pressable
                   style={({pressed}) => [
                     styles.acceptButton,
@@ -353,63 +475,107 @@ export function BookingScreen({navigation}: Props) {
                   ) : (
                     <>
                       <Check size={15} color={colors.surface} />
-                      <Text style={styles.actionButtonText}>Accept</Text>
+                      <Text style={styles.actionButtonText}>
+                        {isWide ? 'Accept & email' : 'Accept'}
+                      </Text>
                     </>
                   )}
                 </Pressable>
-                <Pressable
-                  style={({pressed}) => [
-                    styles.declineButton,
-                    pressed && styles.pressed,
-                    busy && styles.disabled,
-                  ]}
-                  disabled={busy}
-                  onPress={() => handlePatch(id, 'decline')}
-                  accessibilityRole="button"
-                  accessibilityLabel="Decline booking">
-                  <X size={15} color={colors.text} />
-                  <Text style={styles.declineButtonText}>Decline</Text>
-                </Pressable>
+              ) : null}
+              <Pressable
+                style={({pressed}) => [
+                  isFuture ? styles.declineButtonFuture : styles.declineButton,
+                  pressed && styles.pressed,
+                  busy && styles.disabled,
+                ]}
+                disabled={busy}
+                onPress={() => handlePatch(id, 'decline')}
+                accessibilityRole="button"
+                accessibilityLabel="Decline booking">
+                <X size={15} color={isFuture ? '#FFFFFF' : colors.text} />
+                <Text
+                  style={
+                    isFuture
+                      ? styles.declineButtonFutureText
+                      : styles.declineButtonText
+                  }>
+                  Decline
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {item.status === 'ACCEPTED' && (
+          <View style={styles.actionsRow}>
+            <View style={styles.tableInputWrap}>
+              <TextInput
+                style={styles.tableInput}
+                placeholder="Table note"
+                placeholderTextColor={colors.textSecondary}
+                value={tableValue}
+                onChangeText={(value) =>
+                  setTableDrafts((prev) => ({...prev, [id]: value}))
+                }
+                editable={!busy}
+              />
+            </View>
+
+            <View style={styles.actionButtons}>
+              <Pressable
+                style={({pressed}) => [
+                  styles.seatButton,
+                  pressed && styles.pressed,
+                  busy && styles.disabled,
+                ]}
+                disabled={busy}
+                onPress={() => openSeatModal(item)}
+                accessibilityRole="button"
+                accessibilityLabel="Seat guest at table">
+                <Armchair size={15} color={colors.surface} />
+                <Text style={styles.actionButtonText}>Seat Now</Text>
+              </Pressable>
+              <Pressable
+                style={({pressed}) => [
+                  styles.declineButton,
+                  pressed && styles.pressed,
+                  busy && styles.disabled,
+                ]}
+                disabled={busy}
+                onPress={() => handlePatch(id, 'no-show')}
+                accessibilityRole="button"
+                accessibilityLabel="Mark no-show">
+                <Text style={styles.declineButtonText}>No-show</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {item.status === 'SEATED' && (
+          <View style={styles.actionsRow}>
+            <Pressable
+              style={({pressed}) => [
+                styles.makeOrderButton,
+                pressed && styles.pressed,
+              ]}
+              onPress={() => handleMakeOrder(item)}
+              accessibilityRole="button"
+              accessibilityLabel="Make order">
+              <ShoppingBag size={15} color="#FFFFFF" strokeWidth={2.4} />
+              <Text style={styles.makeOrderButtonText}>Make Order</Text>
+            </Pressable>
+
+            <View style={styles.seatedBadgeWrap}>
+              <View style={styles.seatedBadgeTable}>
+                <Armchair size={15} color="#0284C7" />
+                <Text style={styles.seatedBadgeTableText} numberOfLines={1}>
+                  Table {item.assignedTableNo || '—'}
+                </Text>
               </View>
-            ) : (
-              <View style={styles.actionButtons}>
-                <Pressable
-                  style={({pressed}) => [
-                    styles.seatButton,
-                    pressed && styles.pressed,
-                    busy && styles.disabled,
-                  ]}
-                  disabled={busy}
-                  onPress={() =>
-                    handlePatch(id, 'seat', {
-                      assignedTableNo:
-                        tableDrafts[id]?.trim() ||
-                        item.assignedTableNo ||
-                        undefined,
-                    })
-                  }
-                  accessibilityRole="button"
-                  accessibilityLabel="Mark guest seated">
-                  {busy ? (
-                    <ActivityIndicator color={colors.surface} />
-                  ) : (
-                    <Text style={styles.actionButtonText}>Seated</Text>
-                  )}
-                </Pressable>
-                <Pressable
-                  style={({pressed}) => [
-                    styles.declineButton,
-                    pressed && styles.pressed,
-                    busy && styles.disabled,
-                  ]}
-                  disabled={busy}
-                  onPress={() => handlePatch(id, 'no-show')}
-                  accessibilityRole="button"
-                  accessibilityLabel="Mark no-show">
-                  <Text style={styles.declineButtonText}>No-show</Text>
-                </Pressable>
-              </View>
-            )}
+              <Text style={styles.seatedBadgeSeatsText}>
+                {item.guests} seat{item.guests === 1 ? '' : 's'}
+              </Text>
+            </View>
           </View>
         )}
       </View>
@@ -617,6 +783,134 @@ export function BookingScreen({navigation}: Props) {
           renderItem={renderRow}
         />
       )}
+
+      {/* Seating modal for floor table selection */}
+      <TabletModal
+        visible={Boolean(seatModalReservation)}
+        title="Seat Guest at Floor Table"
+        onClose={() => {
+          setSeatModalReservation(null);
+          setSelectedTableId('');
+        }}
+        maxWidth={540}
+        footerActions={[
+          {
+            label: 'Cancel',
+            onPress: () => {
+              setSeatModalReservation(null);
+              setSelectedTableId('');
+            },
+            variant: 'secondary',
+            disabled: seatingBusy,
+          },
+          {
+            label: seatingBusy ? 'Seating…' : 'Confirm & Seat',
+            onPress: handleConfirmSeat,
+            variant: 'primary',
+            disabled: seatingBusy || !selectedTableId,
+            loading: seatingBusy,
+          },
+        ]}>
+        {seatModalReservation ? (
+          <View style={styles.modalContent}>
+            <View style={styles.modalGuestBanner}>
+              <Text style={styles.modalGuestBannerTitle}>
+                {seatModalReservation.guestName} · {seatModalReservation.guests}{' '}
+                guest{seatModalReservation.guests === 1 ? '' : 's'}
+              </Text>
+              <Text style={styles.modalGuestBannerSub}>
+                {formatDateLabel(seatModalReservation.date)} at{' '}
+                {formatTimeLabel(seatModalReservation.time)}
+                {seatModalReservation.reasonForVisit
+                  ? ` · ${seatModalReservation.reasonForVisit}`
+                  : ''}
+              </Text>
+              <Text style={styles.modalGuestBannerNote}>
+                Select a floor table. Confirming will set table capacity to{' '}
+                {seatModalReservation.guests} seats and create an active dining
+                session.
+              </Text>
+            </View>
+
+            <ScrollView
+              style={styles.modalTablesScroll}
+              contentContainerStyle={styles.modalTablesScrollContent}
+              nestedScrollEnabled>
+              {floorTables.filter((t) => !t.isOccupied).length === 0 ? (
+                <View style={styles.modalEmptyWrap}>
+                  <Text style={styles.modalEmptyText}>
+                    No tables currently available on floor. All tables are
+                    occupied with active diners.
+                  </Text>
+                </View>
+              ) : (
+                floorTables
+                  .filter((t) => !t.isOccupied)
+                  .map((t) => {
+                    const isSelected = selectedTableId === t.id;
+                    const isAssigned =
+                      (seatModalReservation.assignedTableId &&
+                        t.id === seatModalReservation.assignedTableId) ||
+                      (seatModalReservation.assignedTableNo &&
+                        t.tableNumber === seatModalReservation.assignedTableNo);
+                    const fitsCapacity =
+                      Number(t.seats) >=
+                      Number(seatModalReservation.guests || 1);
+
+                    return (
+                      <Pressable
+                        key={t.id}
+                        style={[
+                          styles.tableOptionCard,
+                          isSelected && styles.tableOptionCardSelected,
+                        ]}
+                        onPress={() => setSelectedTableId(t.id)}>
+                        <View style={styles.tableOptionLeft}>
+                          <View
+                            style={[
+                              styles.tableOptionRadio,
+                              isSelected && styles.tableOptionRadioSelected,
+                            ]}>
+                            {isSelected && (
+                              <View style={styles.tableOptionRadioInner} />
+                            )}
+                          </View>
+                          <View style={styles.tableOptionInfo}>
+                            <Text style={styles.tableOptionNumber}>
+                              Table {t.tableNumber}
+                            </Text>
+                            <Text style={styles.tableOptionSub}>
+                              {t.seats} default seats
+                              {t.section ? ` · ${t.section}` : ''}
+                              {t.floorName ? ` (${t.floorName})` : ''}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.tableOptionBadges}>
+                          {isAssigned && (
+                            <View style={styles.preassignedBadge}>
+                              <Text style={styles.preassignedBadgeText}>
+                                Pre-assigned
+                              </Text>
+                            </View>
+                          )}
+                          <View style={styles.tableBadgeAvailable}>
+                            <Text style={styles.tableBadgeAvailableText}>
+                              {fitsCapacity
+                                ? `${t.seats} seats · Fits`
+                                : `${t.seats} seats`}
+                            </Text>
+                          </View>
+                        </View>
+                      </Pressable>
+                    );
+                  })
+              )}
+            </ScrollView>
+          </View>
+        ) : null}
+      </TabletModal>
     </View>
   );
 }
@@ -969,11 +1263,13 @@ const styles = StyleSheet.create({
   },
   seatButton: {
     minHeight: 40,
-    minWidth: 100,
+    minWidth: 108,
     borderRadius: 10,
     backgroundColor: '#0284C7',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
     paddingHorizontal: 14,
   },
   declineButton: {
@@ -988,6 +1284,215 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 5,
     paddingHorizontal: 12,
+  },
+  declineButtonFuture: {
+    minHeight: 40,
+    minWidth: 100,
+    borderRadius: 10,
+    backgroundColor: '#DC2626',
+    borderColor: '#DC2626',
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+  },
+  declineButtonFutureText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  actionButtonsFuture: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  makeOrderButton: {
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: '#EA580C',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+  },
+  makeOrderButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  seatedBadgeWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    backgroundColor: '#F0F9FF',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minHeight: 40,
+    flex: 1,
+  },
+  seatedBadgeTable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  seatedBadgeTableText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#0369A1',
+  },
+  seatedBadgeSeatsText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#0284C7',
+  },
+  modalContent: {
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+  },
+  modalGuestBanner: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+    padding: 12,
+    marginBottom: 12,
+    gap: 4,
+  },
+  modalGuestBannerTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#9A3412',
+  },
+  modalGuestBannerSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#C2410C',
+  },
+  modalGuestBannerNote: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#9A3412',
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  modalTablesScroll: {
+    maxHeight: 320,
+  },
+  modalTablesScrollContent: {
+    gap: 8,
+    paddingBottom: 6,
+  },
+  modalEmptyWrap: {
+    paddingVertical: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalEmptyText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  tableOptionCard: {
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  tableOptionCardSelected: {
+    borderColor: '#0284C7',
+    backgroundColor: '#F0F9FF',
+  },
+  tableOptionCardOccupied: {
+    opacity: 0.85,
+  },
+  tableOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  tableOptionRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableOptionRadioSelected: {
+    borderColor: '#0284C7',
+  },
+  tableOptionRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#0284C7',
+  },
+  tableOptionInfo: {
+    gap: 2,
+  },
+  tableOptionNumber: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  tableOptionSub: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  tableOptionBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  tableBadgeAvailable: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tableBadgeAvailableText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#065F46',
+  },
+  tableBadgeOccupied: {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    backgroundColor: '#FFF7ED',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tableBadgeOccupiedText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#C2410C',
+  },
+  preassignedBadge: {
+    borderRadius: 6,
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  preassignedBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#0369A1',
   },
   actionButtonText: {
     fontSize: 13,

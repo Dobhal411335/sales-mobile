@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -53,7 +53,13 @@ function splitDateParts(iso?: string | null) {
     return {weekday: '—', monthDay: '—', year: ''};
   }
   try {
-    const d = new Date(`${iso}T12:00:00`);
+    const cleanIso = String(iso).includes('T')
+      ? String(iso).split('T')[0]
+      : String(iso);
+    const d = new Date(`${cleanIso}T12:00:00`);
+    if (Number.isNaN(d.getTime())) {
+      return {weekday: '—', monthDay: String(iso), year: ''};
+    }
     return {
       weekday: d.toLocaleDateString('en-CA', {weekday: 'short'}),
       monthDay: d.toLocaleDateString('en-CA', {
@@ -63,8 +69,74 @@ function splitDateParts(iso?: string | null) {
       year: d.toLocaleDateString('en-CA', {year: 'numeric'}),
     };
   } catch {
-    return {weekday: '—', monthDay: iso, year: ''};
+    return {weekday: '—', monthDay: String(iso), year: ''};
   }
+}
+
+function getOrderDate(order: UpcomingOfferOrder): string {
+  const raw = order.offerFulfillmentDate || order.pickup?.date;
+  if (!raw) {
+    return '';
+  }
+  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) {
+    return raw.trim();
+  }
+  try {
+    const clean = String(raw).includes('T')
+      ? String(raw).split('T')[0]
+      : String(raw);
+    const d = new Date(`${clean}T12:00:00`);
+    if (!Number.isNaN(d.getTime())) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+  } catch {
+    // fallback
+  }
+  return String(raw || '');
+}
+
+function getOrderPickupTime(order: UpcomingOfferOrder): string {
+  const time = order.pickup?.time;
+  if (!time) {
+    return '99:99';
+  }
+  const m = String(time).match(/^(\d{1,2}):(\d{2})/);
+  if (m) {
+    return `${m[1].padStart(2, '0')}:${m[2]}`;
+  }
+  return String(time);
+}
+
+function sortUpcomingOffers(list: UpcomingOfferOrder[]): UpcomingOfferOrder[] {
+  return [...list].sort((a, b) => {
+    const dateA = getOrderDate(a);
+    const dateB = getOrderDate(b);
+
+    if (dateA !== dateB) {
+      if (!dateA) {
+        return 1;
+      }
+      if (!dateB) {
+        return -1;
+      }
+      return dateA.localeCompare(dateB);
+    }
+
+    const timeA = getOrderPickupTime(a);
+    const timeB = getOrderPickupTime(b);
+    if (timeA !== timeB) {
+      return timeA.localeCompare(timeB);
+    }
+
+    return String(a.orderNumber || '').localeCompare(
+      String(b.orderNumber || ''),
+      undefined,
+      {numeric: true},
+    );
+  });
 }
 
 function statusColors(status?: string) {
@@ -96,6 +168,8 @@ export function UpcomingOffersScreen({navigation}: Props) {
   const [rows, setRows] = useState<UpcomingOfferOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+
+  const sortedRows = useMemo(() => sortUpcomingOffers(rows), [rows]);
 
   const loadRows = useCallback(async (silent = false) => {
     if (silent) {
@@ -157,7 +231,9 @@ export function UpcomingOffersScreen({navigation}: Props) {
     );
     const lines = offerItems.length ? offerItems : order.items || [];
     const tone = statusColors(order.status);
-    const dateParts = splitDateParts(order.offerFulfillmentDate);
+    const dateParts = splitDateParts(
+      order.offerFulfillmentDate || order.pickup?.date,
+    );
     const status = String(order.status || 'PENDING').toUpperCase();
     const isSingleLine = lines.length === 1;
 
@@ -380,7 +456,7 @@ export function UpcomingOffersScreen({navigation}: Props) {
                 <View style={styles.countPill}>
                   <Gift size={11} color="#C2410C" strokeWidth={2.4} />
                   <Text style={styles.countPillText}>
-                    {rows.length} scheduled
+                    {sortedRows.length} scheduled
                   </Text>
                 </View>
               </View>
@@ -410,9 +486,9 @@ export function UpcomingOffersScreen({navigation}: Props) {
         </View>
       </View>
 
-      {loading && rows.length === 0 ? (
+      {loading && sortedRows.length === 0 ? (
         <SalesPageSkeleton variant="bookingList" rows={6} />
-      ) : rows.length === 0 ? (
+      ) : sortedRows.length === 0 ? (
         <View style={styles.centerState}>
           <View style={styles.emptyIcon}>
             <CalendarDays size={28} color="#F97316" strokeWidth={2} />
@@ -425,7 +501,7 @@ export function UpcomingOffersScreen({navigation}: Props) {
         </View>
       ) : (
         <FlatList
-          data={rows}
+          data={sortedRows}
           keyExtractor={(item) => item._id || item.id || item.orderNumber}
           renderItem={renderItem}
           ItemSeparatorComponent={ListSeparator}
